@@ -1,0 +1,37 @@
+# --- Persönliche Daten (NIE committen) ---
+config.json
+*.local.json
+Profil-Datenbank.json
+profil*.json
+!tests/fixtures/*.json
+02_Profil-und-Assets/
+
+# --- Laufzeitdaten / generierte Artefakte ---
+data/
+output/
+dashboard.html
+*.pdf
+*.docx
+01_Bewerbungen/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Backup-Artefakte ---
+*.backup.*
+*.bak
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+
+# --- Test-/Import-Fixtures (Beispiel-Jobs sind ok, echte Importe nicht) ---
+data/import_jobs.json

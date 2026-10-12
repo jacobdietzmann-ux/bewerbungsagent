@@ -1,0 +1,108 @@
+{
+  "_meta": {
+    "hinweis": "Anonymisiertes Demo-Profil für Tests. Keine echten Personendaten."
+  },
+  "personal": {
+    "name": "Max Mustermann",
+    "address": "Beispielstraße 1, 12345 Musterstadt",
+    "phone": "0000 - 0000000",
+    "email": "max.mustermann@example.com"
+  },
+  "work_experience": [
+    {
+      "employer_of_record": "Beispiel GmbH",
+      "client": "Autobauer AG, München",
+      "period": "01/2024 – 09/2026",
+      "role_de": "Testkoordinator im Projekt \"Demo-Controller\" - Domainkontroller Fahren",
+      "role_en": "Test Coordinator in the \"Demo\" project - Driving Domain Controller",
+      "bullets_de": [
+        "Verantwortung für die Testkoordination zur Absicherung der Hardware- und Software-Integration, inklusive Analyse von CAN-Traces und DTCs.",
+        "Schnittstellenmanagement zu Lieferanten und Projektpartnern."
+      ],
+      "bullets_en": [
+        "Responsible for test coordination to validate hardware and software integration, including analysis of CAN traces and DTCs.",
+        "Interface management with suppliers and project partners."
+      ],
+      "tags": [
+        "CAN-Trace-Analyse",
+        "HiL",
+        "ECU"
+      ]
+    },
+    {
+      "employer_of_record": "Beispiel GmbH",
+      "client": "Autobauer AG, München",
+      "period": "10/2018 – 12/2023",
+      "role_de": "Testingenieur für VHiL im SP21 für ADAS und Systemintegration",
+      "role_en": "Test Engineer for VHiL in SP21 for ADAS and system integration",
+      "bullets_de": [
+        "Entwicklung eines eigenen Python-basierten Testautomatisierungstools.",
+        "Inbetriebnahme und Wartung von HiL-Prüfständen."
+      ],
+      "bullets_en": [
+        "Developed a self-built Python-based test automation tool.",
+        "Commissioning and maintenance of HiL test benches."
+      ],
+      "tags": [
+        "ADAS",
+        "Python",
+        "HiL"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "period": "10/2006 – 09/2012",
+      "title_de": "Studium Maschinenbau",
+      "title_en": "Studies in Mechanical Engineering",
+      "detail_de": "Schwerpunkte: Thermodynamik",
+      "detail_en": "Focus areas: thermodynamics"
+    }
+  ],
+  "certifications": [
+    "ISTQB Certified Tester Foundation Level"
+  ],
+  "skills": {
+    "test_datenauswertung_automatisierung": [
+      "CANape",
+      "CANoe",
+      "CAN-Trace-Analyse",
+      "XiL-/HiL-Prüfstände",
+      "Fahrzeugarchitektur E/E (CAN, CAN-FD, LIN, FlexRay, Automotive Ethernet)",
+      "Netzwerk- & Kommunikationsprotokolle (TCP/UDP, serielle Schnittstellen)",
+      "AUTOSAR ARXML, DBC, FIBEX (Kommunikationsmatrizen)"
+    ],
+    "requirements_testmanagement": [
+      "JIRA",
+      "Confluence",
+      "DOORS",
+      "GitHub"
+    ],
+    "programmierung": [
+      "Python (fundiert)",
+      "C++ (Grundkenntnisse)",
+      "Scripting (Python, Bash)"
+    ],
+    "normen_prozesse": [
+      "ISO 26262 (funktionale Sicherheit)",
+      "ISO 21434",
+      "ASPICE (Grundkenntnisse)",
+      "LV124/ISO 16750 (Umweltpruefungen)"
+    ],
+    "hardware_embedded_chip": [
+      "ECU-/Steuergeräte-Hardwareentwicklung",
+      "Infineon AURIX TC4x / TC4D",
+      "Embedded Systems, Echtzeitsysteme, C/C++ & Python"
+    ],
+    "sprachen": [
+      {
+        "sprache": "Deutsch",
+        "niveau": "Muttersprache"
+      },
+      {
+        "sprache": "Englisch",
+        "niveau": "Verhandlungssicher in Wort und Schrift"
+      }
+    ]
+  }
+}

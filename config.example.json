@@ -1,0 +1,39 @@
+{
+  "profile_json": "../02_Profil-und-Assets/Profil-Datenbank.json",
+  "data_dir": "data",
+  "output_dir": "output",
+  "dashboard_file": "dashboard.html",
+  "search": {
+    "enabled": true,
+    "providers": ["manual", "stepstone", "duckduckgo"],
+    "location": "München",
+    "query_terms": [
+      "Testingenieur",
+      "Systemingenieur",
+      "HiL Test Engineer",
+      "ADAS Test",
+      "Test Manager",
+      "Test Automation Engineer",
+      "Verification Engineer",
+      "Requirements Engineer",
+      "Qualitätsingenieur",
+      "Testautomatisierung",
+      "Fahrerassistenz",
+      "Embedded Test",
+      "Validierungsingenieur",
+      "Versuchsingenieur",
+      "Elektromobilität Test",
+      "E/E Integration",
+      "Software Test Engineer",
+      "Testkoordinator"
+    ],
+    "max_results_per_provider": 8,
+    "timeout_seconds": 15,
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+  },
+  "documents": {
+    "languages": ["de", "en"],
+    "accent_color": "#0B3D5C",
+    "min_fit_for_generation": "mittel"
+  }
+}

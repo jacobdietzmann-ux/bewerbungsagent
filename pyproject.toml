@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bewerbungsagent"
+version = "0.1.0"
+description = "Agent zum Finden, Bewerten und Dokumentieren von Bewerbungen"
+requires-python = ">=3.10"
+dependencies = [
+    "reportlab>=4.0",
+    "requests>=2.28",
+    "playwright>=1.44",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[tool.pytest.ini_options]
+# Package liegt im Repo-Root → Root auf den Importpfad legen.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

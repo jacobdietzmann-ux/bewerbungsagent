@@ -1,0 +1,334 @@
+"""Lokaler Helfer-Server für das Bewerbungsagent-Dashboard.
+
+Angelehnt an ``00_Dashboard/Dashboard-Server.py``, angepasst an den Agenten:
+
+- liefert das Dashboard unter http://127.0.0.1:8766/04_Agent/dashboard.html
+- ``GET  /state``  -> Overlay { "<key>": {status, contact, deleted, notes, …} } aus data/state.json
+- ``POST /state``  -> merged die vom Browser gesendeten Overlay-Einträge (per key) in data/state.json
+- ``GET  /open?path=…`` -> öffnet einen Bewerbungsordner im Dateimanager (Path-Traversal-geschützt)
+
+Sicherheit: bindet nur an 127.0.0.1; /open erlaubt nur Pfade innerhalb von ROOT.
+Start: ``python server.py`` oder über ``dashboard-oeffnen.sh``.
+"""
+
+from __future__ import annotations
+
+import importlib
+import json
+import os
+import platform
+import subprocess
+import sys
+import threading
+import time
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs, unquote
+
+# Normalisierung der Statuswerte aus dem Agent-Package (einzelne Quelle der Wahrheit).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from bewerbungsagent.statuses import normalize_status
+except Exception:  # noqa: BLE001 - Fallback, falls Package nicht importierbar
+    _LEGACY = {
+        "neu": "research", "passend": "research", "dokumente_erstellt": "docs",
+        "beworben": "sent", "antwort": "followup", "absage": "rejected",
+        "archiviert": "rejected", "zusage": "interview", "offer": "interview",
+    }
+    normalize_status = lambda s: _LEGACY.get(s, s if s else "research")  # noqa: E731
+
+try:
+    from bewerbungsagent.config import Config
+    from bewerbungsagent.dashboard import build_dashboard
+except Exception:  # noqa: BLE001
+    Config = None  # type: ignore[assignment]
+    build_dashboard = None  # type: ignore[assignment]
+
+# Agent-Root = Ordner, der dieses Skript enthält (04_Agent).
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Server-Root = eine Ebene darüber (der alte Bewerbungsordner 2026/), damit
+# sowohl 01_Bewerbungen/ als auch 04_Agent/output/ erreichbar sind.
+ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+HOST = "127.0.0.1"
+PORT = 8766
+DASHBOARD_PATH = "/04_Agent/dashboard.html"
+STATE_FILE = os.path.join(SCRIPT_DIR, "data", "state.json")
+# Dashboard-Template/Quellcode, dessen Änderung einen Neubau auslösen soll.
+DASHBOARD_SRC = os.path.join(SCRIPT_DIR, "bewerbungsagent", "dashboard.py")
+
+EDITABLE = ("status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt")
+
+
+def open_in_file_manager(path):
+    system = platform.system()
+    if system == "Windows":
+        os.startfile(path)  # noqa: S606 - nur für validierte, innerhalb ROOT liegende Pfade
+    elif system == "Darwin":
+        subprocess.run(["open", path], check=True)
+    else:
+        subprocess.run(["xdg-open", path], check=True)
+
+
+def _read_state() -> dict:
+    if not os.path.isfile(STATE_FILE):
+        return {"applications": []}
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict) and isinstance(data.get("applications"), list):
+            return data
+    except Exception:  # noqa: BLE001
+        pass
+    return {"applications": []}
+
+
+def _write_state(data: dict) -> None:
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    tmp = STATE_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+    os.replace(tmp, STATE_FILE)
+
+
+def _overlay_from_state(state: dict) -> dict:
+    overlay = {}
+    for app in state.get("applications", []):
+        key = app.get("key")
+        if not key:
+            continue
+        overlay[key] = {
+            "status": normalize_status(app.get("status")),
+            "contact": app.get("contact") or "",
+            "deleted": bool(app.get("deleted")),
+            "notes": app.get("notes") or "",
+            "interviewDate": app.get("interviewDate") or "",
+            "statusChangedAt": app.get("statusChangedAt") or "",
+            "sentAt": app.get("sentAt") or "",
+        }
+    return overlay
+
+
+def _apply_overlay(state: dict, overlay: dict) -> None:
+    by_key = {a.get("key"): a for a in state.get("applications", []) if a.get("key")}
+    for key, entry in overlay.items():
+        if not isinstance(entry, dict):
+            continue
+        app = by_key.get(key)
+        if app is None:
+            continue
+        for k in EDITABLE:
+            if k in entry and entry[k] is not None:
+                if k == "status":
+                    app[k] = normalize_status(entry[k])
+                else:
+                    app[k] = entry[k]
+
+
+# --------------------------------------------------------------------------
+# In-Memory-Dashboard: wird beim Start einmal gebaut und bei Änderungen an
+# state.json (z. B. durch POST /state) automatisch neu erzeugt. Dadurch ist das
+# Öffnen sofort und der Inhalt immer aktuell, ohne dass der Launcher vorher
+# ``agent.py dashboard`` ausführen muss.
+# --------------------------------------------------------------------------
+
+_DASH_HTML = b""
+_DASH_MTIME = -1.0
+_DASH_LOCK = threading.Lock()
+_DASH_BUILDING = False
+
+_DASH_LOADING = b"""<!doctype html>
+<html lang="de"><meta charset="utf-8"><meta http-equiv="refresh" content="2">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bewerbungs-Dashboard wird geladen</title>
+<body style="font:16px system-ui,sans-serif;background:#0f172a;color:#e2e8f0;
+padding:3rem"><h1>Dashboard wird geladen</h1>
+<p>Die Bewerbungsdaten werden vorbereitet. Diese Seite aktualisiert sich automatisch.</p>
+</body></html>"""
+
+
+def _state_mtime() -> float:
+    try:
+        return os.path.getmtime(STATE_FILE)
+    except OSError:
+        return -1.0
+
+
+def _dashboard_mtime() -> float:
+    """Neueste Änderung an state.json ODER am Dashboard-Quellcode/Template."""
+    src_mtime = os.path.getmtime(DASHBOARD_SRC) if os.path.exists(DASHBOARD_SRC) else -1.0
+    return max(_state_mtime(), src_mtime)
+
+
+def _rebuild_dashboard() -> bytes:
+    """Baut das Dashboard aus data/state.json und aktualisiert den Cache.
+
+    Lädt das Dashboard-Modul vorher neu, damit Änderungen am Template
+    (``bewerbungsagent/dashboard.py``) ohne Server-Neustart übernommen werden.
+    """
+    global _DASH_HTML, _DASH_MTIME
+    html = b"Dashboard konnte nicht erzeugt werden."
+    if build_dashboard is not None and Config is not None:
+        try:
+            import bewerbungsagent.dashboard as _dash
+            importlib.reload(_dash)
+            config = Config()
+            state = _read_state()
+            path = _dash.build_dashboard(state, config.dashboard_path)
+            with open(path, "rb") as fh:
+                html = fh.read()
+        except Exception as exc:  # noqa: BLE001
+            html = ("Dashboard-Fehler: " + str(exc)).encode("utf-8")
+    _DASH_HTML = html
+    _DASH_MTIME = _dashboard_mtime()
+    return html
+
+
+def _dashboard_html() -> bytes:
+    if not _DASH_HTML:
+        _schedule_dashboard_rebuild()
+        return _DASH_LOADING
+    return _DASH_HTML
+
+
+def _schedule_dashboard_rebuild() -> None:
+    global _DASH_BUILDING
+    with _DASH_LOCK:
+        if _DASH_BUILDING:
+            return
+        _DASH_BUILDING = True
+
+    def rebuild():
+        global _DASH_BUILDING
+        try:
+            _rebuild_dashboard()
+        finally:
+            with _DASH_LOCK:
+                _DASH_BUILDING = False
+
+    threading.Thread(target=rebuild, name="dashboard-build", daemon=True).start()
+
+
+def _watch_state() -> None:
+    while True:
+        try:
+            if _dashboard_mtime() != _DASH_MTIME:
+                _schedule_dashboard_rebuild()
+        except OSError as exc:
+            print("[dashboard] Zustandsdatei konnte nicht geprüft werden: " + str(exc), flush=True)
+        time.sleep(2)
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=ROOT, **kwargs)
+
+    def log_message(self, fmt, *args):
+        pass  # ruhige Konsole
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        super().end_headers()
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/healthz":
+            return self._text(200, "ok")
+        if parsed.path == "/open":
+            return self._handle_open(parsed)
+        if parsed.path == "/state":
+            return self._handle_state_get()
+        if parsed.path == DASHBOARD_PATH:
+            return self._serve_dashboard()
+        return super().do_GET()
+
+    def _serve_dashboard(self):
+        body = _dashboard_html()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/state":
+            return self._handle_state_post()
+        return self._text(404, "Nicht gefunden.")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_state_get(self):
+        try:
+            data = json.dumps(_overlay_from_state(_read_state()), ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            data = "{}"
+        body = data.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _handle_state_post(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            obj = json.loads(raw.decode("utf-8") or "{}")
+            if not isinstance(obj, dict):
+                return self._text(400, "Ungültiger Zustand (kein Objekt).")
+            state = _read_state()
+            _apply_overlay(state, obj)
+            _write_state(state)
+            _schedule_dashboard_rebuild()
+            return self._text(200, "ok")
+        except Exception as exc:  # noqa: BLE001
+            return self._text(500, "Fehler beim Speichern: " + str(exc))
+
+    def _handle_open(self, parsed):
+        params = parse_qs(parsed.query)
+        rel = unquote((params.get("path") or [""])[0]).replace("/", os.sep)
+        target = os.path.abspath(os.path.join(ROOT, rel))
+
+        root_norm = os.path.normcase(ROOT + os.sep)
+        if not os.path.normcase(target + os.sep).startswith(root_norm):
+            return self._text(403, "Pfad ausserhalb des erlaubten Bereichs.")
+        if not os.path.isdir(target):
+            return self._text(404, "Ordner nicht gefunden: " + rel)
+
+        try:
+            open_in_file_manager(target)
+            print("[open] " + target)
+            return self._text(200, "ok")
+        except Exception as exc:  # noqa: BLE001
+            return self._text(500, "Fehler beim Öffnen: " + str(exc))
+
+    def _text(self, code, msg):
+        body = msg.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def main():
+    url = "http://%s:%d%s" % (HOST, PORT, DASHBOARD_PATH)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print("Bewerbungsagent-Dashboard läuft auf: " + url, flush=True)
+    _schedule_dashboard_rebuild()
+    threading.Thread(target=_watch_state, name="dashboard-state-watch", daemon=True).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nBeendet.")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

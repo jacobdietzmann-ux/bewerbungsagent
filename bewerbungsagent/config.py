@@ -1,0 +1,119 @@
+"""Konfiguration und Pfadauflösung für den Bewerbungsagenten.
+
+Alle relativen Pfade werden relativ zum Agent-Root (dem Ordner, in dem
+``config.json`` liegt) aufgelöst.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+# Agent-Root = Ordner, der dieses Package (bewerbungsagent/) enthält.
+PACKAGE_DIR = Path(__file__).resolve().parent
+AGENT_ROOT = PACKAGE_DIR.parent
+
+DEFAULT_CONFIG: dict = {
+    "profile_json": "../02_Profil-und-Assets/Profil-Datenbank.json",
+    "data_dir": "data",
+    "output_dir": "output",
+    # Zielordner für fertige Bewerbungsunterlagen (ein Unterordner pro Stelle).
+    "bewerbungen_dir": "../01_Bewerbungen",
+    "dashboard_file": "dashboard.html",
+    "search": {
+        "enabled": True,
+        "providers": ["manual", "duckduckgo", "bing"],
+        "location": "München",
+        "query_terms": [
+            "Testingenieur",
+            "Systemingenieur",
+            "HiL Test Engineer",
+            "ADAS Test",
+            "Test Manager",
+            "Test Automation Engineer",
+            "Verification Engineer",
+            "Requirements Engineer",
+            "Qualitätsingenieur",
+        ],
+        "max_results_per_provider": 8,
+        "timeout_seconds": 15,
+        "user_agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+    },
+    "documents": {
+        "languages": ["de", "en"],
+        "accent_color": "#0B3D5C",
+        "min_fit_for_generation": "mittel",  # hoch | mittel | niedrig
+    },
+}
+
+
+class Config:
+    """Lädt ``config.json`` (falls vorhanden) und merged ihn über die Defaults."""
+
+    def __init__(self, path: Path | None = None):
+        self.path = Path(path) if path else (AGENT_ROOT / "config.json")
+        raw: dict = {}
+        if self.path.exists():
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        self.data = _deep_merge(DEFAULT_CONFIG, raw)
+
+    # ---- Pfad-Helfer (relativ zum Agent-Root) --------------------------
+    @property
+    def agent_root(self) -> Path:
+        """Ordner, in dem dieser Agent (und config.json) liegt."""
+        return AGENT_ROOT
+
+    def resolve(self, rel: str) -> Path:
+        p = Path(rel)
+        return p if p.is_absolute() else (AGENT_ROOT / p).resolve()
+
+    @property
+    def profile_path(self) -> Path:
+        return self.resolve(self.data["profile_json"])
+
+    @property
+    def data_dir(self) -> Path:
+        d = self.resolve(self.data["data_dir"])
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def output_dir(self) -> Path:
+        d = self.resolve(self.data["output_dir"])
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def bewerbungen_dir(self) -> Path:
+        d = self.resolve(self.data["bewerbungen_dir"])
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def dashboard_path(self) -> Path:
+        return self.resolve(self.data["dashboard_file"])
+
+    def jobs_path(self) -> Path:
+        return self.data_dir / "jobs.json"
+
+    def matches_path(self) -> Path:
+        return self.data_dir / "matches.json"
+
+    def state_path(self) -> Path:
+        return self.data_dir / "state.json"
+
+    def import_path(self) -> Path:
+        return self.data_dir / "import_jobs.json"
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for key, value in override.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            out[key] = _deep_merge(base[key], value)
+        else:
+            out[key] = value
+    return out

@@ -11,6 +11,10 @@ die bestehende [`Profil-Datenbank.json`](../02_Profil-und-Assets/Profil-Datenban
      und Detail-URL direkt von der Jobbörse (kein API-Key).
    - **DuckDuckGo/Bing**: allgemeine Websuche (best-effort, unzuverlässig bei deutschsprachigen
      Job-Queries).
+   - **JobSpy** (`python-jobspy`): aggregiert **LinkedIn**, **Indeed** und **Google Jobs** und
+     liefert inklusive vollständiger Anzeigenbeschreibung (kein API-Key). LinkedIn funktioniert
+     zuverlässig; Indeed (403) und Google Jobs (deprecated) liefern in vielen Umgebungen leer.
+     Siehe [ADR-017](docs/DECISIONS.md).
    - **Manueller Import** für selbst gesammelte Anzeigen.
 2. **Beschreibungs-Fetch** (`fetch`) – lädt die **vollständigen Stellenbeschreibungen**
    (Aufgaben + Anforderungen) über einen echten Headless-Browser (Chromium). StepStone blockiert
@@ -48,7 +52,7 @@ die bestehende [`Profil-Datenbank.json`](../02_Profil-und-Assets/Profil-Datenban
 │   ├── importer.py           # Import des alten Dashboards
 │   ├── pipeline.py           # Orchestrierung der Schritte
 │   ├── storage.py            # JSON-Persistenz
-│   └── search/               # Such-Provider (StepStone, DuckDuckGo, Bing, Import)
+│   └── search/               # Such-Provider (StepStone, DuckDuckGo, Bing, JobSpy, Import)
 ├── data/                     # Arbeitsdaten (jobs.json, matches.json, state.json, …)
 └── output/                   # Generierte Dokumente (ein Ordner pro Stelle)
 ```
@@ -110,6 +114,9 @@ Die freie Websuche ist bewusst **pluggable**:
   über einen echten Headless-Browser (Chromium) — damit wird das Fit-Scoring präzise.
 - **DuckDuckGo** liefert teils Jobbörsen-Treffer, wird aber bei mehreren Anfragen schnell
   rate-limited; **Bing** liefert bei deutschen Job-Queries oft unbrauchbare Treffer.
+- **JobSpy** aggregiert LinkedIn/Indeed/Google Jobs inklusive Beschreibung; läuft auf den ersten
+  `jobspy_max_terms` (Standard 4) Suchbegriffen, weil es langsam ist und verwandte Begriffe
+  stark überlappen. Optional installieren: `pip install -e ".[jobspy]"`.
 
 Manueller Import: Lege `data/import_jobs.json` an (Format siehe
 [`data/import_jobs.example.json`](data/import_jobs.example.json)) — diese Einträge werden
@@ -140,7 +147,9 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 
 - `profile_json` – Pfad zur Profil-Datenbank (Standard: die bestehende Datei).
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
-  (verfügbar: `manual`, `stepstone`, `duckduckgo`, `bing`).
+  (verfügbar: `manual`, `stepstone`, `duckduckgo`, `bing`, `jobspy`).
+- `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
+  (Standard 4).
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung.

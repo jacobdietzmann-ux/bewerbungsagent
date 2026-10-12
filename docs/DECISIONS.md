@@ -329,3 +329,53 @@ nicht verifiziert.**
 **Gesamtbilanz der drei Experimente:** Die empirische Prüfung hat verhindert,
 zwei komplexe, langsame und schlechtere Verfahren einzubauen. Der einfache
 Keyword-Matcher gewinnt — aber jetzt ist das **belegt** statt vermutet.
+
+---
+
+## ADR-017: JobSpy als vierter Such-Provider (LinkedIn/Indeed/Google)
+
+**Datum:** 2026-10-12
+**Status:** akzeptiert
+
+**Kontext:** Die Suche nutzte bisher DuckDuckGo/Bing (generische Web-Suche),
+StepStone (direkt geparst) und manuellen Import. LinkedIn/Indeed/Glassdoor
+standen auf der `_NON_JOB_HOSTS`-Blacklist, weil die Web-Suche auf diesen
+Portalen nur Listing-/Redirect-Seiten liefert. Dadurch fehlte der Zugang zu
+den Stellen, die viele Firmen **ausschließlich** über ihr ATS
+(Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Personio, …) oder über
+LinkedIn veröffentlichen.
+
+**Entscheidung:** `python-jobspy` als vierten Provider integrieren
+(`bewerbungsagent/search/jobspy.py`). Der Provider sucht über `linkedin`,
+`indeed` und `google` (Google Jobs) und mappt die Ergebnisse in das interne
+Format. Die vollständige Anzeigenbeschreibung wird als `beschreibung`
+übernommen, sodass der langsame Browser-Fetch (`fetch_descriptions.py`) für
+diese Stellen entfällt. `job_url_direct` wird vor `job_url` bevorzugt, weil er
+häufig direkt auf das ATS zeigt.
+
+**Wichtige Anpassungen:**
+1. `_DIRECT_SOURCES` in `search/__init__.py`: Der Lexikon-/Aggregator-Filter
+   (`_is_non_job_host`, `_is_listing_page`) gilt nur noch für rohe
+   Web-Such-Treffer, nicht für strukturierte Quellen (StepStone/Import/
+   LinkedIn/Indeed/Google Jobs) — sonst würden die LinkedIn-/Indeed-URLs
+   sofort wieder herausgefiltert.
+2. `jobspy_max_terms` (Standard 4): JobSpy ist langsam und liefert für
+   verwandte Begriffe stark überlappende Treffer; daher läuft es nur auf dem
+   ersten Teil der `query_terms`.
+3. Lazy-Import von `jobspy` (pandas/pydantic) nur innerhalb von `search()`.
+
+**Empirischer Befund (Live-Test am 2026-10-12):**
+- **LinkedIn** liefert echte, deutsche Treffer (BWI GmbH, TGW Logistics,
+  D.O.M., …) — funktioniert.
+- **Indeed** antwortet mit HTTP 403 (Bot-Schutz; abhängig von IP-Reputation
+  und Headern, ggf. über Proxies lösbar).
+- **Google Jobs** (`udm=8`) liefert keine Daten — Googles Jobs-Vertikale ist
+  upstream deprecated, der Scraper ist defekt.
+
+**Konsequenz:** Der praktische Gewinn liegt aktuell bei **LinkedIn**. Indeed
+und Google bleiben im `SITES`-Tupel (umgebungsabhängig, zukunftssicher), ihr
+stilles Scheitern ist unkritisch (leere Ergebnisliste, keine Exception). Für
+echte ATS-Abdeckung (Greenhouse/Lever/Ashby) ist ein separater Schritt nötig:
+deren **öffentliche Job-Board-APIs** direkt abfragen (wie es
+`NullSpace-BitCradle/jobhunter-framework` tut) — Google Jobs ist dafür kein
+tragfähiger Weg mehr.

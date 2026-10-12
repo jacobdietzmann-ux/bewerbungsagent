@@ -5,7 +5,8 @@
   "dashboard_file": "dashboard.html",
   "search": {
     "enabled": true,
-    "providers": ["manual", "stepstone", "duckduckgo"],
+    "providers": ["manual", "stepstone", "duckduckgo", "jobspy"],
+    "jobspy_max_terms": 4,
     "location": "München",
     "query_terms": [
       "Testingenieur",

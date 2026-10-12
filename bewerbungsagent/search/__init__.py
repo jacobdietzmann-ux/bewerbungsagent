@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from ..config import Config
 from ..profile import Profile, normalize
-from . import bing, duckduckgo, manual, stepstone
+from . import bing, duckduckgo, jobspy, manual, stepstone
 
 
 def _clean_url(url: str) -> str:
@@ -72,6 +72,12 @@ def _is_non_job_host(url: str) -> bool:
     return any(h in host for h in _NON_JOB_HOSTS)
 
 
+# Quellen, die bereits verifizierte Stellen liefern (strukturierte Jobbörsen statt
+# roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
+# von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
+_DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs"}
+
+
 def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]:
     s = config.data["search"]
     jobs: list[dict] = []
@@ -79,10 +85,11 @@ def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]
     seen: set[str] = set()
 
     def add(job: dict) -> None:
-        if _is_listing_page(job.get("titel", "")):
-            return
-        if _is_non_job_host(job.get("url", "")):
-            return
+        if job.get("quelle") not in _DIRECT_SOURCES:
+            if _is_listing_page(job.get("titel", "")):
+                return
+            if _is_non_job_host(job.get("url", "")):
+                return
         key = normalize(job.get("url") or f"{job.get('firma')} {job.get('titel')}")
         if key and key in seen:
             return
@@ -102,7 +109,8 @@ def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]
         for name in s.get("providers", []):
             if name == "manual":
                 continue
-            provider = {"duckduckgo": duckduckgo, "bing": bing, "stepstone": stepstone}.get(name)
+            provider = {"duckduckgo": duckduckgo, "bing": bing,
+                        "stepstone": stepstone, "jobspy": jobspy}.get(name)
             if provider is None:
                 errors.append(f"Unbekannter Provider: {name}")
                 continue
@@ -119,6 +127,23 @@ def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]
                             user_agent=s.get("user_agent", "Mozilla/5.0"),
                         ):
                             add(_to_job(raw))
+                    except Exception as exc:
+                        errors.append(f"{name} ({term[:40]}...): {exc}")
+            elif name == "jobspy":
+                # JobSpy (LinkedIn/Indeed/Google) ist langsam und liefert für
+                # nahe verwandte Suchbegriffe stark überlappende Treffer; daher nur
+                # auf einem begrenzten Teil der Suchbegriffe laufen lassen.
+                terms = build_stepstone_queries(config)[:s.get("jobspy_max_terms", 4)]
+                for term in terms:
+                    try:
+                        for job in provider.search(
+                            term,
+                            location=s.get("location", "München"),
+                            max_results=s.get("max_results_per_provider", 8),
+                            timeout=s.get("timeout_seconds", 15),
+                            user_agent=s.get("user_agent", "Mozilla/5.0"),
+                        ):
+                            add(job)
                     except Exception as exc:
                         errors.append(f"{name} ({term[:40]}...): {exc}")
             else:

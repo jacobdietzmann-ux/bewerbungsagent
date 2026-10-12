@@ -191,3 +191,34 @@ als „VORLÄUFIG", zeigt aber die Trennkraft, statt zu schweigen.
 `label_tool` unterstützt jetzt gezieltes Widerspruchs-Labeling (Active
 Learning: die informativsten Labels sind die, bei denen der Nutzer vom Score
 abweicht).
+
+---
+
+## ADR-014 — Erste belastbare Baseline (20 manuelle Labels)
+
+**Kontext:** Nach gezieltem Active-Learning-Labeling (Verdachtsstellen +
+Kontrollen) liegen 20 manuelle Eignungs-Labels vor (10 passend / 10 nicht).
+
+**Ergebnis:**
+
+| Klasse | Scores | Mittel |
+|---|---|---|
+| passt | 26, 45, 49, 54, 58, 77, 81, 89, 90, 93 % | **66 %** |
+| passt nicht | 26, 26, 26, 35, 43, 69, 69, 70, 71, 75 % | **51 %** |
+
+- Trennkraft: **15 Punkte** (deutlich besser als die 8-Label-Messung mit -8).
+- F1-Optimum bei Schwelle **45 %**: Precision 50 %, Recall 90 %, F1 64 %.
+- Bei betrieblicher Schwelle **60 %**: Precision 50 %, Recall 50 %, F1 50 %.
+
+**Interpretation:**
+1. Der Keyword-Score ist **besser als zunächst gemessen**, aber weit von
+   belastbar entfernt. Die frühere „Blindheit" war ein Artefakt der kleinen
+   Stichprobe (viele Grenzfälle bei 26 %).
+2. **Precision 50 % bei Schwelle 60 %:** Jede zweite Empfehlung ist falsch.
+3. **Recall 50 %:** Jede zweite passende Stelle wird verpasst.
+4. F1 64 % (bei 45 %) ist die **Messlatte für Embeddings**.
+
+**Offen:** Weitere Labels nötig (Ziel 50/Klasse) für stabile Aussagen. Die
+Stichprobe ist bewusst auf Grenzfälle fokussiert (Active Learning) und
+deshalb *nicht* repräsentativ für den Gesamtbestand — der wahre Recall auf
+allen 836 Stellen ist höher.

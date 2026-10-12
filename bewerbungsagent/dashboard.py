@@ -231,6 +231,11 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .desc-body { padding:12px 14px; background:var(--panel-2);
     border-radius:8px; font-size:12.5px; line-height:1.6; color:var(--text); width:100%;
     white-space:normal; word-break:break-word; }
+  #company-table { min-width:0; table-layout:auto; font-size:12.5px; }
+  #company-table th, #company-table td { white-space:nowrap; }
+  #company-table td.fit-cell { text-align:center; }
+  tr.company-row { cursor:pointer; }
+  tr.company-row:hover td { background:rgba(56,189,248,.10); }
   #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
     background:var(--panel-2); color:var(--text); border:1px solid var(--accent);
     padding:12px 18px; border-radius:10px; font-size:13px; line-height:1.5; max-width:80vw;
@@ -259,6 +264,28 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Bewerbungsaktivität im Wochenverlauf</div>
     <div id="timeChart" style="display:flex;align-items:flex-end;gap:12px;overflow-x:auto;padding:4px 2px 6px"></div>
     <div id="timeChartLegend" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:11px;color:var(--muted)"></div>
+  </section>
+
+  <section class="card" style="padding:14px 16px;margin-bottom:16px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Firmen-Übersicht
+      <span style="opacity:.65">(klicke auf eine Firma, um die Tabelle zu filtern)</span></div>
+    <div class="table-scroll">
+      <table id="company-table">
+        <thead>
+          <tr>
+            <th>Unternehmen</th>
+            <th class="center">Stellen</th>
+            <th class="center">Aktiv</th>
+            <th class="center">Beworben</th>
+            <th class="center">Interview</th>
+            <th class="center">Abgelehnt</th>
+            <th class="center">Ø Fit</th>
+            <th class="center">Bester Fit</th>
+          </tr>
+        </thead>
+        <tbody id="companyRows"></tbody>
+      </table>
+    </div>
   </section>
 
   <div class="toolbar" style="margin-top:0" id="statusToggles"></div>
@@ -543,6 +570,46 @@ function renderKpis() {
     </div>`).join("");
   renderStatusChart();
   renderTimeChart();
+  renderCompanies();
+}
+
+function renderCompanies() {
+  const tb = document.getElementById("companyRows");
+  if (!tb) return;
+  const rows = state.filter(r => !r.deleted);
+  const byCompany = {};
+  rows.forEach(r => {
+    const c = (r.company || "").trim() || "Unbekannt";
+    (byCompany[c] = byCompany[c] || []).push(r);
+  });
+  const list = Object.entries(byCompany).map(([company, arr]) => {
+    const aktiv = arr.filter(r => ["research","docs"].includes(r.status)).length;
+    const beworben = arr.filter(r => ["sent","followup","interview"].includes(r.status)).length;
+    const interview = arr.filter(r => r.status === "interview").length;
+    const rejected = arr.filter(r => r.status === "rejected").length;
+    const fits = arr.map(r => +r.fit || 0);
+    const avg = fits.length ? Math.round(fits.reduce((a,b)=>a+b,0) / fits.length) : 0;
+    const best = fits.length ? Math.max(...fits) : 0;
+    return { company, total:arr.length, aktiv, beworben, interview, rejected, avg, best };
+  }).sort((a,b) => (b.total - a.total) || (b.best - a.best) || a.company.localeCompare(b.company, "de"));
+
+  tb.innerHTML = list.map(c => `
+    <tr class="company-row" data-company="${esc(c.company)}" title="Tabelle nach &quot;${esc(c.company)}&quot; filtern">
+      <td>${esc(c.company)}</td>
+      <td class="center">${c.total}</td>
+      <td class="center">${c.aktiv}</td>
+      <td class="center">${c.beworben}</td>
+      <td class="center">${c.interview ? `<b style="color:#22c55e">${c.interview}</b>` : "0"}</td>
+      <td class="center">${c.rejected}</td>
+      <td class="fit-cell">${fitBadge(c.avg)}</td>
+      <td class="fit-cell">${fitBadge(c.best)}</td>
+    </tr>`).join("");
+
+  tb.querySelectorAll(".company-row").forEach(tr => tr.addEventListener("click", () => {
+    const box = document.getElementById("searchBox");
+    if (box) box.value = tr.dataset.company;
+    renderRows();
+  }));
 }
 
 function renderStatusChart() {

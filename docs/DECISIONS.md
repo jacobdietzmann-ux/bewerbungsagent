@@ -94,21 +94,25 @@ Threshold-Sweep und Majority-Baseline; Labels aus `state.json`.
 Evaluation zeigt zudem, dass **Accuracy** bei 83 % Negativ-Anteil irreführend
 ist (Baseline erreicht 83 % Accuracy bei Recall 0).
 
-**Ergebnis der ersten Messung:** F1 ≈ 41 % (beste Schwelle 75 %),
-Precision ≈ 43 % / Recall ≈ 39 %. Der aktuelle Keyword-Matcher ist also
-**deutlich schwächer als angenommen** — genau das war vorher unsichtbar.
+**Status:** ⚠️ Erste Messung **zurückgezogen** — Labels waren falsch
+(siehe ADR-012). Das Harness selbst bleibt gültig und wird weiterverwendet.
 
 ---
 
-## ADR-010 — Label-Semantik: `rejected` = Nutzerentscheidung
+## ADR-010 — ⚠️ ZURÜCKGENOMMEN: `rejected` ≠ Nutzerentscheidung
 
-**Kontext:** Unklar, ob `rejected` („Abgelehnt/Abgelaufen") eine Firmenabsage
-oder eine Triage-Entscheidung des Nutzers ist.
-**Entscheidung:** `rejected` gilt als **negativ** (nicht verfolgt).
-**Beleg:** In der Tracking-Tabelle sind Stellen mit 87 % und 78 % Fit als
-„Abgelehnt/Abgelaufen" markiert, während 71 %-Stellen auf „Dokumente erstellt"
-stehen. Bei fehlendem `sentAt` kann es keine Firmenabsage sein.
-**Konsequenz:** `research`/`docs`/`neu` bleiben unlabeled (Entscheidung offen).
+**Ursprüngliche (falsche) Entscheidung:** `rejected` galt als negativ
+(„nicht verfolgt").
+
+**Warum sie widerlegt wurde:** `rejected` = „Abgelehnt/Abgelaufen" bedeutet,
+dass die **Bewerbung versendet und von der Firma abgelehnt** wurde. Belege:
+- 65 `rejected`-Einträge haben ein `sentAt` (Versanddatum).
+- Notizen: „Absagegrund: spezifische Sprachkenntnisse gefordert",
+  „CV an Hiring Manager weitergeleitet, spaeter dennoch Absage".
+- Eine Absage ist eine Entscheidung der **Firma** und sagt nichts über die
+  Eignung des Bewerbers.
+
+**Siehe ADR-012** für die korrigierte Auffassung.
 
 ---
 
@@ -119,3 +123,35 @@ stehen. Bei fehlendem `sentAt` kann es keine Firmenabsage sein.
 (`include_auto_deleted=False`).
 **Grund:** Es sind **Modell-Entscheidungen, keine Nutzerentscheidungen** —
 sie als Ground Truth zu verwenden würde das Modell gegen sich selbst messen.
+
+---
+
+## ADR-012 — Status ist Prozess-, kein Eignungssignal
+
+**Kontext:** Die erste Evaluation (ADR-009) leitete Labels aus dem
+Feld `status` ab und kam auf F1 ≈ 41 %.
+**Entscheidung:** Der Status beschreibt **ausschließlich den Bewerbungsprozess**
+(`research` → `docs` → `sent` → `interview` → Absage/Abgelaufen). Er ist
+**kein** Maß für Eignung und darf nicht als Fit-Label dienen.
+
+**Begründung (vom Nutzer):**
+> „Der Status der Stellen hat keinen Zusammenhang mit meiner Eignung zu der
+> Stelle. Das ist nur der Status während des Bewerbungsprozesses."
+
+**Konsequenz für die Evaluation:**
+- `sent`/`followup`/`interview`/`rejected` = **alle** „beworben" → als
+  Eignungslabel ungeeignet.
+- Score-basierte Löschungen („Fit ≤ 60 %") sind **zirkulär** (Modell gegen
+  sich selbst) → ungeeignet.
+- Übrig bleiben nur **explizite Eignungsurteile**:
+  - `deleted_reason == "Nicht passende Rolle (kein technisches Profil)"` (212)
+    → grobe, aber echte Negative.
+  - Notizen mit explizitem „Fit NN%"-Urteil (15) → zu wenige Positive.
+
+**Fazit:** Der Bestand enthält **keine belastbare Ground Truth für Eignung**.
+Eine seriöse Evaluation erfordert **manuell gesetzte Labels**
+(→ `eval/label_tool.py`, Inter-rater/Annotation-Übung).
+
+**Lehre:** Label-Semantik ist Teil der Modellspezifikation. Ein falsch
+definiertes Label macht jede noch so saubere Metrik bedeutungslos — und
+erzeugt plausibel aussehende, aber irreführende Zahlen.

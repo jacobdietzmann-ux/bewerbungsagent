@@ -112,44 +112,130 @@ class TestSweepAndBaseline:
 class TestLabels:
     def _apps(self):
         return [
-            {"firma": "A", "titel": "T1", "status": "sent", "score": 80, "beschreibung": "x"},
-            {"firma": "B", "titel": "T2", "status": "interview", "score": 70},
-            {"firma": "C", "titel": "T3", "status": "rejected", "score": 30},
-            {"firma": "D", "titel": "T4", "status": "research", "score": 90},
-            {"firma": "E", "titel": "T5", "status": "docs", "score": 60},
+            {"firma": "A", "titel": "T1", "status": "sent", "sentAt": "2026-09-09",
+             "score": 80, "beschreibung": "x"},
+            # Prozess-Status: beworben -> KEIN Fit-Label (ADR-012)
+            {"firma": "B", "titel": "T2", "status": "rejected", "score": 70},
+            # Explizites Eignungsurteil (inhaltlich) -> negativ
+            {"firma": "C", "titel": "T3", "status": "research", "score": 75,
+             "deleted": True, "deleted_reason": L.EXPLICIT_NEGATIVE_REASON},
+            # Score-basiert -> zirkulär, kein Label
+            {"firma": "D", "titel": "T4", "status": "research", "score": 30,
+             "deleted": True, "deleted_reason": "Fit <= 60 Prozent (Nutzerkriterium)"},
         ]
 
-    def test_only_labeled_statuses_included(self):
+    def test_status_is_not_used_as_fit_label(self):
+        """Kernkorrektur: 'sent'/'rejected' dürfen keine Fit-Labels erzeugen."""
         ds = L.build_dataset(self._apps())
-        statuses = {e.status for e in ds}
-        assert statuses == {"sent", "interview", "rejected"}
+        sources = {e.source for e in ds}
+        assert sources == {"explicit_reject"}
+        assert all(e.firma != "A" for e in ds)  # sent ist kein Fit-Label
+        assert all(e.firma != "B" for e in ds)  # rejected ebenso wenig
 
-    def test_positive_and_negative_assignment(self):
+    def test_explicit_reject_is_negative(self):
         ds = L.build_dataset(self._apps())
-        sent = next(e for e in ds if e.status == "sent")
-        rejected = next(e for e in ds if e.status == "rejected")
-        assert sent.label is True
-        assert rejected.label is False
+        c = next(e for e in ds if e.firma == "C")
+        assert c.label is False
 
-    def test_has_description_flag(self):
-        ds = L.build_dataset(self._apps())
-        assert next(e for e in ds if e.status == "sent").has_description is True
-        assert next(e for e in ds if e.status == "interview").has_description is False
+    def test_manual_labels_override(self):
+        apps = self._apps()
+        key = L.entry_key(next(a for a in apps if a["firma"] == "A"))
+        ds = L.build_dataset(apps, {key: True})
+        manual = next(e for e in ds if e.firma == "A")
+        assert manual.source == "manual"
+        assert manual.label is True
+
+    def test_circular_delete_detected(self):
+        apps = self._apps()
+        d = next(a for a in apps if a["firma"] == "D")
+        assert L.is_circular(d) is True
+        c = next(a for a in apps if a["firma"] == "C")
+        assert L.is_circular(c) is False
 
     def test_fit_value_prefers_fit_pct(self):
         assert L.fit_value({"fit_pct": 77, "score": 20}) == 77.0
         assert L.fit_value({"score": 55}) == 55.0
         assert L.fit_value({}) == 0.0
 
-    def test_auto_deleted_excluded_by_default(self):
-        apps = [{"firma": "X", "titel": "Y", "status": "rejected", "score": 10,
-                 "deleted": True, "deleted_reason": "Fit unter 60 Prozent"}]
-        assert L.build_dataset(apps) == []
-        assert len(L.build_dataset(apps, include_auto_deleted=True)) == 1
+    def test_diagnostics_keys_and_counts(self):
+        d = L.diagnostics(self._apps())
+        assert d["total_apps"] == 4
+        assert d["explicit_reject_negatives"] == 1
+        assert d["circular_deletes_excluded"] == 1
+        assert d["applied_but_not_a_fit_label"] == 1  # nur A hat sentAt
+        assert d["dataset_size"] == 1
 
-    def test_diagnostics_keys(self):
-        d = L.label_diagnostics(self._apps())
-        assert d["labeled"] == 3
-        assert d["labeled_positive"] == 2
-        assert d["labeled_negative"] == 1
-        assert d["labeled_with_description"] == 1
+    def test_manual_labels_roundtrip(self, tmp_path):
+        p = tmp_path / "labels.csv"
+        L.append_manual_label("k1", True, p)
+        L.append_manual_label("k2", False, p)
+        got = L.load_manual_labels(p)
+        assert got == {"k1": True, "k2": False}
+
+    def test_load_manual_labels_missing_file(self, tmp_path):
+        assert L.load_manual_labels(tmp_path / "nope.csv") == {}
+
+
+class TestLabelTool:
+
+
+    def _apps(self):
+        return [
+            {"firma": "A", "titel": "Techniker", "score": 80, "beschreibung": "CAN HiL"},
+            {"firma": "B", "titel": "Buchhalter", "score": 75, "beschreibung": "FiBu"},
+            {"firma": "C", "titel": "Ohne Text", "score": 50, "beschreibung": ""},
+            {"firma": "D", "titel": "Dupe", "score": 60, "beschreibung": "x",
+             "deleted_reason": "Duplikat (Firma+Titel bereits vorhanden)"},
+            {"firma": "E", "titel": "Fremd", "score": 40, "beschreibung": "y",
+             "deleted_reason": L.EXPLICIT_NEGATIVE_REASON},
+        ]
+
+    def test_candidates_exclude_undesirable(self):
+        from eval.label_tool import candidates
+        got = candidates(self._apps(), skip_keys=set(), require_description=True)
+        namen = {a["firma"] for a in got}
+        assert namen == {"A", "B"}  # C ohne Text, D Duplikat, E bereits negativ
+
+    def test_candidates_skip_known(self):
+        from eval.label_tool import candidates
+        apps = self._apps()
+        got = candidates(apps, skip_keys={L.entry_key(apps[0])})
+        assert "A" not in {a["firma"] for a in got}
+
+    def test_classify_input(self):
+        from eval.label_tool import classify_input
+        assert classify_input("j") == (True, "passt")
+        assert classify_input("N") == (False, "passt nicht")
+        assert classify_input("s") == (None, "unsicher")
+        assert classify_input("q") == (None, "quit")
+        assert classify_input("quatsch") == (None, "unbekannt")
+
+    def test_stratify_covers_all_bands(self):
+        from eval.label_tool import stratify_by_fit
+        apps = [{"firma": str(i), "titel": "t", "score": s}
+                for i, s in enumerate([5, 25, 55, 85, 10, 60, 90])]
+        got = stratify_by_fit(apps, bands=4)
+        assert len(got) == len(apps)  # nichts verloren/dupliziert
+
+    def test_run_session_writes_labels(self, tmp_path):
+        from eval.label_tool import run_session
+        answers = iter(["j", "n"])
+        p = tmp_path / "labels.csv"
+        stats = run_session(self._apps(), p, limit=2, desc_chars=50,
+                            input_fn=lambda _="": next(answers),
+                            print_fn=lambda *a, **k: None)
+        assert stats["labeled"] == 2
+        assert stats["positive"] == 1
+        assert stats["negative"] == 1
+        saved = L.load_manual_labels(p)
+        assert len(saved) == 2
+
+    def test_run_session_quit_stops(self, tmp_path):
+        from eval.label_tool import run_session
+        p = tmp_path / "labels.csv"
+        stats = run_session(self._apps(), p, limit=5, desc_chars=50,
+                            input_fn=lambda _="": "q",
+                            print_fn=lambda *a, **k: None)
+        assert stats["labeled"] == 0
+        assert not p.exists() or L.load_manual_labels(p) == {}
+

@@ -182,9 +182,19 @@ python -m eval.run_eval --out eval/report.md
 ```
 
 Sie liefert Precision/Recall/F1, einen Threshold-Sweep und eine
-Majority-Baseline. Beim ersten Lauf ergab sich: **F1 ≈ 41 %** — der reine
-Keyword-Matcher ist deutlich schwächer als intuitiv angenommen. Genau diese
-Zahl ist die Messlatte für alle weiteren Methoden (z. B. Embeddings).
+Majority-Baseline.
+
+**Zuerst Labels setzen** — der `status` im Bestand ist ein *Prozess*-Signal
+und **kein Eignungsmaß** (ADR-012):
+
+```bash
+python -m eval.label_tool --limit 25    # j/n/s je Stelle → eval/labels.csv
+python -m eval.run_eval --out eval/report.md
+```
+
+Ohne manuelle Labels gibt das Skript **kein** Ergebnis aus, sondern weist auf
+die fehlende Ground Truth hin. Das ist Absicht: eine plausible Zahl ohne
+belastbare Labels wäre irreführend.
 
 Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 

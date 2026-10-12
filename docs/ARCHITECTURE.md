@@ -93,13 +93,26 @@ state.json ──▶ labels.py ──▶ [(score, label)] ──▶ metrics.py �
 
 | Datei | Zweck |
 |---|---|
-| `labels.py` | Labels aus `state.json` + Label-Diagnose |
+| `labels.py` | Eignungs-Labels (manuell + explizite Verwürfe) + Diagnose |
 | `metrics.py` | Reine Metrik-Funktionen (testbar, ohne IO) |
+| `label_tool.py` | Interaktives Labeling → `eval/labels.csv` |
 | `run_eval.py` | CLI: Evaluation + Markdown-Report |
 
 ```bash
+python -m eval.label_tool --limit 25                 # Ground Truth erzeugen
 python -m eval.run_eval --state <state.json> --out eval/report.md
 ```
+
+**Label-Quelle (wichtig):** Der `status` ist ein *Prozess*-Signal
+(`research → docs → sent → interview → Absage`) und **kein Eignungsmaß**
+(ADR-012). Verwendet werden daher nur:
+
+1. manuelle Labels aus `eval/labels.csv`,
+2. grobe Negative aus inhaltlichen Verwürfen („Nicht passende Rolle").
+
+Score-basierte Löschungen („Fit ≤ 60 %") sind **zirkulär** und werden
+ausgeschlossen. Ohne manuelle Labels gibt `run_eval` bewusst *kein* Ergebnis
+aus, sondern den Hinweis auf fehlende Ground Truth.
 
 **Warum getrennt von `tests/`:** Tests prüfen *Code-Korrektheit*
 (deterministisch, immer gleich). Die Evaluation prüft *Modellqualität* gegen

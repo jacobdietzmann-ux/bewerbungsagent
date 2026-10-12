@@ -39,3 +39,7 @@ data/import_jobs.json
 # --- Evaluations-Artefakte (Arbeitsergebnis → Google Drive) ---
 eval/report.md
 eval/report-*.md
+
+# --- Manuelle Eignungs-Labels (persönliche Bewertungen → Google Drive) ---
+eval/labels.csv
+eval/dataset-*.csv

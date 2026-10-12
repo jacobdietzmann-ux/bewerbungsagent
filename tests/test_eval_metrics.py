@@ -239,3 +239,67 @@ class TestLabelTool:
         assert stats["labeled"] == 0
         assert not p.exists() or L.load_manual_labels(p) == {}
 
+
+
+class TestEvalReport:
+    """Report-Rendering: Vorläufigkeits-Warnung und Trennkraft-Abschnitt."""
+
+    def _res(self, manual_pos, manual_neg, rejects=0):
+        from eval.labels import LabeledEntry
+        ds = [LabeledEntry(f"k{i}", "F", "T", float(s), True, "manual", True)
+              for i, s in enumerate(manual_pos)]
+        ds += [LabeledEntry(f"n{i}", "F", "T", float(s), False, "manual", True)
+               for i, s in enumerate(manual_neg)]
+        ds += [LabeledEntry(f"r{i}", "F", "T", 10.0, False, "explicit_reject", True)
+               for i in range(rejects)]
+        from eval.run_eval import FIXED_THRESHOLDS
+        labeled = [(26.0, True), (45.0, True), (71.0, False), (75.0, False)]
+        return {
+            "dataset": ds,
+            "enough_labels": bool(manual_pos and manual_neg),
+            "preliminary": len(manual_pos) + len(manual_neg) < 30,
+            "diagnostics": {
+                "total_apps": len(ds), "manual_labels": len(manual_pos) + len(manual_neg),
+                "explicit_reject_negatives": rejects, "circular_deletes_excluded": 0,
+                "dataset_size": len(ds), "dataset_positive": len(manual_pos),
+                "dataset_negative": len(manual_neg) + rejects,
+                "dataset_with_description": len(ds),
+                "applied_but_not_a_fit_label": 0,
+            },
+            "fixed": {t: M.evaluate_at(labeled, t) for t in FIXED_THRESHOLDS},
+            "sweep": M.threshold_sweep(labeled),
+            "best_threshold": 45.0,
+            "best_counts": M.Counts(tp=1, fp=2, fn=3, tn=0),
+            "baseline": M.Counts(tp=0, fp=0, fn=4, tn=0),
+        }
+
+    def test_preliminary_warning_present(self):
+        from eval.run_eval import render_report
+        txt = render_report(self._res([26, 45], [26, 75]))
+        assert "VORLÄUFIG" in txt
+
+    def test_blind_score_is_flagged(self):
+        """Unpassende Stellen scoren höher -> Warnung muss erscheinen."""
+        from eval.run_eval import render_report
+        txt = render_report(self._res([26, 45], [71, 75]))
+        assert "trennt die Klassen nicht" in txt
+        assert "+" in txt  # positive Differenz
+
+    def test_separating_score_is_positive(self):
+        from eval.run_eval import render_report
+        txt = render_report(self._res([80, 90], [10, 20]))
+        assert "trennt die Klassen" in txt
+        assert "trennt die Klassen nicht" not in txt
+
+    def test_rejects_excluded_from_trennkraft(self):
+        """Grobe Negative dürfen den Mittelwert nicht verzerren."""
+        from eval.run_eval import render_report
+        txt = render_report(self._res([26, 45], [71, 75], rejects=200))
+        assert "ausgeklammert" in txt
+
+    def test_too_few_labels_blocks_result(self):
+        from eval.run_eval import render_report
+        res = self._res([], [])
+        res["enough_labels"] = False
+        txt = render_report(res)
+        assert "Kein belastbares Ergebnis" in txt

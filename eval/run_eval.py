@@ -29,7 +29,10 @@ from eval import metrics as M  # noqa: E402
 
 DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
 FIXED_THRESHOLDS = [50.0, 60.0, 65.0, 70.0, 80.0]
+# Unter dieser Zahl wird das Ergebnis als *vorläufig* gekennzeichnet.
 MIN_LABELS_WARN = 30
+# Absolute Untergrenze: darunter ist nicht einmal eine Tendenz sinnvoll.
+MIN_LABELS_HARD = 8
 
 
 def _pct(x: float) -> str:
@@ -49,8 +52,9 @@ def evaluate(state_path: Path, labels_path: Path) -> dict:
     dataset = L.build_dataset(apps, manual)
     labeled = [(e.score, e.label) for e in dataset]
 
-    enough = (len(manual) >= MIN_LABELS_WARN and diag["dataset_positive"] > 0
+    enough = (len(manual) >= MIN_LABELS_HARD and diag["dataset_positive"] > 0
               and diag["dataset_negative"] > 0)
+    preliminary = enough and len(manual) < MIN_LABELS_WARN
 
     fixed = {t: M.evaluate_at(labeled, t) for t in FIXED_THRESHOLDS} if labeled else {}
     sweep = M.threshold_sweep(labeled) if labeled else []
@@ -66,6 +70,7 @@ def evaluate(state_path: Path, labels_path: Path) -> dict:
         "best_counts": best_c,
         "baseline": baseline_c,
         "enough_labels": enough,
+        "preliminary": preliminary,
     }
 
 
@@ -103,9 +108,42 @@ def render_report(res: dict) -> str:
         out.append("")
         return "\n".join(out)
 
+    if res.get("preliminary"):
+        out.append(f"> ⚠️ **VORLÄUFIG:** nur {d['manual_labels']} manuelle Labels. "
+                   f"Für belastbare Aussagen sind ≥ {MIN_LABELS_WARN} nötig "
+                   "(besser ≥ 50 je Klasse). Die Tendenz ist erkennbar, die "
+                   "Zahlen sind aber nicht stabil.\n")
+
+    # Trennkraft des Scores — NUR auf manuellen Labels (die groben Negative
+    # wären sonst ein Strohmann: sie liegen per Konstruktion niedrig).
+    manual_entries = [e for e in res["dataset"] if e.source == "manual"]
+    pos = [e.score for e in manual_entries if e.label]
+    neg = [e.score for e in manual_entries if not e.label]
+    if pos and neg:
+        mp, mn = sum(pos) / len(pos), sum(neg) / len(neg)
+        out.append("## 2. Trennkraft des Scores (nur manuelle Labels)\n")
+        out.append(f"- Scores **passend** ({len(pos)}): {sorted(int(x) for x in pos)} "
+                   f"→ Mittel {mp:.0f} %")
+        out.append(f"- Scores **nicht passend** ({len(neg)}): {sorted(int(x) for x in neg)} "
+                   f"→ Mittel {mn:.0f} %")
+        out.append(f"- Differenz der Mittelwerte: **{mn - mp:+.0f} Punkte** "
+                   "(positiv = unpassende Stellen scoren höher = Score ist blind)")
+        if mn - mp >= -5:
+            out.append("\n> ❌ **Der Score trennt die Klassen nicht.** Die Mittelwerte "
+                       "liegen gleichauf oder unpassende Stellen scoren sogar höher. "
+                       "Keyword-Überlappung misst *Vokabular*, nicht *Relevanz*.\n")
+        else:
+            out.append(f"\n> ✅ Der Score trennt die Klassen um {mp - mn:.0f} Punkte "
+                       "(auf dieser kleinen Stichprobe).\n")
+        if len(res["dataset"]) > len(manual_entries):
+            out.append(f"_Hinweis: Der volle Datensatz enthält zusätzlich "
+                       f"{len(res['dataset']) - len(manual_entries)} grobe Negative "
+                       "('Nicht passende Rolle'), die per Konstruktion niedrig scoren "
+                       "und hier bewusst ausgeklammert sind._\n")
+
     b = res["baseline"]
     best_c = res["best_counts"]
-    out.append("## 2. Ergebnisse bei festen Schwellenwerten\n")
+    out.append("## 3. Ergebnisse bei festen Schwellenwerten\n")
     out.append("| Schwelle | TP | FP | FN | TN | Precision | Recall | F1 | Accuracy |")
     out.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for t in FIXED_THRESHOLDS:
@@ -113,13 +151,13 @@ def render_report(res: dict) -> str:
     out.append(_row("Majority-Baseline", b))
     out.append("")
 
-    out.append("## 3. Beste Schwelle (F1-optimal)\n")
+    out.append("## 4. Beste Schwelle (F1-optimal)\n")
     out.append(f"- **Score >= {res['best_threshold']:.0f}** · "
                f"Precision {_pct(M.precision(best_c))} · "
                f"Recall {_pct(M.recall(best_c))} · F1 {_pct(M.f1(best_c))} · "
                f"Balanced Accuracy {_pct(M.balanced_accuracy(best_c))}\n")
 
-    out.append("## 4. Threshold-Sweep\n")
+    out.append("## 5. Threshold-Sweep\n")
     out.append("| Schwelle | TP | FP | FN | TN | Precision | Recall | F1 |")
     out.append("|---:|---:|---:|---:|---:|---:|---:|---:|")
     for t, c in res["sweep"]:
@@ -127,7 +165,7 @@ def render_report(res: dict) -> str:
                    f"{_pct(M.precision(c))} | {_pct(M.recall(c))} | {_pct(M.f1(c))} |")
     out.append("")
 
-    out.append("## 5. Interpretation\n")
+    out.append("## 6. Interpretation\n")
     out.append(f"- Majority-Baseline: {_pct(M.accuracy(b))} Accuracy bei "
                f"Recall {_pct(M.recall(b))} -> Accuracy ist bei "
                f"{_pct(d['dataset_negative'] / max(d['dataset_size'], 1))} "
@@ -172,7 +210,7 @@ def main(argv=None) -> int:
 
     d = res["diagnostics"]
     if not res["enough_labels"]:
-        print(f"\n{chr(9888)}  {d['manual_labels']} manuelle Labels - zu wenig für eine Aussage.")
+        print(f"\n{chr(9888)}  nur {d[chr(39)+chr(39)]}")
         print("   Labels setzen mit:  python -m eval.label_tool --limit 25")
     else:
         print(f"\n{d['dataset_size']} gelabelt ({d['dataset_positive']}+ / "

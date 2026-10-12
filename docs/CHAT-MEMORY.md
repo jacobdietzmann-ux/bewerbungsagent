@@ -48,3 +48,37 @@ Dashboard) plus einem Weboberfläche-Server für Live-Statusänderungen.
 - [ ] Coverage-Report in CI (`pytest --cov`).
 - [ ] Interessenkonflikte: Welche Skills fehlen im Profil, tauchen aber
       häufig in Top-Jobs auf? (Gap-Analyse)
+
+## Session-Erkenntnisse: Labels & Evaluation (12.10.2026)
+
+**Der teuerste Fehler war eine falsche Label-Definition.** `rejected` wurde
+als „schlechter Fit" interpretiert. Tatsächlich heißt es „Bewerbung versendet,
+von der Firma abgelehnt". Der Nutzer stellte klar:
+
+> „Der Status der Stellen hat keinen Zusammenhang mit meiner Eignung zu der
+> Stelle. Das ist nur der Status während des Bewerbungsprozesses."
+
+Folge: 115 von 138 vermeintlichen „Negativ"-Labels waren in Wahrheit positive
+Beispiele. Alle abgeleiteten Zahlen waren wertlos.
+
+**Zweiter Fehler: Zirkularität.** Labels, die aus dem Modell-Score abgeleitet
+werden („Fit ≤ 60 % → passt nicht"), erzeugen zwangsläufig perfekte Metriken
+(P=R=F1=100 %) — und null Information. Solche Fälle müssen erkannt und
+ausgeschlossen werden.
+
+**Dritter Fehler: der Nutzer stimmte dem Score zu.** Auf „alle FIT sind
+realistisch" folgte die Einsicht: Zustimmung liefert keine Information, nur
+*Widerspruch* tut es (Prinzip des Active Learning). Wertvoll sind Labels, wo
+die Einschätzung des Menschen vom Modell abweicht.
+
+**Ergebnis der ersten echten Messung (8 Labels):** Der Keyword-Fit trennt die
+Klassen nicht — unpassende Stellen scoren im Mittel höher (50 % vs. 44 %).
+Keyword-Überlappung misst Vokabular, nicht Relevanz. Das ist die empirische
+Begründung für Semantic Search.
+
+**Methodische Lehren:**
+1. Label-Semantik gehört in die Spezifikation, nicht in eine Fußnote.
+2. Accuracy ist bei Klassen-Ungleichgewicht wertlos (Baseline: 98 % Accuracy
+   bei Recall 0).
+3. Zustimmung zum Modell ≈ kein Label; Widerspruch = Information.
+4. Kleine Stichproben sind trotzdem nützlich, wenn der Effekt groß ist.

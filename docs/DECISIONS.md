@@ -155,3 +155,39 @@ Eine seriöse Evaluation erfordert **manuell gesetzte Labels**
 **Lehre:** Label-Semantik ist Teil der Modellspezifikation. Ein falsch
 definiertes Label macht jede noch so saubere Metrik bedeutungslos — und
 erzeugt plausibel aussehende, aber irreführende Zahlen.
+
+---
+
+## ADR-013 — Der Keyword-Fit trennt Eignung nicht (bisheriges Ergebnis)
+
+**Kontext:** Erste manuelle Labels (8 Stück) wurden gesetzt, um den
+Keyword-Fit gegen echte Eignungsurteile zu prüfen.
+**Ergebnis:** Der Score trennt die Klassen **nicht** — im Mittel scoren
+*unpassende* Stellen sogar höher:
+
+| Klasse | Scores (manuell) | Mittel |
+|---|---|---|
+| passt | 26, 45, 49, 54 % | 44 % |
+| passt nicht | 26, 26, 71, 75 % | 50 % |
+
+Bei der betrieblichen Schwelle 60 %: **0 Treffer, 2 Fehlalarme, 4 verpasste
+passende Stellen.** Das beste F1 liegt bei Schwelle 45 % mit 46 %.
+
+**Ursache (Hypothese):** Keyword-Überlappung misst *Vokabular*, nicht
+*Relevanz*. Anzeigen mit viel Text und generischen Begriffen
+(„Systems", „Data", „Analytics" in „Head of Finance Systems") sammeln
+Treffer, obwohl die Rolle nicht passt. Kurze, präzise Anzeigen passender
+Stellen („Testmanager elektrische Antriebe" → 26 %) verlieren dagegen.
+
+**Konsequenz:**
+- Die Schwelle 60 % ist als Auswahlkriterium **nicht belegt**.
+- Genau hier setzt Semantic Search (Embeddings) an — sie vergleicht
+  *Bedeutung* statt Wörter.
+- Die Stichprobe (8 Labels) ist klein; die Tendenz ist aber so deutlich,
+  dass sie eine Neuausrichtung rechtfertigt.
+
+**Werkzeug-Anpassung:** `run_eval` kennzeichnet Ergebnisse unter 30 Labels
+als „VORLÄUFIG", zeigt aber die Trennkraft, statt zu schweigen.
+`label_tool` unterstützt jetzt gezieltes Widerspruchs-Labeling (Active
+Learning: die informativsten Labels sind die, bei denen der Nutzer vom Score
+abweicht).

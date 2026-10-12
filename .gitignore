@@ -35,3 +35,7 @@ htmlcov/
 
 # --- Test-/Import-Fixtures (Beispiel-Jobs sind ok, echte Importe nicht) ---
 data/import_jobs.json
+
+# --- Evaluations-Artefakte (Arbeitsergebnis → Google Drive) ---
+eval/report.md
+eval/report-*.md

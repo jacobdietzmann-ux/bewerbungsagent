@@ -2,6 +2,11 @@
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+# Explizit: sonst scheitert die Auto-Discovery an mehreren Top-Level-Paketen
+# (bewerbungsagent + eval).
+packages = ["bewerbungsagent", "bewerbungsagent.search", "eval"]
+
 [project]
 name = "bewerbungsagent"
 version = "0.1.0"

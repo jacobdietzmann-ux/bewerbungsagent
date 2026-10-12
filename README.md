@@ -172,6 +172,22 @@ Getestet werden die deterministischen Kerne: `profile` (Keyword-Extraktion),
 aufgetretenen Fehler existiert ein Regressionstest; ein Mutationstest
 (Bug absichtlich wieder einbauen) bestätigt, dass die Tests greifen.
 
+### Evaluation (Modellqualität)
+
+Neben den Unit-Tests gibt es eine **Offline-Evaluation** des Fit-Scorings
+gegen die echten Bewerbungsentscheidungen:
+
+```bash
+python -m eval.run_eval --out eval/report.md
+```
+
+Sie liefert Precision/Recall/F1, einen Threshold-Sweep und eine
+Majority-Baseline. Beim ersten Lauf ergab sich: **F1 ≈ 41 %** — der reine
+Keyword-Matcher ist deutlich schwächer als intuitiv angenommen. Genau diese
+Zahl ist die Messlatte für alle weiteren Methoden (z. B. Embeddings).
+
+Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
 ### Backup
 
 ```bash

@@ -81,3 +81,41 @@ Split-Regex greift nicht mehr → `iso 26262` ist nie matchbar.
 angewendet nur bei `lang == "en"`.
 **Grund:** Sauber trennbar, testbar, und die deutschen Dokumente bleiben
 unverändert. Jobtitel bleiben in Originalsprache (System-Abgleich).
+
+---
+
+## ADR-009 — Offline-Evaluation vor jeder „Verbesserung"
+
+**Kontext:** Der Wunsch, das Matching durch KI-Methoden (Embeddings, LLM)
+zu verbessern, ist ohne Messinstrument nicht überprüfbar.
+**Entscheidung:** `eval/` mit Konfusionsmatrix, Precision/Recall/F1,
+Threshold-Sweep und Majority-Baseline; Labels aus `state.json`.
+**Grund:** Ohne Baseline ist jede „Verbesserung" eine Behauptung. Die
+Evaluation zeigt zudem, dass **Accuracy** bei 83 % Negativ-Anteil irreführend
+ist (Baseline erreicht 83 % Accuracy bei Recall 0).
+
+**Ergebnis der ersten Messung:** F1 ≈ 41 % (beste Schwelle 75 %),
+Precision ≈ 43 % / Recall ≈ 39 %. Der aktuelle Keyword-Matcher ist also
+**deutlich schwächer als angenommen** — genau das war vorher unsichtbar.
+
+---
+
+## ADR-010 — Label-Semantik: `rejected` = Nutzerentscheidung
+
+**Kontext:** Unklar, ob `rejected` („Abgelehnt/Abgelaufen") eine Firmenabsage
+oder eine Triage-Entscheidung des Nutzers ist.
+**Entscheidung:** `rejected` gilt als **negativ** (nicht verfolgt).
+**Beleg:** In der Tracking-Tabelle sind Stellen mit 87 % und 78 % Fit als
+„Abgelehnt/Abgelaufen" markiert, während 71 %-Stellen auf „Dokumente erstellt"
+stehen. Bei fehlendem `sentAt` kann es keine Firmenabsage sein.
+**Konsequenz:** `research`/`docs`/`neu` bleiben unlabeled (Entscheidung offen).
+
+---
+
+## ADR-011 — Automatisch gelöschte Einträge sind keine Labels
+
+**Kontext:** Die Pipeline löscht Stellen mit „Fit unter 60 %" automatisch.
+**Entscheidung:** Solche Einträge werden aus dem Label-Set ausgeschlossen
+(`include_auto_deleted=False`).
+**Grund:** Es sind **Modell-Entscheidungen, keine Nutzerentscheidungen** —
+sie als Ground Truth zu verwenden würde das Modell gegen sich selbst messen.

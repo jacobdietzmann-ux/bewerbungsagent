@@ -81,3 +81,32 @@ nie gelöscht oder neu gescored, damit die Bewerbungshistorie erhalten bleibt.
   Vergleiche müssen die ASCII-Form verwenden.
 - **Sprach-Erkennung für Dateinamen**: `key.endswith("_en")` verwenden — nicht
   `"en" in key` (das matcht auch „anschreiben"/„lebenslauf").
+
+## Evaluation (`eval/`)
+
+Offline-Messung des Fit-Scorings gegen die echten Bewerbungsentscheidungen.
+
+```
+state.json ──▶ labels.py ──▶ [(score, label)] ──▶ metrics.py ──▶ report.md
+                (Ground Truth)                    (Precision/Recall/F1)
+```
+
+| Datei | Zweck |
+|---|---|
+| `labels.py` | Labels aus `state.json` + Label-Diagnose |
+| `metrics.py` | Reine Metrik-Funktionen (testbar, ohne IO) |
+| `run_eval.py` | CLI: Evaluation + Markdown-Report |
+
+```bash
+python -m eval.run_eval --state <state.json> --out eval/report.md
+```
+
+**Warum getrennt von `tests/`:** Tests prüfen *Code-Korrektheit*
+(deterministisch, immer gleich). Die Evaluation prüft *Modellqualität* gegen
+echte Daten (verändert sich mit jedem Datensatz). Beides braucht andere
+Werkzeuge und andere Aussagekraft.
+
+**Methodische Fallstricke** (im Report dokumentiert):
+Klassen-Ungleichgewicht (Accuracy irreführend), Label-Rauschen (abgelaufene
+Anzeigen), Selection Bias (der Score beeinflusste die Entscheidung), kleine
+Stichprobe (138 Fälle).

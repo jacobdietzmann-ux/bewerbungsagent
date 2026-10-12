@@ -9,6 +9,7 @@ from pathlib import Path
 from .commute import enrich_commute
 from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard
+from .db import Store
 from .documents import generate_anschreiben, generate_lebenslauf
 from .importer import import_old_dashboard
 from .matching import match_jobs
@@ -41,6 +42,17 @@ def _job_key(job: dict) -> str:
     if url:
         return url
     return normalize(f"{job.get('firma', '')}|{job.get('titel', '')}")
+
+
+def _store(config: Config) -> Store:
+    """SQLite-Store für den Datenbestand (Single Source of Truth, ADR-018)."""
+    return Store(config.db_path())
+
+
+def _persist_state(config: Config, store: Store, state: dict) -> None:
+    """Schreibt den Bestand in SQLite und aktualisiert den JSON-Snapshot (Backup)."""
+    store.save_state(state)
+    store.export_json(config.state_path())
 
 
 def safe_name(value: str) -> str:
@@ -76,8 +88,9 @@ def run_match(config: Config, profile: Profile) -> dict:
         m.setdefault("id", i)
         m["key"] = _job_key(m)
     save_json(config.matches_path(), matches)
-    state = _merge_state(load_json(config.state_path(), {"applications": []}), matches)
-    save_json(config.state_path(), state)
+    store = _store(config)
+    state = _merge_state(store.load_state(), matches)
+    _persist_state(config, store, state)
     return {"matched": len(matches), "state": state}
 
 
@@ -114,7 +127,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
        (``research``/``docs``); versendete/abgeschlossene bleiben sichtbar.
     5. Für Stellen mit FIT > 65 % automatisch Bewerbungsunterlagen erzeugen.
     """
-    state = load_json(config.state_path(), {"applications": []})
+    store = _store(config)
+    state = store.load_state()
     apps = state.get("applications", [])
 
     # 1) Pendelweg
@@ -161,14 +175,14 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         for created in _generate_one(config, profile, a):
             generated.append(created)
             # Dokument-Referenzen direkt in den In-Memory-Zustand übernehmen,
-            # damit sie nicht durch den finalen ``save_json`` verloren gehen.
+            # damit sie nicht durch den finalen ``_persist_state`` verloren gehen.
             a["dokumente"] = {**a.get("dokumente", {}), **created["dokumente"]}
             if a.get("status") in (None, "research", "neu"):
                 a["status"] = "docs"
 
     state["applications"] = apps
     state["updated"] = now_iso()
-    save_json(config.state_path(), state)
+    _persist_state(config, store, state)
 
     return {
         "commute": commute_stats,
@@ -184,7 +198,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
 def run_import_old(config: Config) -> dict:
     """Importiert den Inhalt des alten Dashboards (MD + State) als Anwendungen."""
     apps = import_old_dashboard(config)
-    state = load_json(config.state_path(), {"applications": []})
+    store = _store(config)
+    state = store.load_state()
     existing_keys = {a.get("key") for a in state.get("applications", [])}
     merged = state.get("applications", [])
     for app in apps:
@@ -193,12 +208,12 @@ def run_import_old(config: Config) -> dict:
             existing_keys.add(app["key"])
     state["applications"] = merged
     state["updated"] = now_iso()
-    save_json(config.state_path(), state)
+    _persist_state(config, store, state)
     return {"imported": len(apps), "total": len(merged)}
 
 
 def run_dashboard(config: Config) -> dict:
-    state = load_json(config.state_path(), {"applications": []})
+    state = _store(config).load_state()
     path = build_dashboard(state, config.dashboard_path)
     return {"path": str(path), "applications": len(state.get("applications", []))}
 
@@ -298,7 +313,8 @@ def _rel(path: Path) -> str:
 
 
 def _record_docs(config: Config, job: dict, files: dict) -> None:
-    state = load_json(config.state_path(), {"applications": []})
+    store = _store(config)
+    state = store.load_state()
     key = job.get("key") or _job_key(job)
     for a in state.get("applications", []):
         if a.get("key") == key:
@@ -306,4 +322,4 @@ def _record_docs(config: Config, job: dict, files: dict) -> None:
             if a.get("status") in (None, "research", "neu"):
                 a["status"] = "docs"
             break
-    save_json(config.state_path(), state)
+    _persist_state(config, store, state)

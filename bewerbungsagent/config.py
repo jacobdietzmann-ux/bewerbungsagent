@@ -105,6 +105,9 @@ class Config:
     def state_path(self) -> Path:
         return self.data_dir / "state.json"
 
+    def db_path(self) -> Path:
+        return self.data_dir / "jobs.db"
+
     def import_path(self) -> Path:
         return self.data_dir / "import_jobs.json"
 

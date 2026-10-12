@@ -379,3 +379,44 @@ echte ATS-Abdeckung (Greenhouse/Lever/Ashby) ist ein separater Schritt nötig:
 deren **öffentliche Job-Board-APIs** direkt abfragen (wie es
 `NullSpace-BitCradle/jobhunter-framework` tut) — Google Jobs ist dafür kein
 tragfähiger Weg mehr.
+
+---
+
+## ADR-018: SQLite + Alembic statt monolithischer state.json
+
+**Datum:** 2026-10-12
+**Status:** akzeptiert
+
+**Kontext:** Der Bestand lag in einer einzigen ``data/state.json`` (~4 MB, 840
+Einträge), die alle Felder pro Bewerbung vermischt — Provider-Daten (Suche/
+Matching/Anreicherung/Dokumente) und Nutzer-Daten (Status, Notizen, Kontakt,
+gelöscht, Interview-Datum). Am 12.10.2026 benannte der rclone-bisync die Datei in
+``state.json.conflict1/2`` um (lokale UND Cloud-Seite gleichzeitig geändert),
+wodurch das Dashboard kurzzeitig keine Quelle der Wahrheit mehr hatte.
+
+**Entscheidung:** SQLite (``data/jobs.db``) wird die Single Source of Truth, mit
+Alembic für Schema-Migrationen. Pro Bewerbung zwei JSON-Spalten:
+
+- ``provider`` — alle Felder aus Suche/Fetch/Matching/Anreicherung/Dokumenten.
+- ``user``    — alle Nutzer-Felder (Status, contact, notes, deleted, interviewDate,
+  statusChangedAt, sentAt, deleted_reason, deletedAt).
+
+Die Identität ist ``key`` (normalisierte URL bzw. Firma|Titel). Ein erneuter
+Scrape überschreibt ausschließlich Provider-Felder; Nutzer-Felder werden von
+``Store.apply_overlay`` (Dashboard) separat geschrieben und niemals angetastet
+(Prinzip aus ``BjornMelin/ai-job-scraper``).
+
+**Bisync-Interaktion (kritisch):** Eine SQLite-Datei darf **nicht** von bisync
+synchronisiert werden (Binärdatei, nicht mergebar, WAL-Korruption). Deshalb:
+1. ``jobs.db`` (+ ``-wal``/``-shm``) ist in ``bisync-exclude.txt`` ausgeschlossen.
+2. ``state.json`` bleibt als **abgeleiteter Snapshot** bestehen (``Store.export_json``
+   nach jedem Schreiben) und wird weiter über bisync → gdrive → HDD gesichert.
+3. Bei DB-Verlust lässt sich der Bestand mit ``scripts/migrate_state_to_db.py``
+   aus dem Snapshot wiederherstellen.
+
+**Konsequenzen:**
+- ``db.Store`` liefert dieselbe Dict-Struktur (``{"applications": [...], "updated": ...}``),
+  sodass Pipeline, Server und Dashboard unverändert mit Dicts arbeiten.
+- SQLAlchemy + Alembic sind neue Kern-Abhängigkeiten.
+- Der Server überwacht für den Dashboard-Neubau jetzt die DB (inkl. ``-wal``),
+  nicht mehr ``state.json``.

@@ -3,8 +3,8 @@
 Angelehnt an ``00_Dashboard/Dashboard-Server.py``, angepasst an den Agenten:
 
 - liefert das Dashboard unter http://127.0.0.1:8766/04_Agent/dashboard.html
-- ``GET  /state``  -> Overlay { "<key>": {status, contact, deleted, notes, …} } aus data/state.json
-- ``POST /state``  -> merged die vom Browser gesendeten Overlay-Einträge (per key) in data/state.json
+- ``GET  /state``  -> Overlay { "<key>": {status, contact, deleted, notes, …} } aus data/jobs.db
+- ``POST /state``  -> merged die vom Browser gesendeten Overlay-Einträge (per key) in data/jobs.db
 - ``GET  /open?path=…`` -> öffnet einen Bewerbungsordner im Dateimanager (Path-Traversal-geschützt)
 
 Sicherheit: bindet nur an 127.0.0.1; /open erlaubt nur Pfade innerhalb von ROOT.
@@ -39,9 +39,11 @@ except Exception:
 try:
     from bewerbungsagent.config import Config
     from bewerbungsagent.dashboard import build_dashboard
+    from bewerbungsagent.db import Store
 except Exception:
     Config = None  # type: ignore[assignment]
     build_dashboard = None  # type: ignore[assignment]
+    Store = None  # type: ignore[assignment]
 
 # Agent-Root = Ordner, der dieses Skript enthält (04_Agent).
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +54,9 @@ HOST = "127.0.0.1"
 PORT = 8766
 DASHBOARD_PATH = "/04_Agent/dashboard.html"
 STATE_FILE = os.path.join(SCRIPT_DIR, "data", "state.json")
+# SQLite-Datenbank = Single Source of Truth (ADR-018). ``state.json`` bleibt nur
+# als abgeleiteter Snapshot für bisync/Backup bestehen.
+DB_FILE = os.path.join(SCRIPT_DIR, "data", "jobs.db")
 # Dashboard-Template/Quellcode, dessen Änderung einen Neubau auslösen soll.
 DASHBOARD_SRC = os.path.join(SCRIPT_DIR, "bewerbungsagent", "dashboard.py")
 
@@ -68,25 +73,16 @@ def open_in_file_manager(path):
         subprocess.run(["xdg-open", path], check=True)
 
 
+def _store() -> Store:
+    """SQLite-Store (Single Source of Truth, ADR-018)."""
+    return Store(DB_FILE)
+
+
 def _read_state() -> dict:
-    if not os.path.isfile(STATE_FILE):
-        return {"applications": []}
     try:
-        with open(STATE_FILE, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, dict) and isinstance(data.get("applications"), list):
-            return data
+        return _store().load_state()
     except Exception:
-        pass
-    return {"applications": []}
-
-
-def _write_state(data: dict) -> None:
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-    tmp = STATE_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
-    os.replace(tmp, STATE_FILE)
+        return {"applications": []}
 
 
 def _overlay_from_state(state: dict) -> dict:
@@ -107,20 +103,19 @@ def _overlay_from_state(state: dict) -> dict:
     return overlay
 
 
-def _apply_overlay(state: dict, overlay: dict) -> None:
-    by_key = {a.get("key"): a for a in state.get("applications", []) if a.get("key")}
-    for key, entry in overlay.items():
+def _apply_overlay(overlay: dict) -> None:
+    """Schreibt Nutzer-Feldänderungen aus dem Dashboard in die DB (nur ``user``)."""
+    normalized = {}
+    for key, entry in (overlay or {}).items():
         if not isinstance(entry, dict):
             continue
-        app = by_key.get(key)
-        if app is None:
-            continue
+        cleaned = {}
         for k in EDITABLE:
             if k in entry and entry[k] is not None:
-                if k == "status":
-                    app[k] = normalize_status(entry[k])
-                else:
-                    app[k] = entry[k]
+                cleaned[k] = normalize_status(entry[k]) if k == "status" else entry[k]
+        if cleaned:
+            normalized[key] = cleaned
+    _store().apply_overlay(normalized)
 
 
 # --------------------------------------------------------------------------
@@ -146,20 +141,25 @@ padding:3rem"><h1>Dashboard wird geladen</h1>
 
 
 def _state_mtime() -> float:
-    try:
-        return os.path.getmtime(STATE_FILE)
-    except OSError:
-        return -1.0
+    """Neueste Änderung an der SQLite-DB (inkl. WAL/SHM, da WAL-Mode die
+    Änderungen zunächst in die -wal-Datei schreibt)."""
+    mtime = -1.0
+    for path in (DB_FILE, DB_FILE + "-wal", DB_FILE + "-shm"):
+        try:
+            mtime = max(mtime, os.path.getmtime(path))
+        except OSError:
+            continue
+    return mtime
 
 
 def _dashboard_mtime() -> float:
-    """Neueste Änderung an state.json ODER am Dashboard-Quellcode/Template."""
+    """Neueste Änderung an der DB ODER am Dashboard-Quellcode/Template."""
     src_mtime = os.path.getmtime(DASHBOARD_SRC) if os.path.exists(DASHBOARD_SRC) else -1.0
     return max(_state_mtime(), src_mtime)
 
 
 def _rebuild_dashboard() -> bytes:
-    """Baut das Dashboard aus data/state.json und aktualisiert den Cache.
+    """Baut das Dashboard aus der SQLite-DB und aktualisiert den Cache.
 
     Lädt das Dashboard-Modul vorher neu, damit Änderungen am Template
     (``bewerbungsagent/dashboard.py``) ohne Server-Neustart übernommen werden.
@@ -281,9 +281,9 @@ class Handler(SimpleHTTPRequestHandler):
             obj = json.loads(raw.decode("utf-8") or "{}")
             if not isinstance(obj, dict):
                 return self._text(400, "Ungültiger Zustand (kein Objekt).")
-            state = _read_state()
-            _apply_overlay(state, obj)
-            _write_state(state)
+            _apply_overlay(obj)
+            # JSON-Snapshot für bisync/Backup nachziehen.
+            _store().export_json(STATE_FILE)
             _schedule_dashboard_rebuild()
             return self._text(200, "ok")
         except Exception as exc:

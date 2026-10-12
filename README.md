@@ -27,7 +27,8 @@ die bestehende [`Profil-Datenbank.json`](../02_Profil-und-Assets/Profil-Datenban
 5. **Dashboard** – interaktives HTML-Dashboard (angelehnt an das alte `00_Dashboard`):
    Suche, Profil-Fit-Filter, Status-Sichtfilter, KPI-Karten, Status- und Wochen-Diagramme,
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
-   Änderungen werden über einen lokalen Server dauerhaft in `data/state.json` gespeichert.
+   Änderungen werden über einen lokalen Server dauerhaft in `data/jobs.db` (SQLite)
+   gespeichert.
 6. **Alt-Dashboard-Import** – übernimmt den kompletten Inhalt des bisherigen Dashboards
    (`00_Dashboard/Bewerbungs-Dashboard.md` + `dashboard-state.json`): alle Bewerbungen mit
    Status, Profil-Fit, Arbeitsort, Gehalt, Ansprechpartner, Stellenanzeige-URL und
@@ -51,9 +52,10 @@ die bestehende [`Profil-Datenbank.json`](../02_Profil-und-Assets/Profil-Datenban
 │   ├── dashboard.py          # Interaktives HTML-Dashboard
 │   ├── importer.py           # Import des alten Dashboards
 │   ├── pipeline.py           # Orchestrierung der Schritte
-│   ├── storage.py            # JSON-Persistenz
+│   ├── db.py                 # SQLite-Persistenz (Provider-/Nutzer-Feldtrennung)
+│   ├── storage.py            # JSON-Persistenz (jobs.json, matches.json)
 │   └── search/               # Such-Provider (StepStone, DuckDuckGo, Bing, JobSpy, Import)
-├── data/                     # Arbeitsdaten (jobs.json, matches.json, state.json, …)
+├── data/                     # Arbeitsdaten (jobs.db, jobs.json, matches.json, state.json, …)
 └── output/                   # Generierte Dokumente (ein Ordner pro Stelle)
 ```
 
@@ -100,8 +102,10 @@ python server.py                # läuft auf http://127.0.0.1:8766/04_Agent/dash
 ```
 
 Der Server liefert das Dashboard aus und speichert Änderungen über `GET/POST /state` in
-`data/state.json`. Ohne Server (direktes Öffnen der `dashboard.html` als Datei) funktioniert
-die Anzeige, aber Statusänderungen werden nur lokal im Browser gehalten (bis der Server läuft).
+`data/jobs.db` (SQLite, Alembic-migriert). `data/state.json` bleibt als abgeleiteter Snapshot
+für bisync/Backup bestehen. Ohne Server (direktes Öffnen der `dashboard.html` als Datei)
+funktioniert die Anzeige, aber Statusänderungen werden nur lokal im Browser gehalten
+(bis der Server läuft).
 Über „Ordner ↗“ in der Links-Spalte öffnet der Server den jeweiligen Bewerbungsordner im
 Dateimanager.
 

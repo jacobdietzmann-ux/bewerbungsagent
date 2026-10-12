@@ -43,6 +43,13 @@ damit `bewerbungsagent` importierbar ist.
    Live-Arbeitsordner: `.../04_Agent`. Änderungen im Repo müssen in den
    Arbeitsordner kopiert werden (und umgekehrt relevant fürs Laufen).
 
+7. **SQLite ist die Quelle der Wahrheit, `state.json` nur ein Snapshot.**
+   Seit ADR-018 liegt der Bestand in `data/jobs.db` (Alembic-migriert).
+   `data/jobs.db*` ist von bisync **ausgeschlossen** (Binärdatei!). Nach jedem
+   Schreiben wird `state.json` als abgeleiteter Snapshot exportiert — der ist
+   bisync-sicher und dient als Backup. DB-Veränderungen nur über `db.Store`,
+   nie durch direktes JSON-Editing von `state.json`.
+
 ## Konventionen
 
 - **Keine PII im Repo.** `config.json`, `Profil-Datenbank.json`, `labels.csv`

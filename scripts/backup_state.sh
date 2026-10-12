@@ -2,7 +2,8 @@
 # Sichert die Laufzeitdaten des Bewerbungsagenten (state.json, jobs.json,
 # Caches) rotationsbasiert und prüft die Integrität der Kopie.
 #
-# Wichtig: state.json ist die einzige Quelle der Wahrheit für das Dashboard.
+# Wichtig: seit ADR-018 ist data/jobs.db (SQLite) die Quelle der Wahrheit;
+# data/state.json ist ein abgeleiteter, immer aktueller Snapshot (Backup/Portabilität).
 # Ein Backup ohne *Restore-Test* ist kein Backup — deshalb wird die Kopie
 # anschließend validiert (valides JSON + erwartete Struktur).
 #

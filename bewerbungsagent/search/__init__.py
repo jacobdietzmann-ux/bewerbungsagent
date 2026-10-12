@@ -23,15 +23,14 @@ def _clean_url(url: str) -> str:
         return url
 
 
-def build_queries(config: Config) -> list[str]:
-    s = config.data["search"]
-    location = s["location"]
-    return [f"{term} Jobs {location}" for term in s["query_terms"]]
+def build_queries(s: dict) -> list[str]:
+    location = s.get("location", "München")
+    return [f"{term} Jobs {location}" for term in s.get("query_terms", [])]
 
 
-def build_stepstone_queries(config: Config) -> list[str]:
+def build_stepstone_queries(s: dict) -> list[str]:
     """StepStone nutzt Suchbegriff + Ort getrennt (kein „Jobs Ort“-Suffix)."""
-    return [term for term in config.data["search"]["query_terms"]]
+    return [term for term in s.get("query_terms", [])]
 
 
 _LISTING_HINTS = (
@@ -78,8 +77,20 @@ def _is_non_job_host(url: str) -> bool:
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs"}
 
 
-def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]:
-    s = config.data["search"]
+def run_search(config: Config, profile: Profile,
+               definition: dict | None = None) -> tuple[list[dict], list[str]]:
+    """Führt eine Suche aus.
+
+    ``definition`` (optional) überschreibt einzelne Suchparameter — für
+    „gespeicherte Suchen": ``{"query_terms": [...], "location": "...",
+    "providers": [...]}``. Ohne Angabe wird die Standard-Suche aus ``config.json``
+    verwendet. Manueller Import läuft unabhängig davon immer mit.
+    """
+    s = dict(config.data["search"])
+    if definition:
+        for key in ("query_terms", "location", "providers"):
+            if definition.get(key) is not None:
+                s[key] = definition[key]
     jobs: list[dict] = []
     errors: list[str] = []
     seen: set[str] = set()
@@ -117,7 +128,7 @@ def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]
 
             if name == "stepstone":
                 # StepStone: Suchbegriff + Ort getrennt.
-                for term in build_stepstone_queries(config):
+                for term in build_stepstone_queries(s):
                     try:
                         for raw in provider.search(
                             term,
@@ -133,7 +144,7 @@ def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]
                 # JobSpy (LinkedIn/Indeed/Google) ist langsam und liefert für
                 # nahe verwandte Suchbegriffe stark überlappende Treffer; daher nur
                 # auf einem begrenzten Teil der Suchbegriffe laufen lassen.
-                terms = build_stepstone_queries(config)[:s.get("jobspy_max_terms", 4)]
+                terms = build_stepstone_queries(s)[:s.get("jobspy_max_terms", 4)]
                 for term in terms:
                     try:
                         for job in provider.search(
@@ -147,7 +158,7 @@ def run_search(config: Config, profile: Profile) -> tuple[list[dict], list[str]]
                     except Exception as exc:
                         errors.append(f"{name} ({term[:40]}...): {exc}")
             else:
-                for query in build_queries(config):
+                for query in build_queries(s):
                     try:
                         for raw in provider.search(
                             query,

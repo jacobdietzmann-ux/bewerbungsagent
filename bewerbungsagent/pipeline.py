@@ -74,8 +74,8 @@ def _fit_value(job: dict) -> int:
 # Schritte
 # --------------------------------------------------------------------------
 
-def run_search(config: Config, profile: Profile) -> dict:
-    jobs, errors = _search(config, profile)
+def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
+    jobs, errors = _search(config, profile, definition)
     save_json(config.jobs_path(), jobs)
     return {"count": len(jobs), "errors": errors, "path": str(config.jobs_path())}
 

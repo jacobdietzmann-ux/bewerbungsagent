@@ -74,6 +74,8 @@ pip install -r requirements.txt
 # Einzelschritte
 python agent.py import-old     # Inhalt des alten Dashboards übernehmen
 python agent.py search          # Web-Suche (StepStone + DuckDuckGo)
+python agent.py searches        # gespeicherte Suchen auflisten
+python agent.py search "Test & Verification"  # nur eine gespeicherte Suche ausführen
 python agent.py fetch           # Vollständige Beschreibungen per Browser laden (Chromium)
 python agent.py match           # Präzises Fit-Scoring gegen das Skill-Profil
 python agent.py generate --all  # Dokumente für alle passenden Stellen
@@ -121,6 +123,33 @@ Die freie Websuche ist bewusst **pluggable**:
 - **JobSpy** aggregiert LinkedIn/Indeed/Google Jobs inklusive Beschreibung; läuft auf den ersten
   `jobspy_max_terms` (Standard 4) Suchbegriffen, weil es langsam ist und verwandte Begriffe
   stark überlappen. Optional installieren: `pip install -e ".[jobspy]"`.
+
+### Gespeicherte Suchen
+
+Statt immer alle `search.query_terms` durchzugehen, kannst du **benannte Suchen** definieren
+und einzeln starten. Lege dazu `data/saved_searches.json` an:
+
+```json
+[
+  {
+    "name": "Test & Verification",
+    "query_terms": ["Testingenieur", "ADAS Test", "HiL Test Engineer"],
+    "location": "München",
+    "providers": ["stepstone", "jobspy"]
+  },
+  {
+    "name": "Embedded",
+    "query_terms": ["Embedded Test", "E/E Integration", "Systemingenieur"],
+    "location": "München",
+    "providers": ["stepstone"]
+  }
+]
+```
+
+- `python agent.py searches` listet alle gespeicherten Suchen.
+- `python agent.py search "Test & Verification"` führt nur diese aus.
+- Ohne Datei existiert automatisch eine „Standard"-Suche aus `config.json`.
+- Der manuelle Import (`data/import_jobs.json`) läuft unabhängig von der gewählten Suche immer mit.
 
 Manueller Import: Lege `data/import_jobs.json` an (Format siehe
 [`data/import_jobs.example.json`](data/import_jobs.example.json)) — diese Einträge werden

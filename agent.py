@@ -28,6 +28,11 @@ from bewerbungsagent.pipeline import (
     run_match,
     run_search,
 )
+from bewerbungsagent.saved_searches import (
+    find_saved_search,
+    load_saved_searches,
+    to_definition,
+)
 from bewerbungsagent.storage import load_json
 
 
@@ -48,7 +53,10 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Bewerbungsagent")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("search", help="Web-Suche nach Stellenangeboten ausführen")
+    ssearch = sub.add_parser("search", help="Web-Suche nach Stellenangeboten ausführen")
+    ssearch.add_argument("name", nargs="?", default=None,
+                         help="Name einer gespeicherten Suche (siehe `agent.py searches`)")
+    sub.add_parser("searches", help="Gespeicherte Suchen auflisten")
     sub.add_parser("fetch", help="Vollständige Stellenbeschreibungen per Browser laden")
     sub.add_parser("match", help="Fit-Scoring gegen das Skill-Profil ausführen")
     sub.add_parser("import-old", help="Inhalt des alten Dashboards übernehmen")
@@ -71,12 +79,29 @@ def main(argv=None) -> int:
     config, profile = load_config_and_profile()
 
     if args.command == "search":
-        result = run_search(config, profile)
+        definition = None
+        if args.name:
+            saved = find_saved_search(config, args.name)
+            if saved is None:
+                print(f"Gespeicherte Suche '{args.name}' nicht gefunden.")
+                print("Verfügbar:", ", ".join(s["name"] for s in load_saved_searches(config)))
+                return 1
+            definition = to_definition(saved)
+            print(f"Gespeicherte Suche: {saved['name']} "
+                  f"({len(saved.get('query_terms', []))} Begriffe, {saved.get('location')})")
+        result = run_search(config, profile, definition=definition)
         print(f"Suche abgeschlossen: {result['count']} Stelle(n) gefunden.")
         for err in result["errors"]:
             print(f"  ! {err}")
         print(f"Ergebnis: {result['path']}")
         print("Tipp: `python agent.py fetch` lädt die vollständigen Beschreibungen per Browser.")
+
+    elif args.command == "searches":
+        searches = load_saved_searches(config)
+        print(f"{len(searches)} gespeicherte Suche(n):")
+        for s in searches:
+            print(f"  - {s['name']}: {len(s.get('query_terms', []))} Begriffe · "
+                  f"Ort {s.get('location', '?')} · Provider {', '.join(s.get('providers', []))}")
 
     elif args.command == "fetch":
         from fetch_descriptions import fetch_descriptions

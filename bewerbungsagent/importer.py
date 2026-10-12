@@ -61,13 +61,13 @@ def _parse_md_table(path: Path) -> list[dict]:
     if not path.exists():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()
-    hdr_idx = next((i for i, l in enumerate(lines) if l.startswith("| Unternehmen")), None)
+    hdr_idx = next((i for i, ln in enumerate(lines) if ln.startswith("| Unternehmen")), None)
     if hdr_idx is None:
         return []
 
     rows: list[dict] = []
-    for l in lines[hdr_idx + 2:]:
-        line = l.strip()
+    for ln in lines[hdr_idx + 2:]:
+        line = ln.strip()
         if not line.startswith("|"):
             continue
         cells = [c.strip() for c in line.strip("|").split("|")]

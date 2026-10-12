@@ -345,12 +345,15 @@ def _merge_period(a: str, b: str) -> str:
         m = re.search(r"(\d{2}/\d{4})\s*–\s*(\d{2}/\d{4})", s or "")
         return (m.group(1), m.group(2)) if m else None
 
-    ra = _range(a); rb = _range(b)
+    ra = _range(a)
+    rb = _range(b)
     starts, ends = [], []
     if ra:
-        starts.append(_ym(ra[0])); ends.append(_ym(ra[1]))
+        starts.append(_ym(ra[0]))
+        ends.append(_ym(ra[1]))
     if rb:
-        starts.append(_ym(rb[0])); ends.append(_ym(rb[1]))
+        starts.append(_ym(rb[0]))
+        ends.append(_ym(rb[1]))
     # "seit X" => offener Start (nur Start, kein Ende).
     for p in (a, b):
         m = re.search(r"seit\s+(\d{2}/\d{4})", p or "")
@@ -388,7 +391,7 @@ def _consolidate_experience(we_list: list[dict]) -> list[dict]:
         is_early = "(frühere Station" in (we.get("period", "") or "") or "(fruehere Station" in (we.get("period", "") or "")
 
         if same_role or (same_client and is_early):
-            for lang, key in (("de", "bullets_de"), ("en", "bullets_en")):
+            for _lang, key in (("de", "bullets_de"), ("en", "bullets_en")):
                 seen = set()
                 combined = []
                 for b in last.get(key, []) + we.get(key, []):
@@ -687,11 +690,11 @@ def _letter_story(profile: Profile, job: dict, match: dict, config: dict, lang: 
         story.append(Spacer(1, 3 * mm))
 
     closing_de = (
-        f"Über die Gelegenheit, Ihnen meine Erfahrung in einem persönlichen Gespräch "
-        f"vorzustellen, freue ich mich sehr."
+        "Über die Gelegenheit, Ihnen meine Erfahrung in einem persönlichen Gespräch "
+        "vorzustellen, freue ich mich sehr."
     )
     closing_en = (
-        f"I would be delighted to present my experience to you in a personal conversation."
+        "I would be delighted to present my experience to you in a personal conversation."
     )
     story.append(Paragraph(esc(closing_de if lang == "de" else closing_en), st["body"]))
     story.append(Spacer(1, 3 * mm))
@@ -887,9 +890,11 @@ def _skills_two_columns(profile: Profile, st: dict, lang: str, match: dict | Non
     left_w = right_w = 0
     for weight, block in sorted(blocks, key=lambda x: -x[0]):
         if left_w <= right_w:
-            left.append(block); left_w += weight
+            left.append(block)
+            left_w += weight
         else:
-            right.append(block); right_w += weight
+            right.append(block)
+            right_w += weight
 
     col_paras = [
         [Paragraph("<br/><br/>".join(left), st["body"]) if left else Paragraph("", st["body"]),

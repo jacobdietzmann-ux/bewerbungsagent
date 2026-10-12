@@ -46,7 +46,7 @@ ungeeignet.
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 DEFAULT_MODEL = "BAAI/bge-reranker-base"
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from bewerbungsagent.profile import Profile, _split_phrases, normalize
+from bewerbungsagent.profile import _split_phrases, normalize
 
 
 class TestNormalize:

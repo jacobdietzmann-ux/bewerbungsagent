@@ -404,3 +404,80 @@ class TestPrecisionAtK:
         pos, neg = M.mean_by_label([0.9, 0.8, 0.2, 0.1], [True, True, False, False])
         assert pos == pytest.approx(0.85)
         assert neg == pytest.approx(0.15)
+
+
+class TestOptimizeThreshold:
+    """Der optimale Schwellenwert hängt vom Geschäftsziel ab (Decision Theory)."""
+
+    def _data(self):
+        # 2 passend (90, 80), 3 unpassend (70, 60, 50)
+        return [(90.0, True), (80.0, True), (70.0, False), (60.0, False), (50.0, False)]
+
+    def test_max_f1_prefers_balanced(self):
+        _t, c = M.optimize_threshold(self._data(), "max_f1")
+        # threshold 71 (oder 81) gibt tp=2, fp=0 -> F1=1.0. Wir prüfen die
+        # Qualität, nicht den exakten Wert (Tie-Break bevorzugt niedrigere
+        # Schwelle = mehr Recall).
+        assert M.f1(c) == 1.0
+        assert M.recall(c) == 1.0
+
+    def test_max_fbeta_weights_recall(self):
+        # beta=2 bevorzugt Recall; hier deckt sich das Optimum mit max_f1
+        _t, c = M.optimize_threshold(self._data(), "max_fbeta", beta=2.0)
+        assert M.f1(c) >= M.f1(M.evaluate_at(self._data(), 0.0))
+
+    def test_max_recall_with_min_precision(self):
+        _t, c = M.optimize_threshold(self._data(), "max_recall", min_precision=0.6)
+        # threshold 81 gibt precision 1.0 und recall 1.0
+        assert M.precision(c) >= 0.6
+        assert M.recall(c) == 1.0
+
+    def test_constraint_unsatisfiable_returns_none(self):
+        data = [(30.0, True), (90.0, False)]  # max precision = 0.5
+        assert M.optimize_threshold(data, "max_recall", min_precision=0.6) is None
+
+    def test_max_precision_with_min_recall(self):
+        data = [(30.0, True), (90.0, False), (95.0, False)]
+        _t, c = M.optimize_threshold(data, "max_precision", min_recall=1.0)
+        # recall=1.0 nur bei threshold<=30 -> precision=1/3
+        assert M.recall(c) == 1.0
+        assert M.precision(c) == pytest.approx(1 / 3)
+
+    def test_unknown_goal_raises(self):
+        with pytest.raises(ValueError):
+            M.optimize_threshold(self._data(), "quatsch")
+
+    def test_empty_returns_none(self):
+        assert M.optimize_threshold([], "max_f1") is None
+
+
+class TestSampleSize:
+    """Planung: reicht die Stichprobe für eine belastbare AUC?"""
+
+    def test_empty_returns_zero(self):
+        assert M.required_sample_size([]) == 0
+
+    def test_one_class_only_returns_zero(self):
+        assert M.required_sample_size([(0.9, True), (0.8, True)]) == 0
+
+    def test_larger_than_current_for_wide_ci(self):
+        # AUC ≈ 0.5 (Rauschen) -> breitestes CI -> deutlich mehr nötig.
+        data = [(0.6, True), (0.4, True), (0.5, False), (0.7, False), (0.3, False)]
+        assert M.roc_auc(data) == pytest.approx(0.5)
+        assert M.auc_confidence_interval(data) == pytest.approx((0.0, 1.0))
+        # n_min=2, Multiplikator für half 0.05 = (1.96*se/0.05)^2 ≈ 128
+        # -> 2*128 = 256. Wir prüfen nur, dass es deutlich > aktuell ist.
+        n = M.required_sample_size(data, target_half_width=0.05)
+        assert n >= 200
+
+    def test_confidence_interval_bounds(self):
+        data = [(0.9, True), (0.8, True), (0.2, False), (0.1, False)]
+        lo, hi = M.auc_confidence_interval(data)
+        assert 0.0 <= lo <= 1.0
+        assert 0.0 <= hi <= 1.0
+        assert lo <= hi
+
+    def test_perfect_separation_gives_narrow_ci(self):
+        data = [(0.9, True), (0.8, True), (0.2, False), (0.1, False)]
+        lo, hi = M.auc_confidence_interval(data)
+        assert hi - lo < 0.01  # perfekt trennbar -> SE ~ 0

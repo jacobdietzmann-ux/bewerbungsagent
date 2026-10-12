@@ -64,8 +64,8 @@ Bessere Ansätze als ein Einzel-Vektor:
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Sequence
 
 DEFAULT_MODEL = "intfloat/multilingual-e5-base"
 
@@ -323,7 +323,6 @@ class SemanticMatcher:
     def score(self, profile_text: str, job_texts: Iterable[str],
               show_progress: bool = False) -> list[float]:
         """Kosinus-Ähnlichkeit zwischen Profil und mehreren Stellen."""
-        import numpy as np
 
         job_texts = list(job_texts)
         if not job_texts:

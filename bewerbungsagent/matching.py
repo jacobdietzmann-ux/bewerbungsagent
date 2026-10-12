@@ -40,10 +40,7 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     ort = ort.replace("munich", "munchen")
     loc = loc.replace("munich", "munchen")
     if loc and ort:
-        if loc in ort or ort in loc:
-            location_bonus = 10
-        else:
-            location_bonus = 0
+        location_bonus = 10 if loc in ort or ort in loc else 0
     score = min(100, score + location_bonus)
 
     if score >= 65:

@@ -15,10 +15,10 @@ from pathlib import Path
 STOPWORDS = {
     "der", "die", "das", "und", "oder", "ein", "eine", "mit", "von", "für", "auf",
     "in", "im", "an", "bei", "zu", "zum", "zur", "the", "and", "for", "with", "of",
-    "to", "in", "on", "a", "an", "m", "w", "d", "f", "gmbh", "ag", "se", "kg",
+    "to", "on", "a", "m", "w", "d", "f", "gmbh", "ag", "se", "kg",
     # normalisierte deutsche Funktionswörter (Umlaute werden zu ASCII abgebaut)
     "fur", "fuer", "ueber", "unter", "nach", "vor", "ab", "nur", "mehr",
-    "wie", "als", "auch", "eine", "einen", "einem", "einer", "aus", "bis",
+    "wie", "als", "auch", "einen", "einem", "einer", "aus", "bis",
 }
 
 # Generische Begriffe aus Rollentiteln/-beschreibungen, die als einzelnes
@@ -46,10 +46,10 @@ _ROLE_WORD_NOISE = {
     "vergleichbaren", "vergleichbar", "fundiert", "verhandlungssicher",
     "muttersprache", "standard", "office", "tools", "level", "next", "cause",
     "root", "wort", "schrift", "boot", "funktionale", "elektrische",
-    "anforderungen", "sicherheit", "belastbares", "direkte", "strukturell",
+    "anforderungen", "belastbares", "direkte", "strukturell",
     "vergleichbarer", "bestandteile", "eigenen", "eigene", "weitere", "inklusive",
     # weitere generische / verstümmelte Tokens
-    "nicht", "analyse", "analysen", "elektr", "elektrische", "mehr", "alle",
+    "nicht", "analyse", "analysen", "elektr", "mehr", "alle",
     "ihr", "ihre", "ihren", "deine", "dein", "diese", "dieser", "diesen",
 }
 
@@ -110,7 +110,7 @@ class Profile:
         return self.display_map.get(normalized_keyword, normalized_keyword)
 
     @classmethod
-    def load(cls, path: Path) -> "Profile":
+    def load(cls, path: Path) -> Profile:
         return cls(json.loads(Path(path).read_text(encoding="utf-8")))
 
     # ---- Zugriffe auf Rohdaten -----------------------------------------

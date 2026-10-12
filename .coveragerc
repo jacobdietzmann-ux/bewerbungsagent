@@ -1,0 +1,22 @@
+[run]
+source = bewerbungsagent, eval
+
+[report]
+# Gate nur auf die deterministischen Kerne: Crawler (Netzwerk), PDF-Renderer
+# (reportlab) und Dashboard (HTML) brauchen Integrationstests, keine Unit-Tests.
+omit =
+    bewerbungsagent/documents.py
+    bewerbungsagent/dashboard.py
+    bewerbungsagent/pipeline.py
+    bewerbungsagent/commute.py
+    bewerbungsagent/salary.py
+    bewerbungsagent/importer.py
+    bewerbungsagent/cleanup.py
+    bewerbungsagent/config.py
+    bewerbungsagent/storage.py
+    bewerbungsagent/rerank.py
+    bewerbungsagent/semantic.py
+    bewerbungsagent/search/*
+    eval/run_*.py
+    eval/label_tool.py
+fail_under = 80

@@ -47,7 +47,7 @@ _AWAY_CITIES = {
     "dortmund", "bochum", "bonn", "bielefeld", "mainz", "wiesbaden", "aachen",
     "braunschweig", "wolfsburg", "ingolstadt", "regensburg", "ulm", "freising",
     "landshut", "augsburg", "gilching", "weilheim", "pforzheim", "heidelberg",
-    "mannheim", "koethen", "bremen", "hamburg", "berlin", "duisburg", "essen",
+    "koethen", "duisburg",
 }
 
 _MUNICH_METRO = {
@@ -105,9 +105,7 @@ def _has_real_salary(value: str) -> bool:
         return False
     if s in ("k. a.", "k.a.", "-", "–", "keine angabe", "keine angaben"):
         return False
-    if "nicht angezeigt" in s or "keine angabe" in s:
-        return False
-    return True
+    return not ("nicht angezeigt" in s or "keine angabe" in s)
 
 
 def enrich_salary(apps: list[dict]) -> dict:

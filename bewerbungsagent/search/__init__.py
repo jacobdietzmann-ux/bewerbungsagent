@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from ..config import Config
 from ..profile import Profile, normalize
@@ -51,9 +51,7 @@ def _is_listing_page(title: str) -> bool:
     if any(h in t for h in _LISTING_HINTS):
         return True
     # Muster „<Zahl> Jobs“ / „<Zahl> Stellen“
-    if re.search(r"^\d+\s+(jobs|stellen|offene)", t):
-        return True
-    return False
+    return bool(re.search(r"^\d+\s+(jobs|stellen|offene)", t))
 
 
 _NON_JOB_HOSTS = (

@@ -64,7 +64,7 @@ def _is_metro(token: str) -> bool:
 
 def _strip_noise(part: str) -> str:
     """Entfernt störende Klammer-Anmerkungen (z. B. „(nicht München!)")."""
-    def repl(m: "re.Match[str]") -> str:
+    def repl(m: re.Match[str]) -> str:
         inner = normalize(m.group(1))
         return "" if any(p in inner for p in _NOISE_PAREN) else m.group(0)
     cleaned = re.sub(r"\(([^)]*)\)", repl, part)

@@ -24,8 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from eval import labels as L  # noqa: E402
-from eval import metrics as M  # noqa: E402
+from eval import labels as L
+from eval import metrics as M
 
 DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
 FIXED_THRESHOLDS = [50.0, 60.0, 65.0, 70.0, 80.0]
@@ -61,6 +61,25 @@ def evaluate(state_path: Path, labels_path: Path) -> dict:
     best_t, best_c = M.best_by_f1(sweep) if sweep else (0.0, M.Counts())
     baseline_c = M.majority_baseline(labeled) if labeled else M.Counts()
 
+    # Kalibrierung nach Geschäftsziel (Decision Theory): die "beste" Schwelle
+    # hängt davon ab, was teurer ist — Precision oder Recall.
+    calibration = {}
+    if labeled:
+        calibration["max_recall_p80"] = M.optimize_threshold(
+            labeled, "max_recall", min_precision=0.80)
+        calibration["max_recall_p60"] = M.optimize_threshold(
+            labeled, "max_recall", min_precision=0.60)
+        calibration["max_precision_r80"] = M.optimize_threshold(
+            labeled, "max_precision", min_recall=0.80)
+        calibration["max_f2"] = M.optimize_threshold(labeled, "max_fbeta", beta=2.0)
+        # Sample-Size-Planung (nur auf manuellen Labels sinnvoll).
+        manual_labeled = [(e.score, e.label) for e in dataset if e.source == "manual"]
+        if len(manual_labeled) >= 4 and any(lab for _, lab in manual_labeled) \
+                and any(not lab for _, lab in manual_labeled):
+            calibration["auc_ci"] = M.auc_confidence_interval(manual_labeled)
+            calibration["needed_half_10"] = M.required_sample_size(
+                manual_labeled, target_half_width=0.10)
+
     return {
         "diagnostics": diag,
         "dataset": dataset,
@@ -71,6 +90,7 @@ def evaluate(state_path: Path, labels_path: Path) -> dict:
         "baseline": baseline_c,
         "enough_labels": enough,
         "preliminary": preliminary,
+        "calibration": calibration,
     }
 
 
@@ -156,6 +176,37 @@ def render_report(res: dict) -> str:
                f"Precision {_pct(M.precision(best_c))} · "
                f"Recall {_pct(M.recall(best_c))} · F1 {_pct(M.f1(best_c))} · "
                f"Balanced Accuracy {_pct(M.balanced_accuracy(best_c))}\n")
+
+    cal = res.get("calibration") or {}
+    if cal:
+        out.append("## 4b. Kalibrierung nach Geschäftsziel\n")
+        out.append("Die \"beste\" Schwelle ist **keine feste Zahl** — sie hängt "
+                   "davon ab, was teurer ist: eine unpassende Stelle anzuschauen "
+                   "(Precision) oder eine passende zu verpassen (Recall).\n")
+        out.append("| Ziel | Schwelle | Precision | Recall |")
+        out.append("|---|---:|---:|---:|")
+        def _cal_row(name, entry):
+            if entry is None:
+                out.append(f"| {name} | — (nicht erfüllbar) | — | — |")
+            else:
+                t, c = entry
+                out.append(f"| {name} | {t:.0f} | {_pct(M.precision(c))} | "
+                           f"{_pct(M.recall(c))} |")
+        _cal_row("Max. Recall bei Precision ≥ 80 %", cal.get("max_recall_p80"))
+        _cal_row("Max. Recall bei Precision ≥ 60 %", cal.get("max_recall_p60"))
+        _cal_row("Max. Precision bei Recall ≥ 80 %", cal.get("max_precision_r80"))
+        _cal_row("F2 (Recall doppelt gewichtet)", cal.get("max_f2"))
+        out.append("")
+        if "auc_ci" in cal:
+            lo, hi = cal["auc_ci"]
+            out.append(f"- AUC (nur manuelle Labels): {_pct(M.roc_auc([(e.score, e.label) for e in res['dataset'] if e.source == 'manual']))}, "
+                       f"95 %-CI [{_pct(lo)}, {_pct(hi)}]")
+            out.append(f"- Für ein CI von ±10 Prozentpunkten werden geschätzt "
+                       f"**{cal['needed_half_10']} Labels je Klasse** benötigt "
+                       f"(aktuell: {sum(1 for e in res['dataset'] if e.source == 'manual' and e.label)} "
+                       f"passend / {sum(1 for e in res['dataset'] if e.source == 'manual' and not e.label)} "
+                       "nicht passend).")
+        out.append("")
 
     out.append("## 5. Threshold-Sweep\n")
     out.append("| Schwelle | TP | FP | FN | TN | Precision | Recall | F1 |")

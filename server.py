@@ -22,13 +22,13 @@ import sys
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 # Normalisierung der Statuswerte aus dem Agent-Package (einzelne Quelle der Wahrheit).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from bewerbungsagent.statuses import normalize_status
-except Exception:  # noqa: BLE001 - Fallback, falls Package nicht importierbar
+except Exception:
     _LEGACY = {
         "neu": "research", "passend": "research", "dokumente_erstellt": "docs",
         "beworben": "sent", "antwort": "followup", "absage": "rejected",
@@ -39,7 +39,7 @@ except Exception:  # noqa: BLE001 - Fallback, falls Package nicht importierbar
 try:
     from bewerbungsagent.config import Config
     from bewerbungsagent.dashboard import build_dashboard
-except Exception:  # noqa: BLE001
+except Exception:
     Config = None  # type: ignore[assignment]
     build_dashboard = None  # type: ignore[assignment]
 
@@ -61,7 +61,7 @@ EDITABLE = ("status", "contact", "deleted", "notes", "interviewDate", "statusCha
 def open_in_file_manager(path):
     system = platform.system()
     if system == "Windows":
-        os.startfile(path)  # noqa: S606 - nur für validierte, innerhalb ROOT liegende Pfade
+        os.startfile(path)
     elif system == "Darwin":
         subprocess.run(["open", path], check=True)
     else:
@@ -72,11 +72,11 @@ def _read_state() -> dict:
     if not os.path.isfile(STATE_FILE):
         return {"applications": []}
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as fh:
+        with open(STATE_FILE, encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict) and isinstance(data.get("applications"), list):
             return data
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return {"applications": []}
 
@@ -175,7 +175,7 @@ def _rebuild_dashboard() -> bytes:
             path = _dash.build_dashboard(state, config.dashboard_path)
             with open(path, "rb") as fh:
                 html = fh.read()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             html = ("Dashboard-Fehler: " + str(exc)).encode("utf-8")
     _DASH_HTML = html
     _DASH_MTIME = _dashboard_mtime()
@@ -265,7 +265,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _handle_state_get(self):
         try:
             data = json.dumps(_overlay_from_state(_read_state()), ensure_ascii=False)
-        except Exception:  # noqa: BLE001
+        except Exception:
             data = "{}"
         body = data.encode("utf-8")
         self.send_response(200)
@@ -286,7 +286,7 @@ class Handler(SimpleHTTPRequestHandler):
             _write_state(state)
             _schedule_dashboard_rebuild()
             return self._text(200, "ok")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return self._text(500, "Fehler beim Speichern: " + str(exc))
 
     def _handle_open(self, parsed):
@@ -304,7 +304,7 @@ class Handler(SimpleHTTPRequestHandler):
             open_in_file_manager(target)
             print("[open] " + target)
             return self._text(200, "ok")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return self._text(500, "Fehler beim Öffnen: " + str(exc))
 
     def _text(self, code, msg):
@@ -317,7 +317,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    url = "http://%s:%d%s" % (HOST, PORT, DASHBOARD_PATH)
+    url = f"http://{HOST}:{PORT}{DASHBOARD_PATH}"
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print("Bewerbungsagent-Dashboard läuft auf: " + url, flush=True)
     _schedule_dashboard_rebuild()

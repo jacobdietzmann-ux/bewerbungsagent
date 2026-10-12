@@ -35,9 +35,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from eval import labels as L  # noqa: E402
-from eval import metrics as M  # noqa: E402
-from eval.metrics import precision_at_k  # noqa: E402
+from eval import labels as L
+from eval import metrics as M
+from eval.metrics import precision_at_k
 
 DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
 DEFAULT_PROFILE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/02_Profil-und-Assets/Profil-Datenbank.json"
@@ -52,7 +52,7 @@ def _pct(x: float) -> str:
 
 
 def _evaluate(name: str, scores: np.ndarray, y: np.ndarray) -> dict:
-    labeled = [(float(s), bool(t)) for s, t in zip(scores, y)]
+    labeled = [(float(s), bool(t)) for s, t in zip(scores, y, strict=False)]
     return {
         "name": name,
         "auc": M.roc_auc(labeled),
@@ -62,8 +62,12 @@ def _evaluate(name: str, scores: np.ndarray, y: np.ndarray) -> dict:
 
 def run(state_path: Path, profile_path: Path, model_name: str,
         out: Path | None = None) -> dict:
-    from bewerbungsagent.semantic import (SemanticMatcher, build_job_text,
-                                          build_profile_query, build_profile_text)
+    from bewerbungsagent.semantic import (
+        SemanticMatcher,
+        build_job_text,
+        build_profile_query,
+        build_profile_text,
+    )
 
     apps = L.load_state(state_path)
     manual = L.load_manual_labels()
@@ -102,7 +106,7 @@ def run(state_path: Path, profile_path: Path, model_name: str,
                 {"titel": e.titel, "firma": e.firma, "label": e.label,
                  "kw": float(s), "kw_rank": int(np.where(np.argsort(-kw) == i)[0][0]) + 1,
                  "score": e.score}
-                for i, (e, s) in enumerate(zip(entries, kw))
+                for i, (e, s) in enumerate(zip(entries, kw, strict=False))
             ]
         return res
 

@@ -19,10 +19,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import time
-from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
@@ -74,7 +72,7 @@ def _is_expired(text: str) -> bool:
 
 def _extract_description(text: str) -> str:
     """Extrahiert den relevanten Beschreibungsteil (Aufgaben + Anforderungen + Benefits)."""
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
         return ""
 
@@ -96,7 +94,7 @@ def _extract_description(text: str) -> str:
     if start_idx is None:
         start_idx = 0
 
-    body = [l for l in lines[start_idx:end_idx] if l.lower() not in _NOISE_BLOCKS]
+    body = [ln for ln in lines[start_idx:end_idx] if ln.lower() not in _NOISE_BLOCKS]
     return "\n".join(body).strip()
 
 
@@ -153,7 +151,7 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
                     else:
                         skipped += 1
                         print(f"[{i}/{len(targets)}] LEER {firma}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors += 1
                 print(f"[{i}/{len(targets)}] FEHL {firma}: {type(exc).__name__}")
 

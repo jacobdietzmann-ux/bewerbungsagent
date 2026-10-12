@@ -6,8 +6,8 @@ import os
 import re
 from pathlib import Path
 
-from .config import AGENT_ROOT, Config
 from .commute import enrich_commute
+from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard
 from .documents import generate_anschreiben, generate_lebenslauf
 from .importer import import_old_dashboard
@@ -53,7 +53,7 @@ def _fit_value(job: dict) -> int:
     """Einheitlicher Fit-Wert (0–100) für alte (fit_pct) und neue (score) Stellen."""
     raw = job.get("fit_pct") if job.get("fit_pct") is not None else job.get("score")
     try:
-        return int(round(float(raw))) if raw is not None else 0
+        return round(float(raw)) if raw is not None else 0
     except (TypeError, ValueError):
         return 0
 
@@ -142,11 +142,10 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     for a in apps:
         if a.get("status") in _ACTIVE_STATUSES:
             continue
-        if _fit_value(a) < 50:
-            if not a.get("deleted"):
-                a["deleted"] = True
-                a["deleted_reason"] = "FIT < 50 %"
-                deleted_count += 1
+        if _fit_value(a) < 50 and not a.get("deleted"):
+            a["deleted"] = True
+            a["deleted_reason"] = "FIT < 50 %"
+            deleted_count += 1
 
     # 5) FIT > 65 % automatisch bewerben (nur wenn noch keine Unterlagen vorliegen)
     generated = []

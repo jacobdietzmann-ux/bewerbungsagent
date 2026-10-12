@@ -15,8 +15,8 @@ Recall 0. Deshalb sind Precision/Recall/F1 die Leitmetriken.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,7 @@ def confusion_matrix(y_true: list[bool], y_pred: list[bool]) -> Counts:
     if len(y_true) != len(y_pred):
         raise ValueError("y_true und y_pred müssen gleich lang sein")
     tp = fp = fn = tn = 0
-    for t, p in zip(y_true, y_pred):
+    for t, p in zip(y_true, y_pred, strict=False):
         if t and p:
             tp += 1
         elif not t and p:
@@ -182,7 +182,7 @@ def auc_interpretation(auc: float) -> str:
     return "ohne Aussagekraft (Zufallsniveau)"
 
 
-def precision_at_k(scores: "Sequence[float]", labels: "Sequence[bool]", k: int) -> float:
+def precision_at_k(scores: Sequence[float], labels: Sequence[bool], k: int) -> float:
     """Anteil passender unter den Top-k nach Score.
 
     Die betrieblich relevanteste Kennzahl für Empfehlungssysteme: „Wenn ich
@@ -204,9 +204,136 @@ def precision_at_k(scores: "Sequence[float]", labels: "Sequence[bool]", k: int) 
     return sum(1 for i in order if labels[i]) / k
 
 
-def mean_by_label(scores: "Sequence[float]", labels: "Sequence[bool]") -> tuple[float, float]:
+def mean_by_label(scores: Sequence[float], labels: Sequence[bool]) -> tuple[float, float]:
     """Mittelwert der Scores getrennt nach Label (für die Trennkraft-Analyse)."""
-    pos = [s for s, lab in zip(scores, labels) if lab]
-    neg = [s for s, lab in zip(scores, labels) if not lab]
+    pos = [s for s, lab in zip(scores, labels, strict=False) if lab]
+    neg = [s for s, lab in zip(scores, labels, strict=False) if not lab]
     return (sum(pos) / len(pos) if pos else 0.0,
             sum(neg) / len(neg) if neg else 0.0)
+
+
+# --------------------------------------------------------------------------
+# Schwellenwert-Optimierung: Der "beste" Wert hängt vom Geschäftsziel ab.
+# --------------------------------------------------------------------------
+
+def optimize_threshold(
+    labeled: list[tuple[float, bool]],
+    goal: str = "max_f1",
+    min_precision: float | None = None,
+    min_recall: float | None = None,
+    beta: float = 1.0,
+    thresholds: list[float] | None = None,
+) -> tuple[float, Counts] | None:
+    """Findet den optimalen Schwellenwert für ein **Geschäftsziel**.
+
+    Ein Schwellenwert ist keine Naturkonstante — er hängt davon ab, was teurer
+    ist: eine unpassende Stelle anzuschauen (Precision) oder eine passende zu
+    verpassen (Recall).
+
+    Ziele:
+    - ``"max_f1"``       — F1-Maximum (Standard, gleiche Gewichtung)
+    - ``"max_fbeta"``    — F-beta; ``beta > 1`` gewichtet Recall stärker
+      („ich will keine passende Stelle verpassen"), ``beta < 1`` Precision
+      („ich will keine Zeit verschwenden")
+    - ``"max_recall"``   — höchster Recall **unter** der Nebenbedingung
+      ``min_precision`` (sonst ist das Optimum trivial: Schwelle 0)
+    - ``"max_precision"``— höchste Precision **unter** ``min_recall``
+
+    Gibt ``(threshold, Counts)`` zurück oder ``None``, wenn kein Wert die
+    Nebenbedingung erfüllt.
+    """
+    if not labeled:
+        return None
+    if thresholds is None:
+        thresholds = [float(t) for t in range(0, 101, 1)]
+
+    def fbeta(c: Counts, b: float) -> float:
+        p, r = precision(c), recall(c)
+        if p + r == 0:
+            return 0.0
+        b2 = b * b
+        return (1 + b2) * p * r / (b2 * p + r)
+
+    best: tuple[float, Counts, float] | None = None
+    for t in thresholds:
+        c = evaluate_at(labeled, t)
+        p, r = precision(c), recall(c)
+        if goal == "max_f1":
+            score = f1(c)
+        elif goal == "max_fbeta":
+            score = fbeta(c, beta)
+        elif goal == "max_recall":
+            if min_precision is not None and p < min_precision:
+                continue
+            # Bei gleicher Recall-Präferenz: höhere Precision.
+            score = r + p * 1e-6
+        elif goal == "max_precision":
+            if min_recall is not None and r < min_recall:
+                continue
+            score = p + r * 1e-6
+        else:
+            raise ValueError(f"Unbekanntes Ziel: {goal}")
+        if best is None or score > best[2] + 1e-9:
+            best = (t, c, score)
+    if best is None:
+        return None
+    return best[0], best[1]
+
+
+def required_sample_size(
+    labeled: list[tuple[float, bool]],
+    target_half_width: float = 0.10,
+    confidence: float = 0.95,
+) -> int:
+    """Geschätzte Anzahl Labels (je Klasse) für ein belastbares AUC.
+
+    Verwendet die Hanley-McNeil-Näherung für den Standardfehler der AUC und
+    rechnet auf eine gewünschte Halbbreite des Konfidenzintervalls zurück.
+    Das ist eine **Planungsgröße**, keine exakte Zahl — sie beantwortet
+    „reicht meine Stichprobe?".
+
+    ``target_half_width`` = gewünschte halbe Breite des 95 %-CI der AUC
+    (z. B. 0.10 = ±10 Prozentpunkte).
+    """
+    if not labeled:
+        return 0
+    auc = roc_auc(labeled)
+    n_pos = sum(1 for _, lab in labeled if lab)
+    n_neg = sum(1 for _, lab in labeled if not lab)
+    n_min = min(n_pos, n_neg)
+    if n_min == 0:
+        return 0
+    # Standardfehler der AUC (Hanley-McNeil).
+    q1 = auc / (2 - auc) if auc < 2 else 0.0
+    q2 = 2 * auc * auc / (1 + auc)
+    se = ((auc * (1 - auc) + (n_pos - 1) * (q1 - auc * auc)
+           + (n_neg - 1) * (q2 - auc * auc)) / (n_pos * n_neg)) ** 0.5
+    if se == 0:
+        return n_min
+    # z-Wert für das Konfidenzniveau (nur 90/95/99 implementiert).
+    z = {0.90: 1.645, 0.95: 1.960, 0.99: 2.576}.get(round(confidence, 2), 1.960)
+    # Benötigte Anzahl, damit z*se <= target_half_width. Der SE skaliert
+    # ~ 1/sqrt(n_min); (z*se/target)^2 ist also der MULTIPLIKATOR auf n_min,
+    # nicht die absolute Zahl.
+    multiplier = (z * se / target_half_width) ** 2
+    return max(1, round(n_min * multiplier))
+
+
+def auc_confidence_interval(
+    labeled: list[tuple[float, bool]], confidence: float = 0.95
+) -> tuple[float, float]:
+    """95 %-Konfidenzintervall der AUC (Hanley-McNeil-Näherung)."""
+    auc = roc_auc(labeled)
+    n_pos = sum(1 for _, lab in labeled if lab)
+    n_neg = sum(1 for _, lab in labeled if not lab)
+    if n_pos == 0 or n_neg == 0:
+        return (0.0, 1.0)
+    q1 = auc / (2 - auc) if auc < 2 else 0.0
+    q2 = 2 * auc * auc / (1 + auc)
+    se = ((auc * (1 - auc) + (n_pos - 1) * (q1 - auc * auc)
+           + (n_neg - 1) * (q2 - auc * auc)) / (n_pos * n_neg)) ** 0.5
+    z = {0.90: 1.645, 0.95: 1.960, 0.99: 2.576}.get(round(confidence, 2), 1.960)
+    lo = max(0.0, auc - z * se)
+    hi = min(1.0, auc + z * se)
+    return (lo, hi)
+

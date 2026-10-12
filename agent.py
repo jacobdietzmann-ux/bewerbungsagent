@@ -16,8 +16,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from bewerbungsagent.config import Config
 from bewerbungsagent.cleanup import run_cleanup
+from bewerbungsagent.config import Config
 from bewerbungsagent.pipeline import (
     load_config_and_profile,
     run_dashboard,
@@ -137,7 +137,7 @@ def main(argv=None) -> int:
             print(f"DRY RUN — {n} Ordner würden verschoben werden:")
             for f in result["folders"]:
                 print(f"  [{f['status']:9s}] {f['firma']} — {f['titel']}  ({f['reason']})")
-            print(f"\nZum Ausführen: python agent.py cleanup")
+            print("\nZum Ausführen: python agent.py cleanup")
         else:
             print(f"Cleanup abgeschlossen: {result['moved']} Ordner verschoben nach {result['trash']}")
 

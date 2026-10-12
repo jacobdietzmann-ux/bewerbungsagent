@@ -46,10 +46,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from eval import labels as L  # noqa: E402
-from eval import metrics as M  # noqa: E402
-from eval.run_semantic_eval import K_VALUES  # noqa: E402
-from eval.metrics import precision_at_k  # noqa: E402
+from eval import labels as L
+from eval import metrics as M
+from eval.metrics import precision_at_k
+from eval.run_semantic_eval import K_VALUES
 
 DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
 DEFAULT_PROFILE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/02_Profil-und-Assets/Profil-Datenbank.json"
@@ -62,24 +62,26 @@ def _pct(x: float) -> str:
 
 
 def _eval(name: str, scores: np.ndarray, y: np.ndarray) -> dict:
-    labeled = [(float(s), bool(t)) for s, t in zip(scores, y)]
+    labeled = [(float(s), bool(t)) for s, t in zip(scores, y, strict=False)]
     return {
         "name": name,
         "auc": M.roc_auc(labeled),
         "p_at": {k: precision_at_k(scores, y, k) for k in K_VALUES},
-        "mean_pos": float(np.mean([s for s, t in zip(scores, y) if t])) if y.any() else 0.0,
-        "mean_neg": float(np.mean([s for s, t in zip(scores, y) if not t])) if (~y).any() else 0.0,
+        "mean_pos": float(np.mean([s for s, t in zip(scores, y, strict=False) if t])) if y.any() else 0.0,
+        "mean_neg": float(np.mean([s for s, t in zip(scores, y, strict=False) if not t])) if (~y).any() else 0.0,
     }
 
 
 def run(state_path: Path, profile_path: Path, rerank_model: str,
         be_model: str, out: Path | None = None) -> dict:
-    import torch
 
     from bewerbungsagent.rerank import Reranker
-    from bewerbungsagent.semantic import (SemanticMatcher, build_job_text,
-                                          build_profile_query,
-                                          build_profile_query_nl)
+    from bewerbungsagent.semantic import (
+        SemanticMatcher,
+        build_job_text,
+        build_profile_query,
+        build_profile_query_nl,
+    )
 
     apps = L.load_state(state_path)
     manual = L.load_manual_labels()
@@ -212,7 +214,7 @@ def render(r: dict) -> str:
     ck_v = hard["variants"]["cross_kw"]
     be_v = hard["variants"]["bi_encoder"]
     kw_auc, cn_auc = kw_v["auc"], cn_v["auc"]
-    ck_auc, be_auc = ck_v["auc"], be_v["auc"]
+    _ck_auc, be_auc = ck_v["auc"], be_v["auc"]
 
     o.append("## Interpretation\n")
     o.append(f"**Kein neuronales Verfahren schlägt den Keyword-Fit.** Auf den "
@@ -225,7 +227,7 @@ def render(r: dict) -> str:
                  f"{per_pair*1000:.0f} ms pro Stelle.\n")
 
     o.append("### Anfrageform: Der Effekt kehrt sich um\n")
-    o.append(f"| Datensatz | Keyword-Anfrage | Natürliche Anfrage |")
+    o.append("| Datensatz | Keyword-Anfrage | Natürliche Anfrage |")
     o.append("|---|---:|---:|")
     for key, label in (("full", "Voller Datensatz"), ("hard", "Harte Fälle")):
         d = r[key]["variants"]

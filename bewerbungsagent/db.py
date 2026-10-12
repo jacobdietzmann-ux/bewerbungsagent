@@ -133,16 +133,21 @@ class Store:
     # ---- Schreiben -------------------------------------------------------
 
     def save_state(self, state: dict) -> None:
-        """Ersetzt den gesamten Bestand (Provider-Felder vollständig, Nutzer-Felder
-        aus dem übergebenen Dict). ``updated`` wird in der ``meta``-Tabelle geführt."""
+        """Ersetzt den gesamten Bestand atomar.
+
+        Alle im Dict enthaltenen Bewerbungen werden eingefügt/aktualisiert;
+        alle **nicht** mehr enthaltenen Keys werden gelöscht (Voll-Replace).
+        ``updated`` wird in der ``meta``-Tabelle geführt."""
         apps = state.get("applications", []) if isinstance(state, dict) else []
         now = state.get("updated") if isinstance(state, dict) else now_iso()
         with self._Session() as session:
             existing = {r.key: r for r in session.query(Application).all()}
+            keep_keys: set[str] = set()
             for app in apps:
                 key = app.get("key") or _fallback_key(app)
                 if not key:
                     continue
+                keep_keys.add(key)
                 provider, user = _split(app)
                 row = existing.get(key)
                 if row is None:
@@ -155,6 +160,10 @@ class Store:
                     row.provider = provider
                     row.user = user
                     row.updated_at = now
+            # Nicht mehr enthaltene Einträge entfernen (Voll-Replace).
+            for key, row in existing.items():
+                if key not in keep_keys:
+                    session.delete(row)
             session.merge(Meta(key="updated", value=now))
             session.commit()
 

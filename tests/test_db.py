@@ -115,6 +115,15 @@ class TestStore:
         assert loaded["applications"][0]["score"] == 75
         assert loaded["applications"][0]["titel"] == "Senior Test Engineer"
 
+    def test_save_state_deletes_missing_keys(self, store):
+        # Voll-Replace: Einträge, die nicht mehr in der Liste sind, müssen gelöscht werden.
+        store.save_state({"applications": [_app(key="k1"), _app(key="k2")], "updated": ""})
+        assert len(store.load_state()["applications"]) == 2
+        store.save_state({"applications": [_app(key="k1")], "updated": ""})
+        loaded = store.load_state()
+        assert len(loaded["applications"]) == 1
+        assert loaded["applications"][0]["key"] == "k1"
+
     def test_export_json_matches_load_state(self, store, tmp_path):
         store.save_state({"applications": [_app()], "updated": "2026-10-12T10:00:00+02:00"})
         snapshot = tmp_path / "state.json"

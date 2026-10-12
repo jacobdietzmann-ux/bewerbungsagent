@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from eval import labels as L  # noqa: E402
 from eval import metrics as M  # noqa: E402
+from eval.metrics import precision_at_k  # noqa: E402
 
 DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
 DEFAULT_PROFILE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/02_Profil-und-Assets/Profil-Datenbank.json"
@@ -48,13 +49,6 @@ def _pct(x: float) -> str:
     return f"{x * 100:.1f} %"
 
 
-def precision_at_k(scores: np.ndarray, y: np.ndarray, k: int) -> float:
-    """Anteil passender unter den Top-k nach Score."""
-    k = min(k, len(scores))
-    if k == 0:
-        return 0.0
-    idx = np.argsort(-scores)[:k]
-    return float(y[idx].mean())
 
 
 def _evaluate(name: str, scores: np.ndarray, y: np.ndarray) -> dict:

@@ -367,49 +367,40 @@ class TestRocAuc:
 
 
 class TestPrecisionAtK:
-    """Precision@K ist die betrieblich relevante Metrik für Empfehlungen."""
+    """Precision@K ist die betrieblich relevante Metrik für Empfehlungen.
 
-    def _p_at_k(self):
-        from eval.run_semantic_eval import precision_at_k
-        return precision_at_k
+    Bewusst ohne numpy — die Metrik-Funktionen sind abhängigkeitsfrei, damit
+    sie auch in einer Minimal-CI (nur pytest) laufen.
+    """
 
     def test_all_relevant_at_top(self):
-        import numpy as np
-        p = self._p_at_k()
-        scores = np.array([0.9, 0.8, 0.1, 0.05])
-        y = np.array([True, True, False, False])
-        assert p(scores, y, 2) == 1.0
+        assert M.precision_at_k([0.9, 0.8, 0.1, 0.05], [True, True, False, False], 2) == 1.0
 
     def test_none_relevant_at_top(self):
-        import numpy as np
-        p = self._p_at_k()
-        scores = np.array([0.9, 0.8, 0.1, 0.05])
-        y = np.array([False, False, True, True])
-        assert p(scores, y, 2) == 0.0
+        assert M.precision_at_k([0.9, 0.8, 0.1, 0.05], [False, False, True, True], 2) == 0.0
 
     def test_half_relevant(self):
-        import numpy as np
-        p = self._p_at_k()
-        scores = np.array([0.9, 0.8, 0.7, 0.6])
-        y = np.array([True, False, True, False])
-        assert p(scores, y, 4) == 0.5
+        assert M.precision_at_k([0.9, 0.8, 0.7, 0.6], [True, False, True, False], 4) == 0.5
 
     def test_k_larger_than_n_is_clamped(self):
-        import numpy as np
-        p = self._p_at_k()
-        scores = np.array([0.9, 0.1])
-        y = np.array([True, False])
-        assert p(scores, y, 100) == 0.5
+        assert M.precision_at_k([0.9, 0.1], [True, False], 100) == 0.5
 
     def test_empty_is_zero(self):
-        import numpy as np
-        p = self._p_at_k()
-        assert p(np.array([]), np.array([]), 5) == 0.0
+        assert M.precision_at_k([], [], 5) == 0.0
 
     def test_uses_score_order_not_input_order(self):
-        import numpy as np
-        p = self._p_at_k()
-        # Die passende Stelle kommt ZULETZT im Array, hat aber den höchsten Score.
-        scores = np.array([0.1, 0.2, 0.9])
-        y = np.array([False, False, True])
-        assert p(scores, y, 1) == 1.0
+        """Die passende Stelle steht zuletzt, hat aber den höchsten Score."""
+        assert M.precision_at_k([0.1, 0.2, 0.9], [False, False, True], 1) == 1.0
+
+    def test_k_must_be_positive(self):
+        with pytest.raises(ValueError):
+            M.precision_at_k([0.5], [True], 0)
+
+    def test_length_mismatch_raises(self):
+        with pytest.raises(ValueError):
+            M.precision_at_k([0.5, 0.4], [True], 1)
+
+    def test_mean_by_label(self):
+        pos, neg = M.mean_by_label([0.9, 0.8, 0.2, 0.1], [True, True, False, False])
+        assert pos == pytest.approx(0.85)
+        assert neg == pytest.approx(0.15)

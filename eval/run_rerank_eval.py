@@ -48,7 +48,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from eval import labels as L  # noqa: E402
 from eval import metrics as M  # noqa: E402
-from eval.run_semantic_eval import K_VALUES, precision_at_k  # noqa: E402
+from eval.run_semantic_eval import K_VALUES  # noqa: E402
+from eval.metrics import precision_at_k  # noqa: E402
 
 DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
 DEFAULT_PROFILE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/02_Profil-und-Assets/Profil-Datenbank.json"

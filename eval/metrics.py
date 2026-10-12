@@ -16,6 +16,7 @@ Recall 0. Deshalb sind Precision/Recall/F1 die Leitmetriken.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
 
 @dataclass(frozen=True)
@@ -179,3 +180,33 @@ def auc_interpretation(auc: float) -> str:
     if auc > 0.55:
         return "kaum besser als Zufall"
     return "ohne Aussagekraft (Zufallsniveau)"
+
+
+def precision_at_k(scores: "Sequence[float]", labels: "Sequence[bool]", k: int) -> float:
+    """Anteil passender unter den Top-k nach Score.
+
+    Die betrieblich relevanteste Kennzahl für Empfehlungssysteme: „Wenn ich
+    mir die besten k Stellen ansehe, wie viele passen wirklich?"
+
+    Bewusst **ohne numpy** implementiert, damit dieses Modul abhängigkeitsfrei
+    bleibt (die Vektor-Berechnungen der Experimente brauchen numpy, die
+    Metriken nicht).
+    """
+    if k <= 0:
+        raise ValueError("k muss > 0 sein")
+    if len(scores) != len(labels):
+        raise ValueError("scores und labels müssen gleich lang sein")
+    n = len(scores)
+    if n == 0:
+        return 0.0
+    k = min(k, n)
+    order = sorted(range(n), key=lambda i: -scores[i])[:k]
+    return sum(1 for i in order if labels[i]) / k
+
+
+def mean_by_label(scores: "Sequence[float]", labels: "Sequence[bool]") -> tuple[float, float]:
+    """Mittelwert der Scores getrennt nach Label (für die Trennkraft-Analyse)."""
+    pos = [s for s, lab in zip(scores, labels) if lab]
+    neg = [s for s, lab in zip(scores, labels) if not lab]
+    return (sum(pos) / len(pos) if pos else 0.0,
+            sum(neg) / len(neg) if neg else 0.0)

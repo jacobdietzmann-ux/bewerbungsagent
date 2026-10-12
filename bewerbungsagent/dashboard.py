@@ -236,6 +236,13 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #company-table td.fit-cell { text-align:center; }
   tr.company-row { cursor:pointer; }
   tr.company-row:hover td { background:rgba(56,189,248,.10); }
+  button.section-toggle { width:100%; display:flex; align-items:center; gap:10px; background:var(--panel-2);
+    border:none; border-bottom:1px solid var(--line); border-radius:12px 12px 0 0; padding:14px 16px;
+    font-size:13px; font-weight:600; color:var(--text); cursor:pointer; text-align:left; }
+  button.section-toggle:hover { color:var(--accent); }
+  button.section-toggle .chev { display:inline-block; width:14px; transition:transform .15s; color:var(--muted); }
+  button.section-toggle[aria-expanded="true"] .chev { transform:rotate(90deg); }
+  button.section-toggle .hint { color:var(--muted); font-weight:400; font-size:11px; }
   #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
     background:var(--panel-2); color:var(--text); border:1px solid var(--accent);
     padding:12px 18px; border-radius:10px; font-size:13px; line-height:1.5; max-width:80vw;
@@ -266,25 +273,30 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div id="timeChartLegend" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:11px;color:var(--muted)"></div>
   </section>
 
-  <section class="card" style="padding:14px 16px;margin-bottom:16px">
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Firmen-Übersicht
-      <span style="opacity:.65">(klicke auf eine Firma, um die Tabelle zu filtern)</span></div>
-    <div class="table-scroll">
-      <table id="company-table">
-        <thead>
-          <tr>
-            <th>Unternehmen</th>
-            <th class="center">Stellen</th>
-            <th class="center">Aktiv</th>
-            <th class="center">Beworben</th>
-            <th class="center">Interview</th>
-            <th class="center">Abgelehnt</th>
-            <th class="center">Ø Fit</th>
-            <th class="center">Bester Fit</th>
-          </tr>
-        </thead>
-        <tbody id="companyRows"></tbody>
-      </table>
+  <section class="card" style="margin-bottom:16px">
+    <button class="section-toggle" id="companyToggle" aria-expanded="false" aria-controls="companyBody">
+      <span class="chev" id="companyChev">▸</span> Firmen-Übersicht
+      <span class="hint" id="companyCount"></span>
+    </button>
+    <div id="companyBody" style="display:none;padding:0 16px 14px">
+      <div style="font-size:12px;color:var(--muted);margin:8px 0">klicke auf eine Firma, um die Tabelle zu filtern</div>
+      <div class="table-scroll">
+        <table id="company-table">
+          <thead>
+            <tr>
+              <th>Unternehmen</th>
+              <th class="center">Stellen</th>
+              <th class="center">Aktiv</th>
+              <th class="center">Beworben</th>
+              <th class="center">Interview</th>
+              <th class="center">Abgelehnt</th>
+              <th class="center">Ø Fit</th>
+              <th class="center">Bester Fit</th>
+            </tr>
+          </thead>
+          <tbody id="companyRows"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -604,6 +616,9 @@ function renderCompanies() {
       <td class="fit-cell">${fitBadge(c.avg)}</td>
       <td class="fit-cell">${fitBadge(c.best)}</td>
     </tr>`).join("");
+
+  const count = document.getElementById("companyCount");
+  if (count) count.textContent = "(" + list.length + " Firmen)";
 
   tb.querySelectorAll(".company-row").forEach(tr => tr.addEventListener("click", () => {
     const box = document.getElementById("searchBox");
@@ -926,6 +941,16 @@ statusTogglesEl.querySelectorAll("input[type=checkbox]").forEach(box => {
 
 document.getElementById("searchBox").addEventListener("input", renderRows);
 document.getElementById("fitFilter").addEventListener("change", renderRows);
+
+const companyToggle = document.getElementById("companyToggle");
+const companyBody = document.getElementById("companyBody");
+if (companyToggle && companyBody) {
+  companyToggle.addEventListener("click", () => {
+    const open = companyToggle.getAttribute("aria-expanded") === "true";
+    companyToggle.setAttribute("aria-expanded", String(!open));
+    companyBody.style.display = open ? "none" : "";
+  });
+}
 
 renderRows();
 renderKpis();

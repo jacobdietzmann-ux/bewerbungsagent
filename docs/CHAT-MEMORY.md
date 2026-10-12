@@ -121,3 +121,35 @@ Genau dagegen existiert das Label-Set.
 **Erfolgsfaktor:** Ohne die Baseline aus Schritt 1 wären beide Fehlansätze
 eingebaut worden. Die Evaluation hat nicht die Lösung geliefert, sondern die
 **Fehlentscheidungen verhindert** — das ist der eigentliche Wert.
+
+
+## Session: Best-Practice-Verbesserungen (12.10.2026, nachmittags)
+
+Vier Verbesserungen umgesetzt — und dabei zwei weitere Instanzen des
+bekannten Fehlertyps („Annahme nicht verifiziert") gefunden:
+
+1. **Schwellenwert-Kalibrierung** (Decision Theory): Der „beste" Schwellenwert
+   ist keine feste Zahl, sondern hängt vom Geschäftsziel ab (max. Recall bei
+   Precision ≥ X vs. max. Precision bei Recall ≥ Y). Der Report zeigt jetzt
+   beides + wie viele Labels für ein belastbares CI nötig sind (~53/Klasse
+   statt der vorhandenen 10/10).
+
+2. **Sample-Size-Bug:** `required_sample_size` lieferte den Multiplikator
+   (z·se/target)² statt der absoluten Zahl. Erst ein Plausibilitätscheck
+   (CI ±23 pp, aber „5 Labels reichen"?) deckte es auf. Richtig:
+   n_min × Multiplikator. → Ein Ergebnis auf Plausibilität prüfen, nicht nur
+   auf korrekte Formel.
+
+3. **Linting (ruff):** 66 Fehler — unbenutzte Imports/Variablen, doppelte
+   Set-Einträge, zip() ohne strict, Semikolons. Die erste Konfiguration war
+   zu breit (E501/RUF001-003 erzeugten 100+ Rauschen durch deutsche Umlaute
+   und lange Docstrings) — Konfiguration nachgeschärft.
+
+4. **Golden-File-Tests:** Die Text-Bausteine der PDF-Erzeugung getestet
+   (headline, sanitize, esc, summary_skills, intro). Dabei ein echter Bug:
+   das öffnende „ (U+201E) fehlte in der sanitize-Tabelle und blieb in PDFs.
+
+**Lehre:** Der Wert von Linting/Coverage liegt nicht im „grünen Häkchen",
+sondern darin, dass sie genau die Fehlerklasse finden, die man *nicht*
+vermutet. Dreimal in dieser Session wurde ein Ergebnis geglaubt, das falsch
+war — und nur ein Plausibilitätscheck bzw. ein Test hat es entdeckt.

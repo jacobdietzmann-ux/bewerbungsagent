@@ -61,6 +61,25 @@ die bestehende [`Profil-Datenbank.json`](../02_Profil-und-Assets/Profil-Datenban
 
 ## Installation
 
+### Reproduzierbar mit `uv` (empfohlen)
+
+`uv` friert die exakten Versionen in [`uv.lock`](uv.lock) ein — jede Neuinstallation
+liefert **garantiert denselben Stand** wie zum Zeitpunkt des Locks.
+
+```bash
+# uv einmalig installieren (siehe https://docs.astral.sh/uv):
+#   curl -LsSf https://astral.sh/uv/install.sh | sh
+
+cd 04_Agent
+uv sync                # installiert die Basis-Abhängigkeiten aus uv.lock
+uv sync --extra jobspy # optional: JobSpy (LinkedIn/Indeed/Google) mit installieren
+uv run python agent.py search
+```
+
+Nach einer Änderung an `pyproject.toml` den Lock aktualisieren: `uv lock`.
+
+### Klassisch mit `pip` (Fallback)
+
 ```bash
 cd 04_Agent
 python3 -m venv .venv

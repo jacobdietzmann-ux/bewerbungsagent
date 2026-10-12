@@ -50,6 +50,10 @@ damit `bewerbungsagent` importierbar ist.
    bisync-sicher und dient als Backup. DB-Veränderungen nur über `db.Store`,
    nie durch direktes JSON-Editing von `state.json`.
 
+8. **`uv.lock` nach Dependency-Änderungen aktualisieren.** Nach jeder Änderung an
+   `pyproject.toml` (Dependencies/Extras) `uv lock` ausführen und `uv.lock`
+   committen — sonst driftet der reproduzierbare Stand von der Realität weg.
+
 ## Konventionen
 
 - **Keine PII im Repo.** `config.json`, `Profil-Datenbank.json`, `labels.csv`

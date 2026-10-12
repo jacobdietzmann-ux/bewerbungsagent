@@ -303,3 +303,113 @@ class TestEvalReport:
         res["enough_labels"] = False
         txt = render_report(res)
         assert "Kein belastbares Ergebnis" in txt
+
+
+class TestRocAuc:
+    """Schwellenunabhängige Rangfolge-Metrik (Kernmetrik für Empfehlungen)."""
+
+    def test_perfect_separation(self):
+        assert M.roc_auc([(0.9, True), (0.8, True), (0.2, False), (0.1, False)]) == 1.0
+
+    def test_perfect_inversion(self):
+        assert M.roc_auc([(0.1, True), (0.2, True), (0.8, False), (0.9, False)]) == 0.0
+
+    def test_complete_tie_is_chance(self):
+        assert M.roc_auc([(0.5, True), (0.5, False)]) == 0.5
+
+    def test_one_class_only_is_neutral(self):
+        assert M.roc_auc([(0.9, True), (0.8, True)]) == 0.5
+        assert M.roc_auc([(0.1, False)]) == 0.5
+
+    def test_known_partial_case(self):
+        # 1 Positiver über 1 von 2 Negativen, gleichauf mit dem 2.
+        # Paare: (pos,neg1)=gewonnen, (pos,neg2)=unentschieden(0.5) -> AUC=0.75
+        assert M.roc_auc([(0.5, True), (0.4, False), (0.5, False)]) == pytest.approx(0.75)
+
+    def test_ties_handled_with_average_ranks(self):
+        """Mehrere Bindungen dürfen die AUC nicht verzerren."""
+        auc = M.roc_auc([(0.5, True), (0.5, True), (0.5, False), (0.5, False)])
+        assert auc == pytest.approx(0.5)
+
+    def test_symmetric_complement(self):
+        """Labels invertiert -> AUC wird 1 - AUC."""
+        base = [(0.9, True), (0.6, True), (0.4, False), (0.2, False)]
+        inv = [(s, not lab) for s, lab in base]
+        assert M.roc_auc(base) + M.roc_auc(inv) == pytest.approx(1.0)
+
+    def test_auc_bounds(self):
+        for labeled in (
+            [(0.9, True), (0.1, False)],
+            [(0.1, True), (0.9, False)],
+            [(0.5, True), (0.5, False), (0.7, True)],
+        ):
+            assert 0.0 <= M.roc_auc(labeled) <= 1.0
+
+    def test_interpretation_bands(self):
+        assert M.auc_interpretation(0.95) == "sehr gut"
+        assert M.auc_interpretation(0.85) == "gut"
+        assert M.auc_interpretation(0.72) == "brauchbar"
+        assert M.auc_interpretation(0.62) == "schwach"
+        assert M.auc_interpretation(0.50) == "ohne Aussagekraft (Zufallsniveau)"
+
+    def test_auc_is_threshold_independent(self):
+        """Verschieben aller Scores darf die AUC nicht ändern."""
+        labeled = [(0.9, True), (0.7, False), (0.6, True), (0.4, False)]
+        shifted = [(s + 10.0, lab) for s, lab in labeled]
+        assert M.roc_auc(labeled) == pytest.approx(M.roc_auc(shifted))
+
+    def test_auc_vs_f1_ranking(self):
+        """AUC erkennt Trennschärfe, wo F1 bei schlechtem Schwellenwert versagt."""
+        # Nach Score korrekt sortiert, aber alle Werte niedrig -> F1 schlecht
+        labeled = [(0.30, True), (0.25, True), (0.10, False), (0.05, False)]
+        assert M.roc_auc(labeled) == 1.0
+        assert M.f1(M.evaluate_at(labeled, 0.5)) == 0.0
+
+
+class TestPrecisionAtK:
+    """Precision@K ist die betrieblich relevante Metrik für Empfehlungen."""
+
+    def _p_at_k(self):
+        from eval.run_semantic_eval import precision_at_k
+        return precision_at_k
+
+    def test_all_relevant_at_top(self):
+        import numpy as np
+        p = self._p_at_k()
+        scores = np.array([0.9, 0.8, 0.1, 0.05])
+        y = np.array([True, True, False, False])
+        assert p(scores, y, 2) == 1.0
+
+    def test_none_relevant_at_top(self):
+        import numpy as np
+        p = self._p_at_k()
+        scores = np.array([0.9, 0.8, 0.1, 0.05])
+        y = np.array([False, False, True, True])
+        assert p(scores, y, 2) == 0.0
+
+    def test_half_relevant(self):
+        import numpy as np
+        p = self._p_at_k()
+        scores = np.array([0.9, 0.8, 0.7, 0.6])
+        y = np.array([True, False, True, False])
+        assert p(scores, y, 4) == 0.5
+
+    def test_k_larger_than_n_is_clamped(self):
+        import numpy as np
+        p = self._p_at_k()
+        scores = np.array([0.9, 0.1])
+        y = np.array([True, False])
+        assert p(scores, y, 100) == 0.5
+
+    def test_empty_is_zero(self):
+        import numpy as np
+        p = self._p_at_k()
+        assert p(np.array([]), np.array([]), 5) == 0.0
+
+    def test_uses_score_order_not_input_order(self):
+        import numpy as np
+        p = self._p_at_k()
+        # Die passende Stelle kommt ZULETZT im Array, hat aber den höchsten Score.
+        scores = np.array([0.1, 0.2, 0.9])
+        y = np.array([False, False, True])
+        assert p(scores, y, 1) == 1.0

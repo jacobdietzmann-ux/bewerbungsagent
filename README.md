@@ -196,6 +196,20 @@ Ohne manuelle Labels gibt das Skript **kein** Ergebnis aus, sondern weist auf
 die fehlende Ground Truth hin. Das ist Absicht: eine plausible Zahl ohne
 belastbare Labels wäre irreführend.
 
+**Vergleich mit semantischem Matching** (Embeddings, optionales Extra
+`[semantic]`):
+
+```bash
+python -m eval.run_semantic_eval --model intfloat/multilingual-e5-base
+```
+
+Ergebnis (siehe ADR-015): Semantisches Matching mit **einem** Profil-Vektor
+schlägt den Keyword-Fit **nicht** (AUC 0.56 vs. 0.72 auf den harten Fällen).
+Der lehrreichste Befund war ein Silent Bug: E5 schneidet bei 512 Token ab,
+der volle Profil-Dump wurde stillschweigend beschnitten. Die kompakte Anfrage
+hob die AUC von 0.776 auf 0.924 — **Eingabe-Aufbereitung wirkt stärker als
+Modellwahl.**
+
 Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ### Backup

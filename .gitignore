@@ -43,3 +43,5 @@ eval/report-*.md
 # --- Manuelle Eignungs-Labels (persönliche Bewertungen → Google Drive) ---
 eval/labels.csv
 eval/dataset-*.csv
+eval/semantic-report.md
+eval/report-*.md

@@ -120,3 +120,62 @@ def majority_baseline(labeled: list[tuple[float, bool]]) -> Counts:
     y_true = [lab for _, lab in labeled]
     y_pred = [always_positive] * len(labeled)
     return confusion_matrix(y_true, y_pred)
+
+
+def roc_auc(labeled: list[tuple[float, bool]]) -> float:
+    """Area under the ROC curve (schwellenunabhängige Rangfolge-Qualität).
+
+    Interpretation: Die Wahrscheinlichkeit, dass eine zufällig gewählte
+    **passende** Stelle einen höheren Score bekommt als eine zufällig gewählte
+    **unpassende**.
+
+    - 0.5 = Zufall (Score ohne Information)
+    - 1.0 = perfekte Trennung
+    - 0.0 = perfekt invertiert
+
+    Berechnung über die Mann-Whitney-U-Statistik (rangbasiert, ohne Schwellen):
+        AUC = (U - n1*(n1+1)/2) / (n1*n2)
+    Bindungen (gleiche Scores) werden über Durchschnittsränge korrekt behandelt.
+
+    **Warum das hier die richtige Metrik ist:** F1 hängt vom gewählten
+    Schwellenwert ab und ist bei kleiner Stichprobe instabil. AUC misst, wie
+    gut ein Verfahren die Klassen *sortiert* — unabhängig davon, wo man die
+    Grenze zieht. Genau das ist bei Empfehlungssystemen die eigentliche Frage.
+    """
+    pos = [s for s, lab in labeled if lab]
+    neg = [s for s, lab in labeled if not lab]
+    n1, n2 = len(pos), len(neg)
+    if n1 == 0 or n2 == 0:
+        return 0.5  # undefiniert -> neutraler Wert
+
+    # Durchschnittsränge über die gesamte Liste (Bindungen gleich behandeln).
+    combined = sorted(labeled, key=lambda t: t[0])
+    ranks: dict[int, float] = {}
+    i = 0
+    while i < len(combined):
+        j = i
+        while j + 1 < len(combined) and combined[j + 1][0] == combined[i][0]:
+            j += 1
+        avg_rank = (i + j) / 2 + 1  # Ränge sind 1-basiert
+        for k in range(i, j + 1):
+            ranks[k] = avg_rank
+        i = j + 1
+
+    rank_sum_pos = sum(ranks[k] for k, (_, lab) in enumerate(combined) if lab)
+    u = rank_sum_pos - n1 * (n1 + 1) / 2
+    return u / (n1 * n2)
+
+
+def auc_interpretation(auc: float) -> str:
+    """Verbale Einordnung eines AUC-Werts."""
+    if auc >= 0.90:
+        return "sehr gut"
+    if auc >= 0.80:
+        return "gut"
+    if auc >= 0.70:
+        return "brauchbar"
+    if auc >= 0.60:
+        return "schwach"
+    if auc > 0.55:
+        return "kaum besser als Zufall"
+    return "ohne Aussagekraft (Zufallsniveau)"

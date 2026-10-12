@@ -222,3 +222,57 @@ Kontrollen) liegen 20 manuelle Eignungs-Labels vor (10 passend / 10 nicht).
 Stichprobe ist bewusst auf Grenzfälle fokussiert (Active Learning) und
 deshalb *nicht* repräsentativ für den Gesamtbestand — der wahre Recall auf
 allen 836 Stellen ist höher.
+
+---
+
+## ADR-015 — Semantisches Matching schlägt Keyword-Fit NICHT (Hypothese widerlegt)
+
+**Hypothese:** Embeddings vergleichen *Bedeutung* statt Wörter und lösen daher
+die Fälle, an denen Keyword-Überlappung scheitert (z. B. „Head of Finance
+Systems, Data & Analytics" mit 75 % Keyword-Fit, obwohl es eine
+Finance-Führungsrolle ist).
+
+**Messung** (Modell `intfloat/multilingual-e5-base`, 20 manuelle Labels):
+
+| Datensatz | Verfahren | AUC | P@5 |
+|---|---|---:|---:|
+| voll (230 Labels) | Keyword-Fit | **0.947** | **100 %** |
+| voll (230 Labels) | Semantisch (kompakte Anfrage) | 0.924 | 40 % |
+| voll (230 Labels) | Semantisch (voller Profil-Dump) | 0.776 | 40 % |
+| **hart (20 Labels)** | **Keyword-Fit** | **0.715** | **100 %** |
+| hart (20 Labels) | Semantisch (kompakte Anfrage) | 0.560 | 40 % |
+
+**Ergebnis:** Hypothese **widerlegt**. Auf den harten Fällen (technische, aber
+unpassende Stellen) liegt Semantik bei AUC 0.560 — praktisch Zufallsniveau
+(0.5). Der Keyword-Fit ist deutlich besser.
+
+**Warum es scheitert:**
+1. **Ein einzelner Profil-Vektor verwischt die Trennschärfe.** Er wird zu einem
+   generischen „technischen Ingenieur"-Vektor, der auf jede technische Stelle
+   passt — Automotive-Test, SAP-Testmanagement, Embedded-Entwicklung.
+2. **Das Ähnlichkeitsband ist zu schmal:** Kosinus 0.79–0.88 über 230 Stellen.
+   Innerhalb dieses Bands ist die Rangfolge kaum aussagekräftig.
+3. **Confound im Datensatz:** Die 212 groben Verwürfe sind *nicht-technische*
+   Berufe (Finance, HR, Schweißlehrer). Beide Verfahren trennen die mühelos —
+   das verdeckt die Schwäche bei *technischen* Fehlpaarungen.
+
+**Der wertvollste Einzelbefund — ein Silent Bug:**
+E5 schneidet bei 512 Token ab. Der ursprüngliche Profil-Text hatte ~1484
+Token, es wurde also nur die erste Station eingebettet; der Rest verschwand
+lautlos. Die kompakte Anfrage (`build_profile_query`) hob die AUC von 0.776 auf
+0.924. **Eingabe-Aufbereitung wirkt stärker als Modellwahl.**
+
+**Konsequenz:**
+- `bewerbungsagent/semantic.py` bleibt als **experimentelles** Modul erhalten
+  (dokumentierter Negativbefund), wird aber **nicht** in die Pipeline
+  eingebunden.
+- Opt-in-Installation über das Extra `[semantic]`; `torch` (CPU) wird nicht
+  zur Standardabhängigkeit.
+- Für echte Verbesserung wären **Cross-Encoder-Reranking** (gemeinsame
+  Bewertung von Profil und Stelle) oder **Hybrid** (Keyword als Recall-Filter,
+  Semantik als Reranker) nötig — nicht ein einzelner Profil-Vektor.
+
+**Methodische Lehre:** Ein negatives Ergebnis ist ein Ergebnis. Es hat mehrere
+Tage Fehlentwicklung erspart. Voraussetzung war, dass eine **Baseline mit
+belastbaren Labels** existierte (ADR-014) — ohne sie wäre die Frage nicht
+entscheidbar gewesen.

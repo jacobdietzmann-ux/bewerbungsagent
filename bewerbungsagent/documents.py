@@ -198,6 +198,7 @@ def _sanitize(value: str) -> str:
         "\u2014": "-",   # em dash
         "\u2018": "'", "\u2019": "'",
         "\u201c": '"', "\u201d": '"',
+        "\u201e": '"', "\u201f": '"',  # deutsches öffnendes Anführungszeichen „ (U+201E)
         "\u00a0": " ",   # non-breaking space
         "\u2192": "-",   # Pfeil → (nicht in Helvetica Latin-1)
         "\u2190": "-",   # Pfeil ←

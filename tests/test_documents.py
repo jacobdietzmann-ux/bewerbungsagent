@@ -128,6 +128,18 @@ class TestCleanLabel:
         # "C++" korrigiert (gewollt, damit Skill-Labels sauber aussehen).
         assert D._clean_label("c++") == "C++"
 
+    def test_acronym_uppercased(self):
+        """Akronyme wie "can"/"iso" müssen GROSS, nicht nur großgeschrieben."""
+        assert D._clean_label("can") == "CAN"
+        assert D._clean_label("iso") == "ISO"
+        assert D._clean_label("ecu") == "ECU"
+        assert D._clean_label("hil") == "HIL"
+
+    def test_acronym_mixed_case_preserved(self):
+        # Bereits korrekte Akronyme (HiL, ECU) bleiben unverändert.
+        assert D._clean_label("HiL") == "HiL"
+        assert D._clean_label("ECU") == "ECU"
+
     def test_empty_unchanged(self):
         assert D._clean_label("") == ""
 
@@ -167,6 +179,26 @@ class TestSummarySkills:
         en = D._summary_skills(demo, job, match, "en", n=3)
         # Sprachen sollten unterschiedliche Formulierungen liefern.
         assert de != en
+
+
+class TestLetterCurrent:
+    def test_german_has_verb(self, demo):
+        """Regression: '... (IGEL AG, für BMW AG) Testkoordination ...' fehlte
+        ein Verb. Es muss 'bin ich verantwortlich für' enthalten."""
+        s = D._letter_current(demo, "de")
+        assert s is not None
+        assert "bin ich verantwortlich für" in s
+
+    def test_english_has_verb(self, demo):
+        s = D._letter_current(demo, "en")
+        assert s is not None
+        assert "I am responsible for" in s
+
+    def test_mentions_employer(self, demo):
+        s = D._letter_current(demo, "de")
+        assert s is not None
+        # Das Demo-Profil hat employer_of_record="Beispiel GmbH"
+        assert "Beispiel GmbH" in s
 
 
 class TestLetterIntro:

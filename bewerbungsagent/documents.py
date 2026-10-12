@@ -487,15 +487,29 @@ def _role_label(we: dict, lang: str) -> str:
     return we.get("role_en" if lang == "en" else "role_de") or ""
 
 
+# Akronyme, die aus der Keyword-Extraktion als Kleinschreibung zurückkommen
+# (z. B. "can" aus "CAN"), aber als Abkürzung GROSS geschrieben werden müssen.
+_ACRONYMS = {
+    "can", "iso", "ecu", "hil", "adas", "lin", "uds", "sil", "xil", "dbc",
+    "fibex", "arxml", "api", "rtos", "mcu", "fpga", "jira", "gmsl", "autosar",
+    "istqb", "aspice", "sae", "dsc", "sop", "ivvq", "fusa", "mbse",
+}
+
+
 def _clean_label(label: str) -> str:
     """Schreibt einzelne, rein kleingeschriebene Wort-Labels korrekt groß.
 
-    Behebt Labels wie ``hardware`` → ``Hardware``, die aus der Single-Word-
-    Keyword-Extraktion stammen. Mehrwortige/phrasierte Labels bleiben unverändert.
+    Behebt Labels wie ``hardware`` → ``Hardware`` oder ``can`` → ``CAN``, die
+    aus der Single-Word-Keyword-Extraktion stammen. Mehrwortige/phrasierte
+    Labels bleiben unverändert.
     """
     s = (label or "").strip()
     if not s or " " in s or "-" in s or "/" in s or "(" in s:
         return s
+    # Nur VOLLSTÄNDIG kleingeschriebene Akronyme forcieren (can→CAN, iso→ISO).
+    # Bereits gemischte Schreibung (HiL, ECU) bleibt erhalten.
+    if s.lower() in _ACRONYMS and s == s.lower():
+        return s.upper()
     if s and s[0].islower():
         return s[0].upper() + s[1:]
     return s
@@ -545,7 +559,7 @@ _TEST_SUMMARY = {
 def _summary_skills(profile: Profile, job: dict, match: dict, lang: str, n: int = 3) -> list[str]:
     """Saubere, rollenabhängige Profil-Schwerpunkte (ohne Matching-Rauschen)."""
     strong = [
-        profile.display_of(s)
+        _clean_label(profile.display_of(s))
         for s in match.get("matched_skills", [])
         if normalize(s) not in _GENERIC_SKILL_WORDS
         and any(h in normalize(s) for h in _STRONG_SKILL_HINTS)
@@ -615,11 +629,13 @@ def _letter_current(profile: Profile, lang: str) -> str | None:
     if lang == "en":
         return (
             f"In my current role as <b>{esc(role)}</b> ({esc(_en_place(employer, lang))}"
-            f"{', for ' + esc(_en_place(client, lang)) if client else ''}), {esc(first_bullet)}"
+            f"{', for ' + esc(_en_place(client, lang)) if client else ''}), "
+            f"I am responsible for: {esc(first_bullet)}"
         )
     return (
         f"In meiner aktuellen Rolle als <b>{esc(role)}</b> ({esc(employer)}"
-        f"{', für ' + esc(client) if client else ''}) {esc(first_bullet)}"
+        f"{', für ' + esc(client) if client else ''}) bin ich verantwortlich für: "
+        f"{esc(first_bullet)}"
     )
 
 

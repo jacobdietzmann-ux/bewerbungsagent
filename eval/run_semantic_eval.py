@@ -115,12 +115,17 @@ def run(state_path: Path, profile_path: Path, model_name: str,
     full = L.build_dataset(apps, manual)
     hard = [e for e in full if e.source == "manual"]
 
-    return {
+    result = {
         "model": model_name, "dim": matcher.dim, "load_seconds": load_s,
         "full": eval_set(full, "voller Datensatz"),
         "hard": eval_set(hard, "nur manuelle Labels (harte Fälle)"),
         "n_manual": len(manual),
     }
+
+    if out:
+        out.write_text(render(result), encoding="utf-8")
+        print(f"Report geschrieben: {out}")
+    return result
 
 
 def render(r: dict) -> str:
@@ -220,8 +225,8 @@ def main(argv=None) -> int:
             print(f"{d['label'][:30]:<32} {v['name'][:34]:<36} "
                   f"{v['auc']:>6.3f} {_pct(v['p_at'][5]):>7}")
         print()
-    if args.out:
-        print(f"Report: {args.out}")
+    if not args.out:
+        print(render(res))
     return 0
 
 

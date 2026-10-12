@@ -203,12 +203,32 @@ belastbare Labels wäre irreführend.
 python -m eval.run_semantic_eval --model intfloat/multilingual-e5-base
 ```
 
-Ergebnis (siehe ADR-015): Semantisches Matching mit **einem** Profil-Vektor
-schlägt den Keyword-Fit **nicht** (AUC 0.56 vs. 0.72 auf den harten Fällen).
-Der lehrreichste Befund war ein Silent Bug: E5 schneidet bei 512 Token ab,
-der volle Profil-Dump wurde stillschweigend beschnitten. Die kompakte Anfrage
-hob die AUC von 0.776 auf 0.924 — **Eingabe-Aufbereitung wirkt stärker als
-Modellwahl.**
+**Vergleich mit Cross-Encoder-Reranking:**
+
+```bash
+python -m eval.run_rerank_eval --model BAAI/bge-reranker-base
+```
+
+**Ergebnis: Beide neuronalen Verfahren verlieren** (ADR-015, ADR-016).
+Auf den harten Fällen (technische, aber unpassende Stellen):
+
+| Verfahren | AUC | Kosten |
+|---|---:|---|
+| **Keyword-Fit** | **0.715** | ~0 ms |
+| Bi-Encoder (e5-base) | 0.560 | vorberechenbar |
+| Cross-Encoder (bge-reranker) | 0.460 | ~150 ms/Stelle |
+
+Der Cross-Encoder liegt auf **Zufallsniveau**, der Bi-Encoder knapp darüber.
+Der einfache Keyword-Matcher gewinnt — jetzt **belegt** statt vermutet.
+
+Die lehrreichste Erkenntnis war ein Fehlertyp, der dreimal auftrat: *Annahmen
+über Randbedingungen nicht geprüft* (E5-Limit 512 Token, Cross-Encoder-Limit
+für Anfrage+Dokument gemeinsam, eine Report-Datei die nie geschrieben wurde).
+Und: Eine auf 4 Beispielen optimierte Konfiguration war auf 20 echten Labels
+schlechter — **Overfitting an einer Mini-Stichprobe**.
+
+Nächster sinnvoller Schritt ist daher nicht „noch ein Modell", sondern
+**mehr Labels** zum Kalibrieren der bestehenden Lösung.
 
 Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 

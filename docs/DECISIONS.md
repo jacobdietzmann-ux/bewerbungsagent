@@ -276,3 +276,56 @@ lautlos. Die kompakte Anfrage (`build_profile_query`) hob die AUC von 0.776 auf
 Tage Fehlentwicklung erspart. Voraussetzung war, dass eine **Baseline mit
 belastbaren Labels** existierte (ADR-014) — ohne sie wäre die Frage nicht
 entscheidbar gewesen.
+
+---
+
+## ADR-016 — Cross-Encoder-Reranking hilft ebenfalls NICHT
+
+**Hypothese:** Nach dem Scheitern des Bi-Encoders (ADR-015) sollte ein
+**Cross-Encoder** besser sein: Er bewertet Profil und Stelle *gemeinsam*
+(full attention) statt zwei getrennte Vektoren zu vergleichen. Damit sollten
+die Details erhalten bleiben, die im Einzel-Vektor verloren gehen.
+
+**Messung** (`BAAI/bge-reranker-base`, AUC / Precision@5):
+
+| Verfahren | voll (230 Labels) | hart (20 Labels) |
+|---|---:|---:|
+| Keyword-Fit | **0.947** / 100 % | **0.715** / 100 % |
+| Bi-Encoder (e5-base) | 0.924 / 40 % | 0.560 / 40 % |
+| Cross-Encoder (natürliche Anfrage) | 0.539 / 40 % | 0.460 / 40 % |
+| Cross-Encoder (Keyword-Anfrage) | 0.472 / 20 % | 0.320 / 20 % |
+
+**Ergebnis: Hypothese erneut widerlegt.** Der Cross-Encoder liegt auf den
+harten Fällen bei AUC **0.460 — schlechter als Zufall** (0.5). Er ist das
+schlechteste aller getesteten Verfahren, bei ~150 ms pro Stelle.
+
+**Nebenbefund:** Die natürliche Anfrageform schlägt die Keyword-Anfrage
+konsistent (0.539 vs. 0.472; 0.460 vs. 0.320). Die Anfrage-Aufbereitung wirkt
+also, reicht aber nicht.
+
+**Der methodische Fehler (wichtigster Teil):**
+Auf **4 handgeprüften Beispielen** sah die kurze natürliche Anfrage klar am
+besten aus (AUC 0.730 vs. 0.600). Auf den 20 echten Labels kehrte sich das
+Ergebnis um (0.460 statt 0.600). Ich hatte eine Konfiguration auf
+Einzelfällen optimiert — **Overfitting an einer Mini-Stichprobe**. Ohne das
+Label-Set wäre diese Fehlentscheidung unbemerkt geblieben und hätte zu einem
+schlechteren System geführt.
+
+**Weiterer Silent Bug (dritte Instanz derselben Familie):**
+Der Cross-Encoder hat ein **gemeinsames** Token-Limit von 512 für Anfrage
+UND Dokument. Die erste Anfrage hatte 295 Token, sodass der Stellenanzeige
+nur 217 Token blieben — die Hälfte wurde stillschweigend abgeschnitten.
+Das ist derselbe Fehlertyp wie in ADR-015 (E5-Limit) und beim
+Report-Schreiben (`write_text` fehlte): **Annahmen über Randbedingungen
+nicht verifiziert.**
+
+**Konsequenz:**
+- `bewerbungsagent/rerank.py` bleibt als dokumentierter Negativbefund,
+  **nicht** in der Pipeline.
+- Der **Keyword-Fit bleibt das beste Verfahren** für diesen Datensatz.
+- Nächster sinnvoller Schritt ist nicht „noch ein Modell", sondern
+  **mehr Labels** (50–100 je Klasse), um die bestehende Lösung zu kalibrieren.
+
+**Gesamtbilanz der drei Experimente:** Die empirische Prüfung hat verhindert,
+zwei komplexe, langsame und schlechtere Verfahren einzubauen. Der einfache
+Keyword-Matcher gewinnt — aber jetzt ist das **belegt** statt vermutet.

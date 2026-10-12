@@ -139,6 +139,95 @@ def build_profile_query(profile_data: dict, max_chars: int = 900) -> str:
     return text[:max_chars]
 
 
+def build_profile_query_nl(profile_data: dict, max_chars: int = 420) -> str:
+    """Baut eine **natürlichsprachige** Profil-Anfrage (für Cross-Encoder).
+
+    Warum nicht die Keyword-Liste? Der Cross-Encoder (``rerank.py``) ist auf
+    natürliche Sprache trainiert. Gemessen (ADR-016) auf 4 Testfällen:
+
+    | Anfrage-Form | Trennung (Logit-Spanne) |
+    |---|---|
+    | Keyword-Liste (Profil-Dump) | 1.3 — praktisch keine |
+    | Natürliche Beschreibung | 13.7 |
+    | Natürliche Frage | **6.6, korrekte Reihenfolge** |
+
+    Eine Liste von Werkzeugnamen („CANape, CANoe, ECU-Test, …") ist für ein
+    Sprachmodell keine sinnvolle „Frage". Diese Funktion erzeugt daher Sätze.
+    """
+    parts: list[str] = []
+
+    # Die Frage steht BEWUSST am Anfang: Bei einer Kürzung auf max_chars darf
+    # nicht ausgerechnet der für den Cross-Encoder wichtigste Teil wegfallen.
+    parts.append("Welche Stelle passt zu diesem Bewerberprofil?")
+
+    # Warum max_chars so klein (420 ≈ 100 Token)? Der Cross-Encoder hat ein
+    # GEMEINSAMES Limit von 512 Token für Anfrage UND Dokument. Gemessen
+    # (ADR-016): Bei 295 Token Anfrage blieben der Stelle nur 217 Token — die
+    # Anzeige wurde halbiert und die AUC fiel von 0.730 auf 0.600. Eine kurze
+    # Anfrage ist hier also kein Kompromiss, sondern Voraussetzung.
+
+    def _label_de(we: dict) -> str:
+        return (we.get("role_de") or we.get("role_en") or "").strip()
+
+    # Rollen in einen Satz fassen (Recency: die neuesten zuerst).
+    roles: list[str] = []
+    for we in profile_data.get("work_experience", []):
+        r = _label_de(we)
+        if r and r not in roles:
+            roles.append(r)
+    if roles:
+        parts.append(
+            "Ich bin Testingenieur mit langjähriger Erfahrung. "
+            "Meine bisherigen Rollen: " + "; ".join(roles[:4]) + "."
+        )
+
+    # Kompetenzfelder als Satz.
+    labels = {
+        "test_datenauswertung_automatisierung": "Test, Datenauswertung und Automatisierung",
+        "diagnose_flashtools_bmw_audi": "Diagnose- und Flashtools",
+        "requirements_testmanagement": "Requirements- und Testmanagement",
+        "standardprogramme_entwicklung": "Standardprogramme und Entwicklung",
+        "programmierung": "Programmierung",
+        "ki_gestuetzte_entwicklung": "KI-gestützte Entwicklung",
+        "normen_prozesse": "Normen und Prozesse",
+        "sonstiges": "Sonstiges",
+        "hardware_embedded_chip": "Hardware, Chip und Embedded",
+    }
+    groups = [labels.get(k, k.replace("_", " "))
+              for k in profile_data.get("skills", {})
+              if k not in ("sprachen", "sonstiges")]
+    if groups:
+        parts.append("Meine Kompetenzfelder sind " + ", ".join(groups) + ".")
+
+    # Die konkretesten Fachbegriffe — als Aufzählung im Satzkontext.
+    terms: list[str] = []
+    seen: set[str] = set()
+    for key, values in profile_data.get("skills", {}).items():
+        if key == "sprachen" or not isinstance(values, list):
+            continue
+        for v in values:
+            t = str(v).strip()
+            if not t or len(t) > 60:
+                continue
+            if t.lower() in seen:
+                continue
+            seen.add(t.lower())
+            terms.append(t)
+    if terms:
+        parts.append("Konkrete Werkzeuge und Methoden: " + ", ".join(terms[:22]) + ".")
+
+    # Ausbildung / Zertifikate.
+    for edu in profile_data.get("education", []):
+        if edu.get("title_de"):
+            parts.append(f"Qualifikation: {edu['title_de']}.")
+            break
+    certs = profile_data.get("certifications") or []
+    if certs:
+        parts.append("Zertifikate: " + ", ".join(str(c) for c in certs[:3]) + ".")
+
+    return " ".join(parts).strip()[:max_chars]
+
+
 def build_profile_text(profile_data: dict) -> str:
     """Baut den Profil-Text (die „query") aus der Profil-Datenbank.
 

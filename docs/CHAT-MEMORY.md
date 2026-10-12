@@ -82,3 +82,42 @@ Begründung für Semantic Search.
    bei Recall 0).
 3. Zustimmung zum Modell ≈ kein Label; Widerspruch = Information.
 4. Kleine Stichproben sind trotzdem nützlich, wenn der Effekt groß ist.
+
+
+## Session-Erkenntnisse: Embeddings & Cross-Encoder (12.10.2026)
+
+**Beide Hypothesen wurden widerlegt — mit Nutzen.**
+
+Getestet wurden zwei komplexe Alternativen zum Keyword-Matching:
+
+| Verfahren | AUC (harte Fälle) | Kosten |
+|---|---:|---|
+| **Keyword-Fit** | **0.715** | ~0 ms |
+| Bi-Encoder (e5) | 0.560 | vorberechenbar |
+| Cross-Encoder (bge) | 0.460 | ~150 ms/Stelle |
+
+Der Keyword-Matcher gewinnt — auf einem Datensatz, auf dem er angeblich
+scheitert („Head of Finance Systems" mit 75 %). Die empirische Prüfung hat
+verhindert, zwei langsamere und schlechtere Verfahren einzubauen.
+
+**Drei Instanzen desselben Fehlertyps (Silent Bug durch ungeprüfte Annahme):**
+
+1. E5 schneidet bei 512 Token ab → 1484-Token-Profil wurde still beschnitten.
+   Fix hob die AUC von 0.776 auf 0.924.
+2. Cross-Encoder hat 512 Token für Anfrage UND Dokument gemeinsam → bei
+   295-Token-Anfrage blieben der Stelle nur 217 Token.
+3. `write_text` fehlte im Code, während das Skript „Report geschrieben"
+   ausgab → die Datei existierte nie; zweimal hintereinander.
+
+**Lehre:** Randbedingungen (Token-Limits, Datei-Schreibvorgänge) müssen
+*verifiziert*, nicht *angenommen* werden. Die Ausgabe „es hat funktioniert"
+ist kein Beweis.
+
+**Der teuerste Einzelfehler:** Eine Konfiguration auf **4 handgeprüften
+Beispielen** optimiert (AUC 0.730) — auf 20 echten Labels war sie schlechter
+als die Alternative (0.460). Klassisches Overfitting an einer Mini-Stichprobe.
+Genau dagegen existiert das Label-Set.
+
+**Erfolgsfaktor:** Ohne die Baseline aus Schritt 1 wären beide Fehlansätze
+eingebaut worden. Die Evaluation hat nicht die Lösung geliefert, sondern die
+**Fehlentscheidungen verhindert** — das ist der eigentliche Wert.

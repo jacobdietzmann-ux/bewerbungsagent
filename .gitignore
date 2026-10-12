@@ -45,3 +45,4 @@ eval/labels.csv
 eval/dataset-*.csv
 eval/semantic-report.md
 eval/report-*.md
+eval/rerank-report.md

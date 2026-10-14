@@ -17,7 +17,7 @@ from .documents import (
 )
 from .importer import import_old_dashboard
 from .industry import classify_industry
-from .matching import match_jobs
+from .matching import has_role_signal, match_jobs
 from .profile import Profile, normalize
 from .salary import enrich_salary
 from .search import run_search as _search
@@ -249,6 +249,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
 
     # 5) FIT > 65 % automatisch bewerben (nur wenn noch keine Unterlagen vorliegen)
     generated = []
+    skipped_role = []
     for a in apps:
         if a.get("deleted"):
             continue
@@ -259,6 +260,13 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         if a.get("dokumente"):
             continue
         if _commute_blocked(config, a):
+            continue
+        # Ein hoher Fit entsteht auch bei Software-Rollen über generische
+        # Technologie-Treffer. Automatisch beworben wird nur, wenn der Titel
+        # auch eine Test-/Absicherungsrolle belegt (siehe ``has_role_signal``).
+        if not has_role_signal(a.get("titel")):
+            skipped_role.append({"firma": a.get("firma"), "titel": a.get("titel"),
+                                 "fit": _fit_value(a)})
             continue
         for created in _generate_one(config, profile, a):
             generated.append(created)
@@ -281,6 +289,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "restored_documented": restored_documented,
         "generated": generated,
         "generated_count": len(generated),
+        "skipped_role": skipped_role,
         "total": len(apps),
     }
 

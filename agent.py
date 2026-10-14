@@ -163,6 +163,9 @@ def main(argv=None) -> int:
         if result.get("restored_documented"):
             print(f"Wieder sichtbar (Unterlagen vorhanden): "
                   f"{result['restored_documented']} Stelle(n).")
+        for s in result.get("skipped_role", []):
+            print(f"Übersprungen (kein Test-/Absicherungs-Titel): "
+                  f"{s['firma']} — {s['titel']} ({s['fit']} %)")
         print(f"Automatisch bewerbt (FIT > 65 %): {result['generated_count']} Stelle(n).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")

@@ -168,6 +168,19 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
 - **`FIT < 50 %` blendet dokumentierte Stellen nicht aus**: Für sie wurden
   bewusst Unterlagen erzeugt — sie sind kein Suchrauschen. Die harte
   Pendelweg-Grenze gilt weiterhin für alle.
+- **Standort-Bonus aus der Pendelzeit, nicht aus dem Ortsnamen**: Ein
+  Teilstring-Vergleich („munchen" im Feld `ort`) bewertete Vororte falsch —
+  Ismaning (9 min) bekam 0 Punkte, München (25 min) 10. `location_bonus_for()`
+  stuft nach Fahrzeit (≤30 → 10, ≤45 → 8, ≤60 → 6, ≤75 → 4, ≤90 → 2, darüber 0,
+  Remote 10). Fehlt die Route, greift der Ortsvergleich als Rückfall.
+- **Auto-Erzeugung verlangt ein Rollen-Signal im Titel**: Ein Fit > 65 % reicht
+  nicht, weil Technologie-Begriffe aus dem Skill-Profil (embedded, linux,
+  python, can) auch reine Software-Rollen hoch bewerten — „Embedded Linux &
+  Release Engineer" kam so auf 73 % und bekam ungefragt Unterlagen.
+  `has_role_signal()` prüft den Titel; die Liste ist in `_ROLE_SIGNAL_RE`
+  dokumentiert und enthält bewusst `integration`/`mechatronik`, damit
+  „Payload Integration Engineer" nicht blockiert wird. Der **manuelle** Auftrag
+  (`run_generate --ids`) ist nicht betroffen und erzeugt weiterhin alles.
 
 ## Evaluation (`eval/`)
 

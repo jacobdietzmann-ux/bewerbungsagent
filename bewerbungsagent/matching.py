@@ -6,7 +6,37 @@ Einschätzung nachvollziehen und ggf. manuell nachjustieren kann.
 
 from __future__ import annotations
 
+import re
+
 from .profile import Profile, normalize
+
+# Signale im Stellentitel, die eine hardware-/systemnahe Ingenieursrolle belegen.
+#
+# Nötig für die *automatische* Unterlagenerzeugung: Ein hoher Score entsteht
+# auch bei reinen Software-Rollen, weil Technologie-Begriffe wie ``embedded``,
+# ``linux``, ``python`` und ``can`` aus dem Skill-Profil stammen. „Embedded
+# Linux & Release Engineer" erreichte damit 73 % und bekam ungefragt Unterlagen.
+# Ein Fit allein belegt also nicht, dass die *Rolle* passt.
+#
+# ``\w*test\w*`` statt ``\btest\w*``: sonst fällt „System**test** und
+# Integrationsingenieur" durch, weil in „systemtest" kein Wortanfang vor
+# „test" liegt. „integration" und „mechatronik" sind bewusst dabei — sonst
+# würde „Payload Integration Engineer" blockiert, eine Rolle, die ausdrücklich
+# gewünscht ist.
+_ROLE_SIGNAL_RE = re.compile(
+    r"\w*test\w*"          # Test, Systemtest, Testingenieur, Testkoordinator
+    r"|\bverification\b|\bvalidation\b|\bverifikation\b|\bvalidierung\b"
+    r"|\babsicherung\b|\berprobung\b|\bversuchsingenieur\b"
+    r"|\bqualifikation\b|\bqualifizierung\b|\bqa\b|\bqualitaetssicherung\b"
+    r"|\bpruef\w*|\bpruf\w*"          # Prüfstands-, Prüffeld-, Prüfingenieur
+    r"|\bmechatronik\b|\belektronik\b|\belektrotechnik\b"
+    r"|\bintegration\b"
+)
+
+
+def has_role_signal(title: str | None) -> bool:
+    """True, wenn der Titel auf eine Test-/Absicherungsrolle hindeutet."""
+    return bool(_ROLE_SIGNAL_RE.search(normalize(title or "")))
 
 
 def _job_text(job: dict) -> tuple[str, str]:

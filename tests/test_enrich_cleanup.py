@@ -14,7 +14,7 @@ import pytest
 
 from bewerbungsagent.config import Config
 from bewerbungsagent.db import Store
-from bewerbungsagent.pipeline import run_enrich
+from bewerbungsagent.pipeline import run_enrich, run_generate
 
 
 def _job(key: str, **over) -> dict:
@@ -95,3 +95,45 @@ class TestDocumentedJobsKeepVisible:
         assert result["deleted_fit_under_50"] == 0
         state = Store(config.db_path()).load_state()
         assert not state["applications"][0].get("deleted")
+
+
+class TestAutoGenerationRoleGuard:
+    """Ein hoher Fit allein belegt keine passende Rolle.
+
+    „Embedded Linux & Release Engineer" erreichte 73 % über generische
+    Technologie-Treffer (embedded, linux, python) und bekam ungefragt Unterlagen.
+    """
+
+    @pytest.fixture
+    def generator(self, monkeypatch):
+        calls: list[dict] = []
+        monkeypatch.setattr("bewerbungsagent.pipeline._generate_one",
+                            lambda config, profile, app: calls.append(app) or [])
+        return calls
+
+    def test_software_rolle_ohne_rollen_signal_wird_uebersprungen(self, config, generator):
+        apps = [_job("sw", titel="Embedded Linux & Release Engineer (m/f/d)", score=80)]
+        result = _run(config, apps)
+        assert generator == []
+        assert len(result["skipped_role"]) == 1
+
+    def test_testrolle_wird_automatisch_beworben(self, config, generator):
+        apps = [_job("test", titel="Senior Embedded Systems Test Engineer", score=80)]
+        _run(config, apps)
+        assert len(generator) == 1
+
+    @pytest.mark.parametrize("titel", [
+        "Payload Integration Engineer - UGV Platforms",   # ausdrücklich gewünscht
+        "Systemtest und Integrationsingenieur",
+        "Systems Engineer (m/w/d) - Schwerpunkt Mechatronik",
+    ])
+    def test_erwaehlte_rollen_bleiben_erlaubt(self, config, generator, titel):
+        _run(config, [_job("ok", titel=titel, score=80)])
+        assert len(generator) == 1
+
+    def test_manueller_auftrag_ist_nicht_betroffen(self, config, generator):
+        """``run_generate`` erzeugt weiterhin für jede explizit gewählte Stelle."""
+        store = Store(config.db_path())
+        app = _job("manuell", titel="Linux Software Engineer", score=80)
+        store.save_state({"applications": [app]})
+        assert run_generate(config, None, job_ids=["manuell"])["generated"] is not None

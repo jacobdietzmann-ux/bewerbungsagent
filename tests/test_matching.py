@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from bewerbungsagent.matching import location_bonus_for, match_jobs, score_job
+from bewerbungsagent.matching import (
+    has_role_signal,
+    location_bonus_for,
+    match_jobs,
+    score_job,
+)
 
 
 def _job(titel="Testingenieur (m/w/d)", beschreibung="", ort=""):
@@ -116,3 +121,42 @@ class TestLocationBonus:
     def test_begruendung_nennt_pendelweg(self, demo_profile):
         job = {**_job(titel="Testingenieur", beschreibung="CAN"), "pendelzeit_min": 25}
         assert "Pendelweg 25 min" in score_job(demo_profile, job)["begruendung"]
+
+
+class TestRoleSignal:
+    """Ein hoher Fit allein belegt keine passende Rolle.
+
+    „Embedded Linux & Release Engineer" erreichte 73 % über generische
+    Technologie-Treffer (embedded, linux, python) und bekam ungefragt
+    Unterlagen. Die Auto-Erzeugung verlangt deshalb ein Rollen-Signal im Titel.
+    """
+
+    @pytest.mark.parametrize("titel", [
+        "Senior Embedded Systems Test Engineer (All Genders)",
+        "Test Automation Engineer (m/f/d)",
+        "Flight Test Instrumentation Engineer (m/f/d)",
+        "Testingenieur (m/w/d) für Betriebssysteme",
+        "Versuchsingenieur (m/w/d) für Hardwaretests",
+        "Testkoordinator (m/w/d)",
+        "HIL Test Engineer",
+        "Senior Verification & Validation Engineer",
+        "Prüfstandsingenieur (m/w/d)",
+        "System Test Manager",
+    ])
+    def test_erkennt_testrollen(self, titel):
+        assert has_role_signal(titel) is True
+
+    @pytest.mark.parametrize("titel", [
+        "Embedded Linux & Release Engineer (m/f/d)",
+        "Linux Software Engineer (m/f/d)",
+        "Senior Simulation Platform Engineer, Cloud & Robotics",
+        "Export Control Specialist (m/w/d)",
+        "Gebietsverkaufsleiter/in im Außendienst",
+        "Requirements Engineer Physical Products",
+    ])
+    def test_erkennt_keine_testrollen(self, titel):
+        assert has_role_signal(titel) is False
+
+    def test_leerer_titel_ist_kein_signal(self):
+        assert has_role_signal("") is False
+        assert has_role_signal(None) is False

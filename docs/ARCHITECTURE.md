@@ -168,6 +168,18 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
 - **`FIT < 50 %` blendet dokumentierte Stellen nicht aus**: Für sie wurden
   bewusst Unterlagen erzeugt — sie sind kein Suchrauschen. Die harte
   Pendelweg-Grenze gilt weiterhin für alle.
+- **Ausblende-Flags müssen neu bewertet werden**: Ein `deleted`-Flag friert den
+  Zustand seines Entstehungszeitpunkts ein. Ändert sich die Grundlage, bleibt
+  die Stelle sonst für immer versteckt. `run_enrich` prüft die Begründung
+  deshalb gegen den aktuellen Zustand:
+  `FIT < 50 %` → gegen den heutigen Score, `Pendel…` → gegen
+  `_commute_blocked()`, aktive Status (`sent`/`interview`/`rejected`) → Flag
+  entfernen. **Nicht** neu bewertet werden vom Nutzer gesetzte Kriterien
+  (`Nutzerkriterium`, `Neubewertung …`) und Rollen-Ausschlüsse — das sind
+  Entscheidungen, keine ableitbaren Zustände. Konkreter Anlass: Nach dem
+  Nachladen der Anzeigentexte lagen 14 zuvor gelöschte Stellen bei 50–68 %,
+  2 bei einer überholten Pendelgrenze und 3 verschickte Bewerbungen waren
+  durch ein veraltetes Flag unsichtbar.
 - **Standort-Bonus aus der Pendelzeit, nicht aus dem Ortsnamen**: Ein
   Teilstring-Vergleich („munchen" im Feld `ort`) bewertete Vororte falsch —
   Ismaning (9 min) bekam 0 Punkte, München (25 min) 10. `location_bonus_for()`

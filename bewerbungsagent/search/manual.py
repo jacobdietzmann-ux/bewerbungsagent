@@ -33,10 +33,15 @@ def load_import(path: Path) -> list[dict]:
 def search(path: Path) -> list[dict]:
     jobs = []
     for j in load_import(path):
+        description = (j.get("beschreibung") or j.get("description")
+                       or j.get("snippet") or "")
         jobs.append({
             "titel": j.get("titel") or j.get("title") or "",
             "url": j.get("url") or "",
-            "snippet": j.get("beschreibung") or j.get("description") or j.get("snippet") or "",
+            # Volltext sowohl als ``beschreibung`` (Dashboard-Anzeige, Matching)
+            # als auch als ``snippet`` (Kurzfassung) durchreichen.
+            "beschreibung": description,
+            "snippet": description[:400],
             "firma": j.get("firma") or j.get("company") or "",
             "ort": j.get("ort") or j.get("location") or "",
             "quelle": j.get("quelle") or "Import",

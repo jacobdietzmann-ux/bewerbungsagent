@@ -20,6 +20,28 @@ from .profile import normalize
 
 HOME_ADDRESS = "Musterstraße 1, 12345 Musterstadt"
 
+# Stellen mit längerem Pendelweg werden gar nicht erst angelegt: es werden
+# weder Bewerbungsunterlagen erzeugt noch erscheinen sie im Dashboard.
+# Maßgeblich ist der berechnete Auto-Pendelweg; unbekannte Werte (``None``,
+# z. B. Remote oder fehlgeschlagenes Routing) gelten nicht als zu weit.
+MAX_COMMUTE_MINUTES = 90
+
+
+def exceeds_commute_limit(app: dict, limit: int | None = None) -> bool:
+    """True, wenn der bekannte Pendelweg die Obergrenze überschreitet.
+
+    Unbekannte Pendelzeiten (``None``/leer) liefern ``False``: eine fehlende
+    Angabe ist kein Ausschlussgrund.
+    """
+    commute = app.get("pendelzeit_min")
+    if commute is None or commute == "":
+        return False
+    try:
+        value = float(commute)
+    except (TypeError, ValueError):
+        return False
+    return value > (MAX_COMMUTE_MINUTES if limit is None else limit)
+
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 _USER_AGENT = "Bewerbungsagent/1.0 (persönliches Bewerbungs-Tool; vorname.nachname@example.com)"
@@ -38,6 +60,14 @@ _METRO_RAW = {
     "oberpfaffenhofen",
 }
 _METRO = {normalize(x) for x in _METRO_RAW}
+_NON_OFFICE_PARTS = {
+    "germany", "deutschland", "bavaria", "bayern", "baden-wuerttemberg",
+    "baden-wurttemberg", "berlin", "brandenburg", "bremen", "hamburg",
+    "hesse", "hessen", "lower saxony", "niedersachsen", "mecklenburg-vorpommern",
+    "north rhine-westphalia", "nordrhein-westfalen", "rhineland-palatinate",
+    "rheinland-pfalz", "saarland", "saxony", "sachsen", "saxony-anhalt",
+    "sachsen-anhalt", "schleswig-holstein", "thuringia", "thueringen",
+}
 
 # Mehrdeutige Ortsnamen in der Region: hier den eindeutigen Suchbegriff wählen,
 # damit Nominatim nicht den falschen (weit entfernten) Ort trifft.
@@ -51,7 +81,7 @@ _REMOTE_MARKERS = ("remote", "homeoffice", "home office", "deutschlandweit",
 # Parenthesen-Inhalte, die keine Standort-Info tragen (nur Anmerkungen) und
 # beim Geocoding stören.
 _NOISE_PAREN = ("ermittelbar", "einsatzort", "nicht munchen", "nicht münchen",
-                "werk", "kein festes", "kein buro", "kein büro")
+                "werk", "kein festes", "kein buro", "kein büro", "bei munchen")
 
 
 def is_remote(ort: str) -> bool:
@@ -68,6 +98,8 @@ def _strip_noise(part: str) -> str:
         inner = normalize(m.group(1))
         return "" if any(p in inner for p in _NOISE_PAREN) else m.group(0)
     cleaned = re.sub(r"\(([^)]*)\)", repl, part)
+    cleaned = re.sub(r"\s+bei\s+(?:m[uü]nchen|munich)$", "", cleaned,
+                     flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", cleaned).strip(" ,-")
 
 
@@ -89,8 +121,11 @@ def resolve_office(ort: str) -> str:
     for p in parts:
         if re.search(r"\b\d{5}\b", p):
             return p
-    last = parts[-1]
-    return _DISAMBIGUATE.get(normalize(last), last)
+    cities = [p for p in parts if normalize(p) not in _NON_OFFICE_PARTS]
+    if not cities:
+        return ""
+    first = cities[0]
+    return _DISAMBIGUATE.get(normalize(first), first)
 
 
 def _simplify(office: str) -> str:
@@ -209,7 +244,7 @@ def enrich_commute(apps: list[dict], data_dir: Path) -> dict:
 
         office = resolve_office(ort)
         if not office:
-            a["pendel_modus"] = ""
+            a["pendel_modus"] = "Nicht ermittelt"
             a["pendelzeit_min"] = None
             a["pendeldistanz_km"] = None
             stats["failed"] += 1
@@ -221,7 +256,7 @@ def enrich_commute(apps: list[dict], data_dir: Path) -> dict:
             if simplified and simplified != office:
                 dest = geocoder.geocode(simplified)
         if not dest:
-            a["pendel_modus"] = ""
+            a["pendel_modus"] = "Nicht ermittelt"
             a["pendelzeit_min"] = None
             a["pendeldistanz_km"] = None
             stats["failed"] += 1
@@ -234,7 +269,7 @@ def enrich_commute(apps: list[dict], data_dir: Path) -> dict:
         else:
             route = _route_driving(home, dest)
             if route is None:
-                a["pendel_modus"] = ""
+                a["pendel_modus"] = "Nicht ermittelt"
                 a["pendelzeit_min"] = None
                 a["pendeldistanz_km"] = None
                 stats["failed"] += 1

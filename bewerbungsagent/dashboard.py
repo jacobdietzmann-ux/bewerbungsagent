@@ -8,6 +8,12 @@ Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
   Versand-Datum (auto), Löschen, Ordner öffnen, Dokument-Links
 - Persistenz über einen lokalen Helfer-Server (GET/POST ``/state``), siehe server.py
 
+Der Status ``research`` (reine Funde ohne Bewerbungsdokumente) wird nicht
+dargestellt: Tabelle, Status-Verteilung, KPIs und der Wochenverlauf lassen diese
+Einträge aus. Tabelle, Status-Verteilung und KPIs zeigen nur Stellen mit
+Dokumenten und einem Pendelweg ≤ 90 min; der Wochenverlauf behält die übrige
+Historie, damit frühere Wochen nicht leer erscheinen.
+
 Die Daten werden als JSON in die HTML eingebettet (``const DATA``); der Server ist
 die führende Quelle für Status-/Kontakt-/Notiz-Änderungen.
 """
@@ -19,6 +25,7 @@ import os
 from datetime import date
 from pathlib import Path
 
+from .commute import exceeds_commute_limit
 from .config import AGENT_ROOT
 from .statuses import ORDER, STATUS, normalize_status
 from .storage import now_iso
@@ -26,6 +33,11 @@ from .storage import now_iso
 # Server-Root = eine Ebene über dem Agent (der alte Bewerbungsordner 2026/),
 # damit sowohl 01_Bewerbungen/ als auch 04_Agent/output/ erreichbar sind.
 ROOT = AGENT_ROOT.parent
+
+_APPLICATION_DOCUMENT_KEYS = {
+    "anschreiben_de", "lebenslauf_de", "anschreiben_en", "lebenslauf_en",
+    "cover_letter_en", "cv_en",
+}
 
 GERMAN_MONTHS = [
     "Januar", "Februar", "März", "April", "Mai", "Juni",
@@ -50,6 +62,48 @@ def _doc_label(key: str) -> str:
 def _root_rel(stored_rel: str) -> str:
     """Wandelt einen relativ zu ``04_Agent`` gespeicherten Pfad in einen relativ zu ROOT um."""
     return os.path.normpath(os.path.join(AGENT_ROOT.name, stored_rel))
+
+
+def _existing_documents(app: dict) -> list[tuple[str, str]]:
+    documents = []
+    for key, stored in (app.get("dokumente") or {}).items():
+        if not isinstance(stored, str) or not stored.strip():
+            continue
+        path = Path(stored)
+        if not path.is_absolute():
+            path = AGENT_ROOT / path
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if path.is_file() and stat.st_size > 0:
+            documents.append((key, stored))
+    return documents
+
+
+def documented_applications(applications: list[dict]) -> list[dict]:
+    """Bewerbungen mit mindestens einem vorhandenen Anschreiben oder Lebenslauf."""
+    result = []
+    for app in applications:
+        if any(key in _APPLICATION_DOCUMENT_KEYS for key, _ in _existing_documents(app)):
+            result.append(app)
+    return result
+
+
+def _exceeds_dashboard_commute_limit(app: dict) -> bool:
+    return exceeds_commute_limit(app)
+
+
+def dashboard_applications(applications: list[dict]) -> list[dict]:
+    """Dokumentierte Bewerbungen ohne bekannte Pendelzeit über 90 Minuten."""
+    return [
+        app for app in documented_applications(applications)
+        if not _exceeds_dashboard_commute_limit(app)
+    ]
+
+
+def _app_id(app: dict) -> str:
+    return app.get("key") or f"{app.get('firma', '')}|{app.get('titel', '')}"
 
 
 def _fmt_date(app: dict) -> str:
@@ -85,9 +139,7 @@ def _to_data(app: dict) -> dict:
     fit = int(app.get("fit_pct") or app.get("score") or 0)
 
     docs = []
-    for key, stored in (app.get("dokumente") or {}).items():
-        if not stored:
-            continue
+    for key, stored in _existing_documents(app):
         # ``stored`` ist relativ zu 04_Agent; ``_root_rel`` macht daraus einen
         # Pfad relativ zum Server-Root (2026/). Der führende Schrägstrich ist
         # wichtig, damit der Browser den Link von /04_Agent/dashboard.html aus
@@ -103,7 +155,7 @@ def _to_data(app: dict) -> dict:
     contact = app.get("contact") or app.get("ansprechpartner") or ""
 
     return {
-        "id": app.get("key") or f"{app.get('firma', '')}|{app.get('titel', '')}",
+        "id": _app_id(app),
         "company": app.get("firma", "") or "",
         "position": app.get("titel", "") or "",
         "branch": app.get("branche", "") or "",
@@ -134,7 +186,16 @@ def _to_data(app: dict) -> dict:
 
 def build_dashboard(state: dict, output_path: Path) -> Path:
     apps = state.get("applications", []) if isinstance(state, dict) else []
+    # Der komplette Bestand wird eingebettet, damit der Wochenverlauf auch
+    # frühere Bewerbungen ohne Dokumente zeigt: die Tabelle sowie die
+    # Status-Verteilung und die KPIs beziehen sich nur auf relevante Stellen
+    # (mit Dokumenten, Pendelweg ≤ 90 min), der Wochenverlauf auf die Historie
+    # ohne „Research"-Funde. Deshalb bekommt jede Zeile ein ``visible``-Flag
+    # statt den Bestand vorab zu filtern.
+    visible_keys = {_app_id(a) for a in dashboard_applications(apps)}
     data = [_to_data(a) for a in apps]
+    for row in data:
+        row["visible"] = row["id"] in visible_keys
     data.sort(key=lambda r: r["fit"], reverse=True)
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2).replace("</", "<\\/")
@@ -316,7 +377,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="legend">
     <strong>Status-Workflow:</strong>
-    <code>Research</code> → <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
+    <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
+    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ 90 min). Reine Funde (<code>Research</code>, noch ohne Dokumente) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
     <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
     <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
     <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
@@ -326,6 +388,10 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <script>
 const STATUS = __STATUS__;
 const ORDER = __ORDER__;
+// „Research" (nur gefundene Stellen ohne Dokumente) wird im Dashboard nicht
+// dargestellt. Daher bleiben diese Einträge aus allen Auswertungen (KPIs,
+// Status-Verteilung, Wochenverlauf, Status-Schalter) ausgeschlossen.
+const SHOWN_STATUSES = ORDER.filter(s => s !== "research");
 const EDITABLE = ["status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt"];
 const KEY = "bewerbungsagent-dashboard-v1";
 const HIDDEN_STATUSES_KEY = "bewerbungsagent-hidden-statuses";
@@ -512,7 +578,9 @@ function sentAtHint(r) {
 }
 
 function renderKpis() {
-  const rows = state.filter(r => !r.deleted);
+  // Research-Einträge sind reine Funde ohne Dokumente und werden im Dashboard
+  // nicht angezeigt; sie zählen daher auch in den Kennzahlen nicht mit.
+  const rows = state.filter(r => !r.deleted && r.status !== "research");
   const total = rows.length;
   const rejectedCount = rows.filter(r => r.status === "rejected").length;
   const sentPlus = rows.filter(r => ["sent","followup","interview"].includes(r.status)).length;
@@ -548,9 +616,11 @@ function renderKpis() {
 function renderStatusChart() {
   const el = document.getElementById("statusChart");
   if (!el) return;
-  const rows = state.filter(r => !r.deleted);
+  // Nur die auch in der Tabelle sichtbaren Bewerbungen zählen, damit Diagramm
+  // und Tabelle dieselben Zahlen zeigen (Research ist hier bereits ausgenommen).
+  const rows = state.filter(r => !r.deleted && r.visible !== false);
   const total = rows.length || 1;
-  el.innerHTML = ORDER.map(s => {
+  el.innerHTML = SHOWN_STATUSES.map(s => {
     const n = rows.filter(r => r.status === s).length;
     const w = Math.round((n / total) * 100);
     return `
@@ -584,25 +654,25 @@ function renderTimeChart() {
   const el = document.getElementById("timeChart");
   const legendEl = document.getElementById("timeChartLegend");
   if (!el) return;
-  const rows = state.filter(r => !r.deleted && parseDate(r.date));
+  const rows = state.filter(r => !r.deleted && r.status !== "research" && parseDate(r.date));
   if (!rows.length) { el.innerHTML = ""; if (legendEl) legendEl.innerHTML = ""; return; }
 
   const mondays = rows.map(r => mondayOf(parseDate(r.date)));
   const minM = Math.min(...mondays), maxM = Math.max(...mondays);
   const buckets = [];
   for (let t = minM; t <= maxM; t = nextMonday(t)) {
-    buckets.push({ monday:t, counts:Object.fromEntries(ORDER.map(s => [s, 0])) });
+    buckets.push({ monday:t, counts:Object.fromEntries(SHOWN_STATUSES.map(s => [s, 0])) });
   }
   rows.forEach(r => {
     const b = buckets.find(x => x.monday === mondayOf(parseDate(r.date)));
     if (b) b.counts[r.status]++;
   });
-  const maxTotal = Math.max(1, ...buckets.map(b => ORDER.reduce((a,s) => a + b.counts[s], 0)));
+  const maxTotal = Math.max(1, ...buckets.map(b => SHOWN_STATUSES.reduce((a,s) => a + b.counts[s], 0)));
   const scale = 120 / maxTotal;
 
   el.innerHTML = buckets.map(b => {
-    const total = ORDER.reduce((a,s) => a + b.counts[s], 0);
-    const segs = ORDER.map(s => {
+    const total = SHOWN_STATUSES.reduce((a,s) => a + b.counts[s], 0);
+    const segs = SHOWN_STATUSES.map(s => {
       const n = b.counts[s];
       if (!n) return "";
       return `<div title="${STATUS[s].label}: ${n}" style="height:${Math.round(n*scale)}px;background:${STATUS[s].color}"></div>`;
@@ -618,7 +688,7 @@ function renderTimeChart() {
   }).join("");
 
   if (legendEl) {
-    legendEl.innerHTML = ORDER.map(s => `
+    legendEl.innerHTML = SHOWN_STATUSES.map(s => `
       <span style="display:inline-flex;align-items:center;gap:5px">
         <span style="width:9px;height:9px;border-radius:2px;background:${STATUS[s].color};display:inline-block"></span>${STATUS[s].label}
       </span>`).join("");
@@ -632,6 +702,7 @@ function renderRows() {
   const minFit = +(document.getElementById("fitFilter")?.value || 0);
   state.forEach((r, i) => {
     if (r.deleted) return;
+    if (r.visible === false) return;
     if (hiddenStatuses.has(r.status)) return;
     if (minFit && (+r.fit || 0) < minFit) return;
     if (q) {
@@ -835,14 +906,14 @@ document.getElementById("export").addEventListener("click", () => {
 });
 
 const statusTogglesEl = document.getElementById("statusToggles");
-statusTogglesEl.innerHTML = ORDER.map(s => `
+statusTogglesEl.innerHTML = SHOWN_STATUSES.map(s => `
   <label class="toggle" for="hide-${s}">
     <input type="checkbox" id="hide-${s}" data-status="${s}" ${hiddenStatuses.has(s) ? "" : "checked"} />
     ${STATUS[s].label} einblenden <span class="hint" id="hideCount-${s}"></span>
   </label>`).join("");
 
 function updateStatusToggleCounts() {
-  ORDER.forEach(s => {
+  SHOWN_STATUSES.forEach(s => {
     const n = state.filter(r => !r.deleted && r.status === s).length;
     const el = document.getElementById("hideCount-" + s);
     if (el) el.textContent = n ? "(" + n + ")" : "";

@@ -130,6 +130,27 @@ funktioniert die Anzeige, aber Statusänderungen werden nur lokal im Browser geh
 Über „Ordner ↗“ in der Links-Spalte öffnet der Server den jeweiligen Bewerbungsordner im
 Dateimanager.
 
+## Agenten-Map (was der Agent tut)
+
+Eine eigenständige Übersichtsseite zeigt in einer einzigen HTML-Datei, **was der Agent
+macht, was er kann und wo er was verarbeitet**:
+
+```bash
+python scripts/build_agent_map.py        # → output/agent-map.html
+```
+
+Enthalten sind:
+
+- **System-Map** — klickbares Ablaufdiagramm (Quellen → vier Stufen → Ausgabe) mit
+  Dienste-Schicht; jeder Knoten erklärt Eingang und Ausgang.
+- **Geografie-Map** — echte Koordinaten der Stellen aus dem Geocode-Cache, Mittelpunkt
+  ist der Wohnort, Linien zeigen den Pendelweg, gefärbt nach Fahrzeit.
+- **Befehle, Ablageplan, Dienste und Module** mit Verantwortung und Reichweite
+  (Netzwerk vs. deterministisch).
+
+Die Seite ist offline nutzbar (keine externen Bibliotheken) und liest die Zahlen direkt
+aus `data/jobs.db`.
+
 ## Stellensuche & manueller Import
 
 Die freie Websuche ist bewusst **pluggable**:
@@ -202,9 +223,14 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   (verfügbar: `manual`, `stepstone`, `duckduckgo`, `bing`, `jobspy`).
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
   (Standard 4).
+- `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 90). Zu weit
+  entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
+  Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung.
+- `documents.lebenslauf_vorlage` – eigene DOCX-Vorlage (`{"de": …, "en": …}`); nur der
+  Profil-Absatz wird pro Stelle ersetzt.
 
 ## Hinweise
 

@@ -94,6 +94,11 @@ def run_search(config: Config, profile: Profile,
     jobs: list[dict] = []
     errors: list[str] = []
     seen: set[str] = set()
+    # Zweiter Schlüssel: dieselbe Stelle erscheint oft auf der Firmen-Karriereseite
+    # *und* bei einer Jobbörse — mit unterschiedlicher URL. Ohne diesen Schlüssel
+    # landen beide Varianten im Bestand. Der Import läuft zuerst, daher gewinnt die
+    # Original-Anzeige (mit vollständigem Text) gegen den Aggregator-Treffer.
+    seen_identity: set[tuple[str, str]] = set()
 
     def add(job: dict) -> None:
         if job.get("quelle") not in _DIRECT_SOURCES:
@@ -104,7 +109,14 @@ def run_search(config: Config, profile: Profile,
         key = normalize(job.get("url") or f"{job.get('firma')} {job.get('titel')}")
         if key and key in seen:
             return
+        firma = normalize(job.get("firma") or "")
+        titel = normalize(job.get("titel") or "")
+        identity = (firma, titel)
+        if firma and titel and identity in seen_identity:
+            return
         seen.add(key)
+        if firma and titel:
+            seen_identity.add(identity)
         jobs.append(job)
 
     # 1) Manueller Import (immer, falls Datei vorhanden).
@@ -182,6 +194,7 @@ def run_search(config: Config, profile: Profile,
 
 def _to_job(raw: dict) -> dict:
     titel, firma = _split(raw["titel"])
+    industry = raw.get("branche") or raw.get("industry") or raw.get("company_industry")
     return {
         "titel": titel,
         "firma": raw.get("firma") or firma,
@@ -189,6 +202,10 @@ def _to_job(raw: dict) -> dict:
         "url": _clean_url(raw.get("url", "")),
         "quelle": raw.get("quelle", ""),
         "snippet": raw.get("snippet", ""),
+        "branche": industry if isinstance(industry, str) else "",
+        "branche_quelle": (
+            "Quelle" if isinstance(industry, str) and industry.strip() else "Heuristik"
+        ),
     }
 
 

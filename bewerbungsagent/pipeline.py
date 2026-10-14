@@ -6,12 +6,17 @@ import os
 import re
 from pathlib import Path
 
-from .commute import enrich_commute
+from .commute import MAX_COMMUTE_MINUTES, enrich_commute, exceeds_commute_limit
 from .config import AGENT_ROOT, Config
-from .dashboard import build_dashboard
+from .dashboard import build_dashboard, dashboard_applications, documented_applications
 from .db import Store
-from .documents import generate_anschreiben, generate_lebenslauf
+from .documents import (
+    DEFAULT_CV_TEMPLATE,
+    generate_anschreiben,
+    generate_lebenslauf_vorlage,
+)
 from .importer import import_old_dashboard
+from .industry import classify_industry
 from .matching import match_jobs
 from .profile import Profile, normalize
 from .salary import enrich_salary
@@ -77,11 +82,16 @@ def _fit_value(job: dict) -> int:
 def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
     jobs, errors = _search(config, profile, definition)
     save_json(config.jobs_path(), jobs)
-    return {"count": len(jobs), "errors": errors, "path": str(config.jobs_path())}
+    context = _enrich_job_context(config, jobs)
+    return {
+        "count": len(jobs), "errors": errors, "path": str(config.jobs_path()),
+        "context": context,
+    }
 
 
 def run_match(config: Config, profile: Profile) -> dict:
     jobs = load_json(config.jobs_path(), [])
+    context = _enrich_job_context(config, jobs)
     location = config.data["search"].get("location")
     matches = match_jobs(profile, jobs, location=location)
     for i, m in enumerate(matches, start=1):
@@ -89,32 +99,87 @@ def run_match(config: Config, profile: Profile) -> dict:
         m["key"] = _job_key(m)
     save_json(config.matches_path(), matches)
     store = _store(config)
-    state = _merge_state(store.load_state(), matches)
+    state = _merge_state(store.load_state(), matches, limit=_commute_limit_minutes(config))
     _persist_state(config, store, state)
-    return {"matched": len(matches), "state": state}
+    return {"matched": len(matches), "state": state, "context": context}
 
 
-def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None) -> dict:
+def _enrich_job_context(config: Config, jobs: list[dict]) -> dict:
+    unresolved = 0
+    for job in jobs:
+        if job.get("quelle") == "Import" and job.get("branche"):
+            job["branche_quelle"] = "Quelle"
+        job["branche"] = classify_industry(job)
+        job.setdefault("branche_quelle", "Heuristik")
+        if job["branche"] == "Nicht ermittelt":
+            unresolved += 1
+
+    # Save the industry assignment even if the routing service is unavailable.
+    save_json(config.jobs_path(), jobs)
+    commute = (
+        enrich_commute(jobs, config.data_dir)
+        if jobs else
+        {"total": 0, "remote": 0, "routed": 0, "cached": 0, "failed": 0}
+    )
+    save_json(config.jobs_path(), jobs)
+    commute_unresolved = [
+        {"firma": job.get("firma", ""), "titel": job.get("titel", ""),
+         "ort": job.get("ort", "")}
+        for job in jobs
+        if job.get("pendel_modus") == "Nicht ermittelt"
+    ]
+    return {
+        "commute": commute,
+        "commute_unresolved": commute_unresolved,
+        "industry_classified": len(jobs) - unresolved,
+        "industry_unresolved": unresolved,
+    }
+
+
+def _commute_limit_minutes(config: Config) -> int:
+    """Obergrenze des Pendelwegs in Minuten (konfigurierbar, sonst Standard)."""
+    raw = config.data.get("max_pendelzeit_min")
+    try:
+        return int(raw) if raw is not None else MAX_COMMUTE_MINUTES
+    except (TypeError, ValueError):
+        return MAX_COMMUTE_MINUTES
+
+
+def _commute_blocked(config: Config, job: dict) -> bool:
+    """True, wenn die Stelle wegen zu weitem Pendelweg nicht angelegt werden darf."""
+    return exceeds_commute_limit(job, limit=_commute_limit_minutes(config))
+
+
+def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
+                 template: str | None = None) -> dict:
     matches = load_json(config.matches_path(), [])
     min_fit = min_fit or config.data["documents"].get("min_fit_for_generation", "mittel")
     threshold = FIT_RANK.get(min_fit, FIT_RANK["mittel"])
 
     selected = []
+    skipped_commute = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
             continue
         if job_ids is not None:
-            if m.get("id") in job_ids:
-                selected.append(m)
-        elif FIT_RANK.get(m.get("fit_geschaetzt", "niedrig"), 1) >= threshold:
-            selected.append(m)
+            wanted = m.get("id") in job_ids
+        else:
+            wanted = FIT_RANK.get(m.get("fit_geschaetzt", "niedrig"), 1) >= threshold
+        if not wanted:
+            continue
+        # Zu weiter Pendelweg: gar nicht erst anlegen.
+        if _commute_blocked(config, m):
+            skipped_commute.append(m)
+            continue
+        selected.append(m)
 
     created = []
     for job in selected:
-        created.extend(_generate_one(config, profile, job))
+        created.extend(_generate_one(config, profile, job, template=template))
 
-    return {"generated": created, "jobs_processed": len(selected)}
+    return {"generated": created, "jobs_processed": len(selected),
+            "skipped_commute": skipped_commute}
 
 
 def run_enrich(config: Config, profile: Profile) -> dict:
@@ -147,16 +212,26 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                 "verfuegbar": a.get("verfuegbar", True),
             })
 
-    # 4) FIT < 50 % löschen — NUR für Stellen, die noch nicht versendet wurden
-    #    (research/docs). Bereits verschickte/abgeschlossene Stellen (sent,
-    #    followup, interview, rejected) bleiben sichtbar, da sie echte
-    #    Bewerbungsaktivität dokumentieren.
+    # 4) Bereinigung:
+    #    a) Stellen mit zu weitem Pendelweg werden nicht angelegt (deleted-Flag).
+    #    b) FIT < 50 % löschen — NUR für Stellen, die noch nicht versendet wurden
+    #       (research/docs). Bereits verschickte/abgeschlossene Stellen (sent,
+    #       followup, interview, rejected) bleiben sichtbar, da sie echte
+    #       Bewerbungsaktivität dokumentieren.
     _ACTIVE_STATUSES = {"sent", "followup", "interview", "rejected"}
     deleted_count = 0
+    deleted_commute = 0
     for a in apps:
         if a.get("status") in _ACTIVE_STATUSES:
             continue
-        if _fit_value(a) < 50 and not a.get("deleted"):
+        if a.get("deleted"):
+            continue
+        if _commute_blocked(config, a):
+            a["deleted"] = True
+            a["deleted_reason"] = f"Pendelweg > {_commute_limit_minutes(config)} min"
+            deleted_commute += 1
+            continue
+        if _fit_value(a) < 50:
             a["deleted"] = True
             a["deleted_reason"] = "FIT < 50 %"
             deleted_count += 1
@@ -171,6 +246,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         if _fit_value(a) <= 65:
             continue
         if a.get("dokumente"):
+            continue
+        if _commute_blocked(config, a):
             continue
         for created in _generate_one(config, profile, a):
             generated.append(created)
@@ -189,6 +266,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "salary": salary_stats,
         "research_checked": research_checked,
         "deleted_fit_under_50": deleted_count,
+        "deleted_commute": deleted_commute,
         "generated": generated,
         "generated_count": len(generated),
         "total": len(apps),
@@ -215,7 +293,16 @@ def run_import_old(config: Config) -> dict:
 def run_dashboard(config: Config) -> dict:
     state = _store(config).load_state()
     path = build_dashboard(state, config.dashboard_path)
-    return {"path": str(path), "applications": len(state.get("applications", []))}
+    all_applications = state.get("applications", [])
+    documented = documented_applications(all_applications)
+    applications = dashboard_applications(all_applications)
+    return {
+        "path": str(path),
+        "applications": sum(not bool(app.get("deleted")) for app in applications),
+        "with_documents": len(documented),
+        "hidden_without_documents": len(all_applications) - len(documented),
+        "hidden_too_far": len(documented) - len(applications),
+    }
 
 
 def run_full(config: Config, profile: Profile) -> dict:
@@ -230,12 +317,14 @@ def run_full(config: Config, profile: Profile) -> dict:
 # Interna
 # --------------------------------------------------------------------------
 
-def _merge_state(existing: dict, matches: list[dict]) -> dict:
+def _merge_state(existing: dict, matches: list[dict],
+                 limit: int = MAX_COMMUTE_MINUTES) -> dict:
     apps = existing.get("applications", []) if isinstance(existing, dict) else []
     by_key = {a.get("key"): a for a in apps if a.get("key")}
     score_fields = ("score", "fit_geschaetzt", "begruendung", "matched_skills",
                     "title_hits", "body_hits", "location_bonus", "beschreibung",
-                    "verfuegbar")
+                    "verfuegbar", "branche", "branche_quelle", "pendel_modus",
+                    "pendelzeit_min", "pendeldistanz_km")
 
     result = []
     seen: set[str] = set()
@@ -248,11 +337,14 @@ def _merge_state(existing: dict, matches: list[dict]) -> dict:
             old.setdefault("status", "research")
             old.setdefault("dokumente", {})
             old.setdefault("created", now_iso())
+            _flag_far_commute(old, limit)
             result.append(old)
         else:
             m.setdefault("status", "research")
             m.setdefault("dokumente", {})
             m.setdefault("created", now_iso())
+            # Neue Stellen mit zu weitem Pendelweg gar nicht erst anlegen.
+            _flag_far_commute(m, limit)
             result.append(m)
         seen.add(key)
 
@@ -264,17 +356,38 @@ def _merge_state(existing: dict, matches: list[dict]) -> dict:
     return {"updated": now_iso(), "applications": result}
 
 
-def _generate_one(config: Config, profile: Profile, job: dict) -> list[dict]:
+def _flag_far_commute(app: dict, limit: int) -> bool:
+    """Markiert eine Stelle mit zu weitem Pendelweg als gelöscht (bleibt in der DB).
+
+    Bereits versendete/abgeschlossene Bewerbungen bleiben unangetastet, da sie
+    echte Aktivität dokumentieren.
+    """
+    if app.get("status") in ("sent", "followup", "interview", "rejected"):
+        return False
+    if app.get("deleted"):
+        return False
+    if not exceeds_commute_limit(app, limit=limit):
+        return False
+    app["deleted"] = True
+    app["deleted_reason"] = f"Pendelweg > {limit} min"
+    return True
+
+
+def _generate_one(config: Config, profile: Profile, job: dict, template: str | None = None) -> list[dict]:
     match = job  # matches sind Jobs inkl. Score-Feldern
     folder = config.bewerbungen_dir / safe_name(f"{job.get('firma', '')} - {job.get('titel', '')}")
     folder.mkdir(parents=True, exist_ok=True)
 
+    template = template or (config.data["documents"].get("lebenslauf_template") or DEFAULT_CV_TEMPLATE)
     languages = config.data["documents"].get("languages", ["de"])
     files: dict[str, str] = {}
     for lang in languages:
         names = _DOC_NAMES.get(lang, _DOC_NAMES["de"])
         ans = generate_anschreiben(profile, job, match, folder / names["anschreiben"], config.data, lang)
-        cv = generate_lebenslauf(profile, job, match, folder / names["lebenslauf"], config.data, lang)
+        # Eigene DOCX-Vorlage bevorzugen (mit pro-Stelle angepasstem Profil-Absatz);
+        # bei fehlender Vorlage fällt die Funktion intern auf ReportLab zurück.
+        cv = generate_lebenslauf_vorlage(profile, job, match, folder / names["lebenslauf"], config.data, lang,
+                                         template=template)
         files[f"anschreiben_{lang}"] = _rel(ans)
         files[f"lebenslauf_{lang}"] = _rel(cv)
 

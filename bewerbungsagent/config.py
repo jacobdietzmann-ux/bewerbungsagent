@@ -42,10 +42,23 @@ DEFAULT_CONFIG: dict = {
             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
         ),
     },
+    # Stellen mit längerem Pendelweg (Auto, ab Wohnadresse) werden gar nicht erst
+    # angelegt: keine Unterlagen, keine Anzeige im Dashboard. Unbekannte
+    # Pendelzeiten (z. B. Remote) gelten nicht als zu weit.
+    "max_pendelzeit_min": 90,
     "documents": {
         "languages": ["de", "en"],
         "accent_color": "#0B3D5C",
         "min_fit_for_generation": "mittel",  # hoch | mittel | niedrig
+        "lebenslauf_template": "classic",  # classic | modern | functional
+        # Eigene aktuelle Lebenslauf-Vorlage (DOCX) statt ReportLab-Generierung.
+        # Wenn gesetzt, wird das DOCX 1:1 übernommen und nur der Profil-Absatz
+        # pro Stelle ersetzt (Konvertierung zu PDF via soffice). Leerer Wert
+        # bzw. fehlende Datei => Fallback auf die ReportLab-Vorlage.
+        "lebenslauf_vorlage": {
+            "de": "../02_Profil-und-Assets/Vorlage-Aktuell/Lebenslauf_Jacob_Dietzmann.docx",
+            "en": "../02_Profil-und-Assets/Vorlage-Aktuell/CV_Jacob_Dietzmann_EN.docx",
+        },
     },
 }
 

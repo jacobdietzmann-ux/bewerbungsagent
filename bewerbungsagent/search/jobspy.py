@@ -94,10 +94,15 @@ def search(query: str, location: str = "München", max_results: int = 8,
         if not titel or not url:
             continue
         beschreibung = (row.get("description") or "").strip()
+        industry = row.get("company_industry") or row.get("industry")
         results.append({
             "titel": titel,
             "firma": (row.get("company") or row.get("company_name") or "").strip(),
             "ort": (row.get("location") or "").strip(),
+            "branche": industry.strip() if isinstance(industry, str) else "",
+            "branche_quelle": (
+                "Quelle" if isinstance(industry, str) and industry.strip() else "Heuristik"
+            ),
             "url": url,
             "quelle": _SITE_LABELS.get(row.get("site"), "JobSpy"),
             "snippet": _snippet(beschreibung),

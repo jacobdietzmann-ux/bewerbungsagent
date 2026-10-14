@@ -18,6 +18,7 @@ import sys
 
 from bewerbungsagent.cleanup import run_cleanup
 from bewerbungsagent.config import Config
+from bewerbungsagent.documents import CV_TEMPLATES, DEFAULT_CV_TEMPLATE
 from bewerbungsagent.pipeline import (
     load_config_and_profile,
     run_dashboard,
@@ -49,6 +50,21 @@ def _print_jobs(config: Config) -> None:
               f"{str(m.get('ort', ''))[:19]:<20} {m.get('status', 'neu')}")
 
 
+def _print_job_context(context: dict) -> None:
+    commute = context.get("commute", {})
+    if commute.get("total"):
+        print("Pendelweg ergänzt: "
+              f"{commute['routed']} berechnet, {commute['cached']} aus Cache, "
+              f"{commute['remote']} remote, {commute['failed']} fehlgeschlagen.")
+        for job in context.get("commute_unresolved", []):
+            location = job["ort"] or "Ort fehlt"
+            print(f"  Pendelweg nicht ermittelt: {job['firma']} — "
+                  f"{job['titel']} ({location})")
+    print("Branche eingetragen: "
+          f"{context.get('industry_classified', 0)} zugeordnet, "
+          f"{context.get('industry_unresolved', 0)} nicht ermittelt.")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Bewerbungsagent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -73,6 +89,8 @@ def main(argv=None) -> int:
     gen.add_argument("--ids", help="kommagetrennte Job-IDs, z. B. 1,2,3")
     gen.add_argument("--fit", choices=["hoch", "mittel", "niedrig"], default=None,
                      help="Mindest-Fit für --all")
+    gen.add_argument("--template", choices=sorted(CV_TEMPLATES), default=None,
+                     help="Lebenslauf-Vorlage (Standard: aus config.json)")
 
     args = parser.parse_args(argv)
 
@@ -91,6 +109,7 @@ def main(argv=None) -> int:
                   f"({len(saved.get('query_terms', []))} Begriffe, {saved.get('location')})")
         result = run_search(config, profile, definition=definition)
         print(f"Suche abgeschlossen: {result['count']} Stelle(n) gefunden.")
+        _print_job_context(result["context"])
         for err in result["errors"]:
             print(f"  ! {err}")
         print(f"Ergebnis: {result['path']}")
@@ -113,6 +132,7 @@ def main(argv=None) -> int:
     elif args.command == "match":
         result = run_match(config, profile)
         print(f"Matching abgeschlossen: {result['matched']} Stelle(n) bewertet.")
+        _print_job_context(result["context"])
         _print_jobs(config)
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
@@ -138,6 +158,8 @@ def main(argv=None) -> int:
                 flag = "" if r["verfuegbar"] else " (abgelaufen)"
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Gelöscht (FIT < 50 %): {result['deleted_fit_under_50']} Stelle(n).")
+        print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', 90)} min): "
+              f"{result.get('deleted_commute', 0)} Stelle(n).")
         print(f"Automatisch bewerbt (FIT > 65 %): {result['generated_count']} Stelle(n).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
@@ -146,12 +168,21 @@ def main(argv=None) -> int:
         ids = None
         if args.ids:
             ids = [int(x) for x in args.ids.split(",") if x.strip().isdigit()]
-        result = run_generate(config, profile, job_ids=ids, min_fit=args.fit)
-        print(f"Dokumente erzeugt für {result['jobs_processed']} Stelle(n):")
+        template = getattr(args, "template", None)
+        result = run_generate(config, profile, job_ids=ids, min_fit=args.fit, template=template)
+        print(f"Dokumente erzeugt für {result['jobs_processed']} Stelle(n)"
+              f" (Vorlage: {CV_TEMPLATES[template or config.data['documents'].get('lebenslauf_template') or DEFAULT_CV_TEMPLATE]['label']}):")
         for g in result["generated"]:
             print(f"  - {g['firma']} — {g['titel']}")
             for name, rel in g["dokumente"].items():
                 print(f"      {name}: {rel}")
+        skipped = result.get("skipped_commute") or []
+        if skipped:
+            print(f"  Übersprungen (Pendelweg > {config.data.get('max_pendelzeit_min', 90)} min): "
+                  f"{len(skipped)} Stelle(n)")
+            for s in skipped:
+                print(f"      - {s.get('firma')} — {s.get('titel')} "
+                      f"({s.get('pendelzeit_min')} min)")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
 
@@ -168,7 +199,10 @@ def main(argv=None) -> int:
 
     elif args.command == "dashboard":
         result = run_dashboard(config)
-        print(f"Dashboard erzeugt: {result['path']} ({result['applications']} Stellen)")
+        print(f"Dashboard erzeugt: {result['path']} "
+              f"({result['applications']} relevante Stellen; "
+              f"{result['hidden_without_documents']} ohne Bewerbungsdokumente und "
+              f"{result['hidden_too_far']} mit mehr als 90 Minuten Pendelzeit ausgeblendet)")
 
     elif args.command == "status":
         _print_jobs(config)
@@ -176,6 +210,7 @@ def main(argv=None) -> int:
     elif args.command == "pipeline":
         result = run_full(config, profile)
         print(f"Suche: {result['search']['count']} Stelle(n)")
+        _print_job_context(result["search"]["context"])
         for err in result["search"]["errors"]:
             print(f"  ! {err}")
         print(f"Matching: {result['match']} Stelle(n)")

@@ -228,3 +228,57 @@ class TestCvProfileSummary:
         match = {"matched_skills": []}
         s = D._cv_profile_summary(demo, job, match, "de")
         assert "Maschinenbau" in s
+
+    def test_german_is_not_redundant(self, demo):
+        """Regression: doppeltes „Schwerpunkte"/„Tätigkeitsschwerpunkte" entfernt."""
+        job = {"titel": "Test", "firma": "X"}
+        match = {"matched_skills": ["hil", "python"]}
+        s = D._cv_profile_summary(demo, job, match, "de")
+        assert "Tätigkeitsschwerpunkte" not in s
+        assert "Schwerpunkte:" not in s
+        assert "Spezialisiert auf" in s
+
+    def test_english_is_not_redundant(self, demo):
+        job = {"titel": "Test", "firma": "X"}
+        match = {"matched_skills": ["hil", "python"]}
+        s = D._cv_profile_summary(demo, job, match, "en")
+        assert "Main activities" not in s
+        assert "focus areas" not in s
+        assert "Specialised in" in s
+
+
+class TestClaimMatching:
+    """Kurze Skills dürfen nur mit Wortgrenzen matchen (sonst „std“ in „Testdurchführung“)."""
+
+    def test_short_skill_does_not_match_inside_word(self, demo_profile):
+        claim, _we = D._claim_for(demo_profile, "std", "de")
+        assert claim is None, f"'std' matchte faelschlich: {claim!r}"
+
+    def test_short_skill_matches_as_standalone_word(self):
+        profile = _ProfileStub([
+            {"role_de": "Testingenieur", "bullets_de": [
+                "Analyse von CAN-Traces und DTCs zur Root-Cause-Eingrenzung.",
+            ]},
+        ])
+        claim, _we = D._claim_for(profile, "can", "de")
+        assert claim is not None and "CAN-Traces" in claim
+
+    def test_longer_skill_still_matches_substring(self):
+        profile = _ProfileStub([
+            {"role_de": "Testingenieur", "bullets_de": [
+                "Entwicklung eines Python-basierten Testautomatisierungstools.",
+            ]},
+        ])
+        claim, _we = D._claim_for(profile, "python", "de")
+        assert claim is not None and "Python" in claim
+
+
+class _ProfileStub:
+    """Minimales Profil für die Claim-Suche."""
+
+    def __init__(self, work_experience):
+        self._we = work_experience
+
+    @property
+    def work_experience(self):
+        return self._we

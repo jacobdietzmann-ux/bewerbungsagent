@@ -61,6 +61,43 @@ systemctl --user enable --now bewerbungsagent-backup.timer
 systemctl --user list-timers bewerbungsagent-backup.timer
 ```
 
+## Rclone-Bisync: generierte Dateien ausgenommen
+
+Der `rclone-bisync.timer` (alle 15 min) synchronisiert den Google-Drive-Ordner
+**in beide Richtungen**. Schreibt der Agent eine Datei, während Bisync läuft,
+sieht Bisync eine Änderung auf *beiden* Seiten und legt eine Konfliktkopie an
+(`datei.json.conflict1`, `.conflict2`, …) — im Oktober 2026 hat das mehrfach
+`state.json` und `import_jobs.json` umbenannt.
+
+Deshalb sind die vom Agenten **automatisch erzeugten** Dateien ausgenommen
+(`~/.config/rclone/bisync-exclude.txt`):
+
+```
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/dashboard.html
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/dashboard.html.pre-*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.json
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.pre-*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.backup-*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/matches.json
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/matches.pre-*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.pre-*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.backup.*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/geocode_cache.json
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/commute_cache.json
+```
+
+**Kein Datenverlust:** Diese Dateien sind aus `data/jobs.db` reproduzierbar und
+werden zusätzlich von `scripts/backup_state.sh` gesichert. Quelle der Wahrheit
+(`data/jobs.db`) und generierte Daten bleiben damit bewusst **lokal** — sie
+liegen im HDD-Backup (`rclone-backup.timer`), nicht in der Cloud.
+
+> ⚠️ **Nach jeder Änderung der Filterliste** muss einmalig
+> `rclone bisync … --resync --resync-mode newer` laufen. Ohne Resync
+> interpretiert Bisync die neu ausgenommenen Dateien als „gelöscht“ und würde
+> sie propagieren. `--resync-mode newer` (statt Default `path1`) verhindert,
+> dass ältere Cloud-Versionen neuere lokale Dateien überschreiben.
+
 ## Restore-Test (das Wichtigste!)
 
 Ein Backup ohne Restore-Probe ist kein Backup. Regelmäßig prüfen:

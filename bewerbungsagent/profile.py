@@ -65,23 +65,82 @@ def normalize(text: str) -> str:
     return text
 
 
+def _split_top_level(value: str) -> list[str]:
+    """Teilt an ``,;&|``, Zeilenumbrüchen und `` - `` aus, **ignoriert Klammern**.
+
+    Ohne den Klammer-Schutz zerlegte ein Wert wie
+    ``"Fahrzeugarchitektur E/E (CAN, CAN-FD, LIN)"`` die Klammer mit und
+    erzeugte Fragmente wie ``"e (can"`` — unbalancierte Klammern, die nie
+    matchen können, aber die Trefferzahl aufblähen.
+
+    Ein mit Leerzeichen umgebener Gedankenstrich trennt ebenfalls: In
+    ``"ISO 26262 - DO-178C"`` sind das zwei Normen, während ``MIL-STD-810``
+    ohne Leerzeichen ein einziger Begriff bleibt.
+    """
+    parts, buf, depth = [], [], 0
+    for i, ch in enumerate(value):
+        if ch == "(":
+            depth += 1
+        elif ch == ")" and depth:
+            depth -= 1
+        spaced_dash = (
+            depth == 0 and ch in "-–—"
+            and buf and buf[-1].isspace()
+            and i + 1 < len(value) and value[i + 1].isspace()
+        )
+        if depth == 0 and (ch in ",;&|\n" or spaced_dash):
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    parts.append("".join(buf))
+    return parts
+
+
+def _split_slashes(part: str) -> list[str]:
+    """Teilt ``A/B`` nur, wenn beide Seiten eigenständige Begriffe sind.
+
+    ``"E/E"`` und ``"C/C++"`` sind *ein* Begriff — ein Split hinterließe
+    Ein-Buchstaben-Reste (``"Fahrzeugarchitektur E"``). ``"ISO 26262/LV124/GS
+    95024"`` dagegen nennt drei Normen und wird geteilt.
+    """
+    pieces = [p.strip() for p in part.split("/")]
+    if len(pieces) > 1 and all(
+            len(p) >= 2 and len(p.split()[0]) >= 2 and len(p.split()[-1]) >= 2
+            for p in pieces):
+        return pieces
+    return [part]
+
+
 def _split_phrases(value: str) -> list[str]:
     """Teilt einen Skill-/Tag-String in brauchbare Schlüsselwort-Phrasen."""
-    pieces = re.split(r"[,;&\n/|]", value)
-    out = []
-    for p in pieces:
-        p = p.strip()
-        p = re.sub(r"^[\s\-–—_*:·•]+|[\s\-–—_*:·•]+$", "", p)
-        # Klammerzusätze separat führen (z. B. "ISO 26262 (funktionale Sicherheit)").
-        # Wichtig: NICHT vorher die Klammern strippen, sonst entfernt ``strip("()")``
-        # die schließende Klammer und der Split greift nicht mehr.
-        m = re.match(r"^(.*?)\((.*)\)$", p)
-        if m and len(m.group(1).strip()) >= 3:
-            out.append(m.group(1).strip().strip("()[]\"'"))
-            out.append(m.group(2).strip().strip("()[]\"'"))
-        elif p:
-            out.append(p.strip("()[]\"'"))
-    return [x for x in out if x]
+    out: list[str] = []
+    for raw in _split_top_level(value):
+        raw = re.sub(r"^[\s\-–—_*:·•]+|[\s\-–—_*:·•]+$", "", raw.strip())
+        if not raw:
+            continue
+        # Kategorie-Präfix abtrennen ("Sprachen: Englisch" → beide Begriffe).
+        label = re.match(r"^([^:()]{4,}):\s*(.+)$", raw, re.S)
+        if label:
+            out.append(label.group(1).strip())
+            out.extend(_split_phrases(label.group(2)))
+            continue
+        # Die Klammer MUSS vor dem "/"-Split abgetrennt werden. Sonst zerlegt
+        # "…(TCP/UDP, serielle Schnittstellen)" die Klammer und es bleiben
+        # unbalancierte Reste wie "udp, serielle schnittstellen" übrig.
+        m = re.match(r"^(.*?)\s*\((.*)\)\s*$", raw, re.S)
+        for part in _split_slashes(m.group(1) if m else raw):
+            part = re.sub(r"^[\s\-–—_*:·•]+|[\s\-–—_*:·•]+$",
+                          "", part.strip("()[]\"'"))
+            if part:
+                out.append(part)
+        if m:
+            out.extend(_split_phrases(m.group(2)))
+    # Ein-Buchstaben-Reste, unbalancierte Klammern und Anführungszeichen
+    # (aus Projektnamen wie `im Projekt "X"`) sind nie nützliche Keywords.
+    return [x for x in out if x and len(x.strip()) >= 2
+            and x.count("(") == x.count(")")
+            and x.count('"') % 2 == 0]
 
 
 def _flatten_strings(obj, out: list[str]) -> None:
@@ -143,6 +202,56 @@ class Profile:
         return self.data.get("tailoring_notes", "")
 
     # ---- Keyword-Aufbereitung ------------------------------------------
+    def _gap_terms(self) -> tuple[set[str], set[str]]:
+        """Begriffe, die laut ``confirmed_gaps_do_not_overclaim`` *nicht* vorhanden sind.
+
+        Sie dürfen nie als Profil-Skill zählen. Beispiel: Das Profil nennt unter
+        ``skills`` einen „Prozessnormen-Transfer … DO-178C, ECSS, DO-160,
+        MIL-STD-810“ und führt dieselben Normen gleichzeitig als bestätigte
+        Lücke. Ohne diese Sperre zählte das Matching sie als *positive* Treffer —
+        bei einer Verteidigungs-Stelle waren 4 von 10 Text-Treffern solche
+        Normen.
+
+        Rückgabe: ``(Vollbegriffe, Einzelwörter)``. Die Einzelwörter sind nötig,
+        weil die Token-Extraktion „MIL-STD-810“ zusätzlich als ``mil`` und ``std``
+        in die Keyword-Liste schreibt.
+        """
+        full: set[str] = set()
+        tokens: set[str] = set()
+        for raw in self.data.get("gap_terms") or []:
+            n = normalize(str(raw))
+            if not n:
+                continue
+            full.add(n)
+            # Generische Wörter nicht sperren: „Robot Operating System“ würde
+            # sonst ``system`` blocken — und damit „Embedded Systems“,
+            # „Echtzeitsysteme“ und ganze Rollentitel.
+            tokens.update(t for t in re.findall(r"[a-z0-9]+", n)
+                          if len(t) >= 3 and t not in STOPWORDS
+                          and t not in _ROLE_WORD_NOISE)
+        return full, tokens
+
+    def _is_gap_term(self, keyword: str, blocked: tuple[set[str], set[str]]) -> bool:
+        """Prüft, ob ein Keyword eine bestätigte Lücke ist oder eine enthält.
+
+        Verglichen wird **exakt** — als ganzer Begriff (``mil``, ``178c``) oder
+        als eines seiner Wörter (``sysml`` in ``sysml-modelle``). Eine
+        Substring-Suche über alle Lückenbegriffe wäre zu grob: das Wort ``system``
+        aus „Robot Operating System“ würde ``Embedded Systems``,
+        ``Echtzeitsysteme`` und ``Fahrerassistenzsysteme`` mitlöschen.
+
+        Ausnahme sind *unterscheidungskräftige* Begriffe mit Ziffer oder
+        Bindestrich (``do-178c``). Nur sie dürfen als Teilphrase greifen, damit
+        die alte Fehlextraktion ``"gs 95024 - do-178c"`` verschwindet.
+        """
+        full, tokens = blocked
+        if keyword in full:
+            return True
+        if {t for t in re.findall(r"[a-z0-9]+", keyword) if len(t) >= 3} & tokens:
+            return True
+        return any(b in keyword for b in full
+                   if len(b) >= 5 and ("-" in b or any(c.isdigit() for c in b)))
+
     def _build_phrases(self) -> list[str]:
         phrases: list[str] = []
         _flatten_strings(self.data.get("skills", {}), phrases)
@@ -194,6 +303,11 @@ class Profile:
                     norm.add(tok)
                     if tok not in self.display_map:
                         self.display_map[tok] = tok
+
+        # Bestätigte Lücken dürfen nie als Skill zählen (siehe ``_gap_terms``).
+        blocked = self._gap_terms()
+        if blocked:
+            norm = {n for n in norm if not self._is_gap_term(n, blocked)}
         return sorted(norm)
 
     def _build_words(self) -> set[str]:
@@ -214,10 +328,15 @@ class Profile:
         Kurze Einzelwort-Schlüssel (2–4 Zeichen, z. B. „can“, „lin“, „ecu“,
         „hil“, „git“) werden mit Wortgrenzen gematcht, damit sie nicht fälschlich
         in längeren, unverwandten Wörtern aufscheinen („can“ in „candidate“,
-        „ecu“ in „execute“, „lin“ in „online“). Längere Begriffe und
-        Mehrwort-Phrasen bleiben beim Substring-Match.
+        „ecu“ in „execute“, „lin“ in „online“).
+
+        Mehrwort-Phrasen gelten auch dann als Treffer, wenn ihre Wörter im Text
+        vorkommen, aber **nicht direkt hintereinander** — sonst verfehlte
+        „test engineer“ den Titel „Test Automation Engineer“ oder „Flight Test
+        Instrumentation Engineer“, obwohl beide exakt die gesuchte Rolle sind.
         """
         n = normalize(text)
+        tokens = set(re.findall(r"[a-z0-9]+", n)) if " " in n else set()
         hits: set[str] = set()
         for p in self.keyword_phrases:
             if not p:
@@ -227,6 +346,10 @@ class Profile:
                     hits.add(p)
             elif p in n:
                 hits.add(p)
+            elif tokens and " " in p:
+                words = [w for w in re.findall(r"[a-z0-9]+", p) if len(w) >= 3]
+                if words and set(words) <= tokens:
+                    hits.add(p)
         return sorted(hits)
 
     def words_in(self, text: str) -> set[str]:

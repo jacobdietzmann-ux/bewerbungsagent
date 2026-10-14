@@ -143,6 +143,32 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   Nach jeder Muster-Änderung die alten Flags mit
   `python scripts/recheck_expired.py --apply` neu bewerten.
 
+### Fit-Scoring
+
+- **`gap_terms` sperrt bestätigte Lücken**: Ein Profil kann unter `skills` einen
+  „Prozessnormen-*Transfer* …“ nennen und dieselben Normen unter
+  `confirmed_gaps_do_not_overclaim` als Lücke führen. Ohne Sperre zählte das
+  Matching sie als positive Treffer — bei einer Verteidigungsstelle waren 4 von
+  10 Text-Treffern solche Normen. Neue Lücken deshalb **immer** zusätzlich in
+  `gap_terms` eintragen; das Feld ist die maschinenlesbare Form der Lücke.
+- **Mehrwort-Phrasen sind wortreihenfolge-unabhängig**: `test engineer` muss
+  auch „Test **Automation** Engineer“ und „Flight **Test Instrumentation**
+  Engineer“ treffen. Eine Kontiguitäts-Prüfung verfehlte 30 Stellen (12 davon im
+  Titel) mit 0 %.
+- **Keyword-Extraktion respektiert Klammern**: Wer an `,`, `/` oder `&` teilt,
+  *bevor* er Klammern abtrennt, zerlegt `"…(TCP/UDP, serielle Schnittstellen)"`
+  und erzeugt unbalancierte Reste wie `"udp, serielle schnittstellen"`. Klammer
+  zuerst abtrennen, dann den klammerfreien Kopf an `/` teilen. `"E/E"` und
+  `"C/C++"` sind **ein** Begriff — nur trennen, wenn beide Seiten eigene Wörter
+  ergeben.
+- **Lücken-Begriffe nur exakt vergleichen**: `system` (aus „Robot Operating
+  System“) als Substring zu sperren löschte „Embedded Systems“,
+  „Echtzeitsysteme“ und ganze Rollentitel. Die Substring-Regel gilt nur für
+  unterscheidungskräftige Begriffe mit Ziffer oder Bindestrich (`do-178c`).
+- **`FIT < 50 %` blendet dokumentierte Stellen nicht aus**: Für sie wurden
+  bewusst Unterlagen erzeugt — sie sind kein Suchrauschen. Die harte
+  Pendelweg-Grenze gilt weiterhin für alle.
+
 ## Evaluation (`eval/`)
 
 Offline-Messung des Fit-Scorings gegen die echten Bewerbungsentscheidungen.

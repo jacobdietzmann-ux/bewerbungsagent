@@ -218,20 +218,31 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     #       (research/docs). Bereits verschickte/abgeschlossene Stellen (sent,
     #       followup, interview, rejected) bleiben sichtbar, da sie echte
     #       Bewerbungsaktivität dokumentieren.
+    #    c) Stellen mit bereits erstellten Unterlagen bleiben immer sichtbar:
+    #       für sie wurden bewusst Dokumente erzeugt (oft auf ausdrücklichen
+    #       Wunsch), sie sind also kein Suchrauschen. Der Pendelweg-Ausschluss
+    #       gilt weiterhin, weil er eine harte Vorgabe ist.
     _ACTIVE_STATUSES = {"sent", "followup", "interview", "rejected"}
     deleted_count = 0
     deleted_commute = 0
+    restored_documented = 0
     for a in apps:
         if a.get("status") in _ACTIVE_STATUSES:
             continue
         if a.get("deleted"):
+            # Einmalige Reparatur: frühere Läufe haben dokumentierte Stellen
+            # allein wegen FIT < 50 % ausgeblendet. Die werden zurückgeholt.
+            if a.get("dokumente") and not _commute_blocked(config, a):
+                a.pop("deleted", None)
+                a.pop("deleted_reason", None)
+                restored_documented += 1
             continue
         if _commute_blocked(config, a):
             a["deleted"] = True
             a["deleted_reason"] = f"Pendelweg > {_commute_limit_minutes(config)} min"
             deleted_commute += 1
             continue
-        if _fit_value(a) < 50:
+        if _fit_value(a) < 50 and not a.get("dokumente"):
             a["deleted"] = True
             a["deleted_reason"] = "FIT < 50 %"
             deleted_count += 1
@@ -267,6 +278,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "research_checked": research_checked,
         "deleted_fit_under_50": deleted_count,
         "deleted_commute": deleted_commute,
+        "restored_documented": restored_documented,
         "generated": generated,
         "generated_count": len(generated),
         "total": len(apps),

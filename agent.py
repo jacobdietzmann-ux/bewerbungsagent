@@ -160,6 +160,9 @@ def main(argv=None) -> int:
         print(f"Gelöscht (FIT < 50 %): {result['deleted_fit_under_50']} Stelle(n).")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', 90)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
+        if result.get("restored_documented"):
+            print(f"Wieder sichtbar (Unterlagen vorhanden): "
+                  f"{result['restored_documented']} Stelle(n).")
         print(f"Automatisch bewerbt (FIT > 65 %): {result['generated_count']} Stelle(n).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")

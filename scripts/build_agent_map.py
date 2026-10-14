@@ -30,6 +30,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from bewerbungsagent.config import Config  # noqa: E402
 
+# Öffentliches Quellcode-Repository — erscheint als Fußzeile in der Agenten-Map,
+# damit geteilte Ausdrucke/PDFs auf den nachprüfbaren Code verweisen.
+REPO_URL = "https://github.com/jacobdietzmann-ux/bewerbungsagent"
+
 # --------------------------------------------------------------------------
 # Daten einsammeln
 # --------------------------------------------------------------------------
@@ -547,6 +551,9 @@ padding:14px 16px;font-size:13px;min-height:66px;line-height:1.6}}
 @media(max-width:900px){{.two{{grid-template-columns:1fr}}}}
 .note{{background:#0f1c30;border-left:3px solid var(--accent);border-radius:8px;
 padding:12px 15px;font-size:12.5px;color:#c3d3e8;line-height:1.6;margin:14px 0}}
+.map-footer{{margin:22px 0 10px;padding-top:14px;border-top:1px solid #1e2f47;
+font-size:12.5px;color:#94a3b8}}
+.map-footer a{{color:#7dd3fc;word-break:break-all}}
 /* Druck/PDF: Farben behalten und Karten nicht mitten durchschneiden. */
 @media print{{
   html,body{{background:#0b1220 !important}}
@@ -613,6 +620,12 @@ Stand {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
 externen Diensten ab. Alles mit <span class="badge b-rein">deterministisch</span>
 ist ohne Netzwerk reproduzierbar und getestet — deshalb ist die Bewertung
 nachvollziehbar und nicht von einem Modell abhängig.
+</div>
+
+<div class="map-footer">
+<strong>Quellcode:</strong>
+<a href="{REPO_URL}" target="_blank" rel="noopener">{REPO_URL}</a>
+<span class="muted">— vollständig einsehbar (Module, Tests, CI, Dokumentation)</span>
 </div>
 
 </div>

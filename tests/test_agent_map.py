@@ -137,3 +137,21 @@ class TestPrintRules:
         assert "@media print" in html
         assert "print-color-adjust:exact" in html
         assert "break-inside:avoid" in html
+
+
+class TestRepoLink:
+    """Die geteilte Map/PDF muss auf den nachprüfbaren Quellcode verweisen."""
+
+    def test_fusszeile_enthaelt_repo_link(self, mod):
+        stats = {
+            "kpis": [], "stages": [], "commands": [], "filesystem": [],
+            "sources": [], "status": {}, "apps": [], "geocache": {},
+            "limit": 30, "nodes": [],
+        }
+        html = mod._render(stats, "", "", {"total": 0, "home": None, "points": []})
+        assert mod.REPO_URL in html
+        assert f'href="{mod.REPO_URL}"' in html
+
+    def test_repo_url_ist_die_oeffentliche_adresse(self, mod):
+        assert mod.REPO_URL == "https://github.com/jacobdietzmann-ux/bewerbungsagent"
+        assert "{REPO_URL}" not in mod.REPO_URL

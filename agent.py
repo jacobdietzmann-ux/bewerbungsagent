@@ -163,6 +163,12 @@ def main(argv=None) -> int:
         if result.get("restored_documented"):
             print(f"Wieder sichtbar (Unterlagen vorhanden): "
                   f"{result['restored_documented']} Stelle(n).")
+        if result.get("restored_reason"):
+            print(f"Wieder sichtbar (FIT-Grund entfallen): "
+                  f"{result['restored_reason']} Stelle(n).")
+        if result.get("restored_active"):
+            print(f"Wieder sichtbar (versendet/abgeschlossen, Flag war veraltet): "
+                  f"{result['restored_active']} Stelle(n).")
         for s in result.get("skipped_role", []):
             print(f"Übersprungen (kein Test-/Absicherungs-Titel): "
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")

@@ -226,16 +226,54 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     deleted_count = 0
     deleted_commute = 0
     restored_documented = 0
+    restored_reason = 0
+    restored_active = 0
     for a in apps:
         if a.get("status") in _ACTIVE_STATUSES:
+            # Versendete/abgeschlossene Bewerbungen dokumentieren echte
+            # Aktivität und werden hier nie ausgeblendet. Ein noch vorhandenes
+            # Flag stammt dann aus einem älteren Lauf und ist ungültig —
+            # 3 verschickte Bewerbungen (u. a. AIRBUS mit 78 %) waren dadurch
+            # im Dashboard unsichtbar.
+            if a.get("deleted"):
+                a.pop("deleted", None)
+                a.pop("deleted_reason", None)
+                restored_active += 1
             continue
         if a.get("deleted"):
-            # Einmalige Reparatur: frühere Läufe haben dokumentierte Stellen
-            # allein wegen FIT < 50 % ausgeblendet. Die werden zurückgeholt.
-            if a.get("dokumente") and not _commute_blocked(config, a):
+            # Ein ausgeblendeter Datensatz wird *neu bewertet*: Der Grund muss
+            # noch gelten. Sonst bleibt eine Stelle für immer versteckt, weil
+            # sich ihre Datengrundlage geändert hat. Genau das passierte beim
+            # Nachladen der Anzeigentexte: 14 Stellen waren unter „FIT < 50 %"
+            # gelöscht worden, als sie mangels Text maximal 38 % erreichen
+            # konnten, und lagen danach bei 50–68 %. Ebenso waren 2 Stellen unter
+            # „Pendelzeit über 30 Minuten" gelöscht — damals galt 30 min, heute
+            # 90 (eine davon mit 78 % Fit).
+            if _commute_blocked(config, a):
+                continue                     # harte Grenze: bleibt ausgeblendet
+            # Für dokumentierte Stellen wurden bewusst Unterlagen erzeugt — sie
+            # bleiben sichtbar, unabhängig von der Begründung.
+            if a.get("dokumente"):
                 a.pop("deleted", None)
                 a.pop("deleted_reason", None)
                 restored_documented += 1
+                continue
+            reason = (a.get("deleted_reason") or "").strip()
+            low = reason.lower()
+            # Vom Nutzer gesetzte Kriterien bleiben unangetastet — sie sind eine
+            # bewusste Entscheidung, kein ableitbarer Zustand.
+            if not reason or "nutzerkriterium" in low or "neubewertung" in low:
+                continue
+            if low.startswith("fit"):
+                if _fit_value(a) < 50:
+                    continue                 # Grund gilt weiter
+            elif low.startswith("pendel"):
+                pass                         # Pendelweg ist oben schon geprüft
+            else:
+                continue                     # z. B. Rollen-Ausschluss — bewusst
+            a.pop("deleted", None)
+            a.pop("deleted_reason", None)
+            restored_reason += 1
             continue
         if _commute_blocked(config, a):
             a["deleted"] = True
@@ -287,6 +325,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "deleted_fit_under_50": deleted_count,
         "deleted_commute": deleted_commute,
         "restored_documented": restored_documented,
+        "restored_reason": restored_reason,
+        "restored_active": restored_active,
         "generated": generated,
         "generated_count": len(generated),
         "skipped_role": skipped_role,

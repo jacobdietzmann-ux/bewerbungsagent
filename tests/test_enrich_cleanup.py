@@ -15,6 +15,7 @@ import pytest
 from bewerbungsagent.config import Config
 from bewerbungsagent.db import Store
 from bewerbungsagent.pipeline import run_enrich, run_generate
+from bewerbungsagent.storage import save_json
 
 
 def _job(key: str, **over) -> dict:
@@ -51,6 +52,22 @@ def _kein_netzwerk(monkeypatch):
                         lambda apps, data_dir: {"total": len(apps)})
     monkeypatch.setattr("bewerbungsagent.pipeline.enrich_salary",
                         lambda apps: {"kept": 0, "estimated": 0})
+
+
+@pytest.fixture(autouse=True)
+def generated_calls(monkeypatch):
+    """Dokumenterzeugung abfangen.
+
+    Die Tests prüfen die Auswahl-Logik, nicht das PDF-Setzen — und die
+    Auto-Erzeugung würde sonst ein echtes Profil verlangen.
+    """
+    calls: list[dict] = []
+    def _fake(config, profile, app, template=None):
+        calls.append(app)
+        return []
+
+    monkeypatch.setattr("bewerbungsagent.pipeline._generate_one", _fake)
+    return calls
 
 
 def _run(config: Config, apps: list[dict]) -> dict:
@@ -104,36 +121,119 @@ class TestAutoGenerationRoleGuard:
     Technologie-Treffer (embedded, linux, python) und bekam ungefragt Unterlagen.
     """
 
-    @pytest.fixture
-    def generator(self, monkeypatch):
-        calls: list[dict] = []
-        monkeypatch.setattr("bewerbungsagent.pipeline._generate_one",
-                            lambda config, profile, app: calls.append(app) or [])
-        return calls
-
-    def test_software_rolle_ohne_rollen_signal_wird_uebersprungen(self, config, generator):
+    def test_software_rolle_ohne_rollen_signal_wird_uebersprungen(self, config, generated_calls):
         apps = [_job("sw", titel="Embedded Linux & Release Engineer (m/f/d)", score=80)]
         result = _run(config, apps)
-        assert generator == []
+        assert generated_calls == []
         assert len(result["skipped_role"]) == 1
 
-    def test_testrolle_wird_automatisch_beworben(self, config, generator):
+    def test_testrolle_wird_automatisch_beworben(self, config, generated_calls):
         apps = [_job("test", titel="Senior Embedded Systems Test Engineer", score=80)]
         _run(config, apps)
-        assert len(generator) == 1
+        assert len(generated_calls) == 1
 
     @pytest.mark.parametrize("titel", [
         "Payload Integration Engineer - UGV Platforms",   # ausdrücklich gewünscht
         "Systemtest und Integrationsingenieur",
         "Systems Engineer (m/w/d) - Schwerpunkt Mechatronik",
     ])
-    def test_erwaehlte_rollen_bleiben_erlaubt(self, config, generator, titel):
+    def test_erwaehlte_rollen_bleiben_erlaubt(self, config, generated_calls, titel):
         _run(config, [_job("ok", titel=titel, score=80)])
-        assert len(generator) == 1
+        assert len(generated_calls) == 1
 
-    def test_manueller_auftrag_ist_nicht_betroffen(self, config, generator):
-        """``run_generate`` erzeugt weiterhin für jede explizit gewählte Stelle."""
-        store = Store(config.db_path())
-        app = _job("manuell", titel="Linux Software Engineer", score=80)
-        store.save_state({"applications": [app]})
-        assert run_generate(config, None, job_ids=["manuell"])["generated"] is not None
+    def test_manueller_auftrag_ist_nicht_betroffen(self, config, generated_calls):
+        """``run_generate`` erzeugt weiterhin für jede explizit gewählte Stelle —
+        auch wenn der Titel kein Rollen-Signal hat."""
+        match = {**_job("sw", titel="Linux Software Engineer", score=80), "id": 7,
+                 "fit_geschaetzt": "hoch"}
+        save_json(config.matches_path(), [match])
+        run_generate(config, None, job_ids=[7])
+        assert [a["titel"] for a in generated_calls] == ["Linux Software Engineer"]
+
+
+class TestDeletedFlagIsReevaluated:
+    """Ein Ausblende-Grund muss noch gelten — sonst bleibt die Stelle für immer weg.
+
+    Beim Nachladen der Anzeigentexte lagen 14 zuvor gelöschte Stellen plötzlich
+    bei 50–68 %, weil sie ohne Text maximal 38 % erreichen konnten.
+    """
+
+    def test_fit_grund_entfallen_macht_wieder_sichtbar(self, config):
+        apps = [_job("alt", deleted=True, deleted_reason="FIT < 50 %", score=62)]
+        result = _run(config, apps)
+        assert result["restored_reason"] == 1
+        assert not Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+    def test_fit_grund_gilt_weiter_bleibt_ausgeblendet(self, config):
+        apps = [_job("weiter", deleted=True, deleted_reason="FIT < 50 %", score=30)]
+        result = _run(config, apps)
+        assert result["restored_reason"] == 0
+        assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+    def test_pendelweg_grund_wird_nie_zurueckgeholt(self, config):
+        apps = [_job("weit", deleted=True, deleted_reason="Pendelweg > 90 min",
+                     score=80, pendelzeit_min=200)]
+        result = _run(config, apps)
+        assert result["restored_reason"] == 0
+        assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+    def test_unbekannte_herkunft_bleibt_unangetastet(self, config):
+        """Ohne Begründung lässt sich nicht prüfen, ob sie noch gilt."""
+        apps = [_job("unklar", deleted=True, score=80)]
+        _run(config, apps)
+        assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+
+class TestUserCriteriaAreUntouched:
+    """Vom Nutzer gesetzte Kriterien sind eine Entscheidung, kein Zustand."""
+
+    @pytest.mark.parametrize("reason", [
+        "Fit <= 60 Prozent (Nutzerkriterium)",
+        "Fit unter 60 Prozent (Neubewertung 10.10.2026)",
+        "Nicht passende Rolle (kein technisches Profil)",
+    ])
+    def test_nutzerkriterium_bleibt_auch_bei_hohem_fit(self, config, reason):
+        apps = [_job("k", deleted=True, deleted_reason=reason, score=90)]
+        result = _run(config, apps)
+        assert result["restored_reason"] == 0
+        assert result["restored_documented"] == 0
+        assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+
+class TestStaleCommuteReason:
+    def test_alte_30_minuten_grenze_wird_neu_bewertet(self, config):
+        """Damals galt 30 min, heute 90 — bei 37 min gilt der Grund nicht mehr."""
+        apps = [_job("airbus", deleted=True, deleted_reason="Pendelzeit ueber 30 Minuten",
+                     score=78, pendelzeit_min=37)]
+        result = _run(config, apps)
+        assert result["restored_reason"] == 1
+        assert not Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+    def test_aktuelle_grenze_bleibt_wirksam(self, config):
+        apps = [_job("weit", deleted=True, deleted_reason="Pendelzeit ueber 30 Minuten",
+                     score=78, pendelzeit_min=120)]
+        assert _run(config, apps)["restored_reason"] == 0
+        assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+
+class TestActiveApplicationsAreNeverHidden:
+    """Versendete Bewerbungen dokumentieren echte Aktivität.
+
+    Drei davon (u. a. AIRBUS „Systemingenieur" mit 78 %) waren durch ein
+    veraltetes ``deleted``-Flag im Dashboard unsichtbar, obwohl die
+    Bereinigungslogik aktive Status grundsätzlich ausnimmt.
+    """
+
+    @pytest.mark.parametrize("status", ["sent", "followup", "interview", "rejected"])
+    def test_altes_flag_wird_entfernt(self, config, status):
+        apps = [_job("aktiv", status=status, deleted=True,
+                     deleted_reason="Pendelzeit ueber 30 Minuten", score=78)]
+        result = _run(config, apps)
+        assert result["restored_active"] == 1
+        assert not Store(config.db_path()).load_state()["applications"][0].get("deleted")
+
+    def test_pendelweg_grenze_gilt_trotzdem_fuer_neue_stellen(self, config):
+        """Die harte Grenze verhindert weiterhin das Anlegen neuer Stellen."""
+        apps = [_job("weit", status="neu", pendelzeit_min=200)]
+        result = _run(config, apps)
+        assert result["deleted_commute"] == 1

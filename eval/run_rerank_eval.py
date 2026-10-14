@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -51,8 +52,10 @@ from eval import metrics as M
 from eval.metrics import precision_at_k
 from eval.run_semantic_eval import K_VALUES
 
-DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
-DEFAULT_PROFILE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/02_Profil-und-Assets/Profil-Datenbank.json"
+ROOT = Path(__file__).resolve().parent.parent
+DRIVE = Path(os.environ.get("BEWERBUNGSAGENT_DIR", ROOT.parent))
+DEFAULT_STATE = DRIVE / "04_Agent" / "data" / "state.json"
+DEFAULT_PROFILE = DRIVE / "02_Profil-und-Assets" / "Profil-Datenbank.json"
 DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-base"
 DEFAULT_BE_MODEL = "intfloat/multilingual-e5-base"
 

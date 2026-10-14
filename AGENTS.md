@@ -3,12 +3,12 @@
 ## Build & Test
 
 ```bash
-# Python-Interpreter (nicht "python3" — System-Python 3.14 ist das, aber die
-# Abhängigkeiten liegen in diesem venv):
-/home/diejac/.venvs/bewerbungsagent/bin/python -m pytest -q
+# Abhängigkeiten liegen in einem eigenen venv (nicht im System-Python):
+python -m pip install -e ".[dev]"
+python -m pytest -q
 
 # Evaluation (Arbeitsartefakte → Google Drive, nie committen):
-/home/diejac/.venvs/bewerbungsagent/bin/python -m eval.run_eval --out eval/report.md
+python -m eval.run_eval --out eval/report.md
 ```
 
 Im Live-Arbeitsordner (`04_Agent/`) immer mit `PYTHONPATH=$PWD` laufen lassen,
@@ -35,12 +35,14 @@ damit `bewerbungsagent` importierbar ist.
    kein Eignungsmaß. `rejected` heißt „beworben, von der Firma abgelehnt" —
    NICHT „passt nicht". (ADR-012.)
 
-5. **Google-Drive-Sync revert-et lokale Änderungen.** Nach jeder Änderung unter
-   `/home/diejac/GoogleDrive/...` zurück zu `gdrive:` hochladen
-   (`rclone copyto` für Dateien, `rclone copy` für Ordner).
+5. **Google-Drive-Sync revert-et lokale Änderungen.** Nach jeder Änderung im
+   synchronisierten Arbeitsordner zurück zum Remote hochladen
+   (`rclone copyto` für Dateien, `rclone copy` für Ordner) oder auf den
+   nächsten Bisync-Lauf warten. Persönliche Angaben (Wohnadresse, Kontakt)
+   stehen ausschließlich in der dortigen `config.json` — nie im Quelltext.
 
-6. **Es gibt zwei Code-Orte.** Versioniertes Repo: `~/git/bewerbungsagent`.
-   Live-Arbeitsordner: `.../04_Agent`. Änderungen im Repo müssen in den
+6. **Es gibt zwei Code-Orte.** Versioniertes Repo (`~/git/bewerbungsagent`)
+   und Live-Arbeitsordner (`04_Agent/`). Änderungen im Repo müssen in den
    Arbeitsordner kopiert werden (und umgekehrt relevant fürs Laufen).
 
 7. **SQLite ist die Quelle der Wahrheit, `state.json` nur ein Snapshot.**

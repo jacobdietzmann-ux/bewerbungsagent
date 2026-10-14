@@ -18,6 +18,7 @@ Nutzung:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +28,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from eval import labels as L
 from eval import metrics as M
 
-DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
+# Standardpfad: über ``BEWERBUNGSAGENT_STATE`` überschreibbar. Der Rückfall
+# liegt neben dem Repo (typische Google-Drive-Ablage), damit das Skript
+# nicht an einen bestimmten Benutzernamen gebunden ist.
+DEFAULT_STATE = Path(os.environ.get(
+    "BEWERBUNGSAGENT_STATE",
+    Path(__file__).resolve().parent.parent / "data" / "state.json",
+))
 FIXED_THRESHOLDS = [50.0, 60.0, 65.0, 70.0, 80.0]
 # Unter dieser Zahl wird das Ergebnis als *vorläufig* gekennzeichnet.
 MIN_LABELS_WARN = 30

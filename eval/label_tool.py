@@ -25,6 +25,7 @@ Evaluation möglich.
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 from pathlib import Path
@@ -33,7 +34,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from eval import labels as L
 
-DEFAULT_STATE = Path.home() / "GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json"
+# Standardpfad: über ``BEWERBUNGSAGENT_STATE`` überschreibbar. Der Rückfall
+# liegt neben dem Repo (typische Google-Drive-Ablage), damit das Skript
+# nicht an einen bestimmten Benutzernamen gebunden ist.
+DEFAULT_STATE = Path(os.environ.get(
+    "BEWERBUNGSAGENT_STATE",
+    Path(__file__).resolve().parent.parent / "data" / "state.json",
+))
 
 
 def candidates(apps: list[dict], skip_keys: set[str], require_description: bool = True) -> list[dict]:

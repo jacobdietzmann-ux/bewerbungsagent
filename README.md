@@ -4,6 +4,26 @@ Ein eigenständiger Python-Agent, der den kompletten Bewerbungs-Workflow automat
 die bestehende [`Profil-Datenbank.json`](../02_Profil-und-Assets/Profil-Datenbank.json) als
 **einzige Quelle der Wahrheit** und erzeugt daraus massgeschneiderte Bewerbungsunterlagen.
 
+## Wie dieses Repository aufgebaut ist
+
+Dieses Repo enthält den **versionierten Code**. Ausgeführt wird er in einem *Arbeitsordner*
+neben den persönlichen Daten — die Codezeilen in der Doku (`cd 04_Agent`) beziehen sich darauf:
+
+```
+Bewerbung/2026/
+├── 01_Bewerbungen/          # erzeugte Unterlagen (pro Stelle ein Ordner) – nicht im Repo
+├── 02_Profil-und-Assets/    # Profil-Datenbank, CV-Vorlagen                – nicht im Repo
+└── 04_Agent/                # ← dieses Repo läuft hier
+    ├── bewerbungsagent/     # Paket: Suche, Matching, Dokumente, Dashboard
+    ├── data/jobs.db         # SQLite, Quelle der Wahrheit (gitignored)
+    └── config.json          # persönliche Angaben (gitignored)
+```
+
+**Nicht im Repo** (alle gitignored): das Profil mit echten Lebenslaufdaten, die erzeugten
+PDFs/DOCX, die Datenbank und die `config.json` mit Wohnadresse und Kontakt. Der Agent ist
+dadurch ohne persönliche Daten lauffähig — für einen Testlauf genügt ein eigenes Profil-JSON
+nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-demo.json).
+
 ## Was der Agent kann
 
 1. **Stellensuche** – durchsucht das Web nach passenden Stellenangeboten:
@@ -235,6 +255,10 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 90). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
+- `commute.home_address` – Ausgangspunkt für die Pendelweg-Berechnung. Bewusst **nicht** im
+  Quelltext, sondern hier (bzw. in der privaten `config.json`).
+- `commute.contact_email` – Kontakt für die Nominatim-/OSRM-Anfragen; leer lassen genügt
+  (dann nennt der User-Agent nur die Projekt-URL).
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung.

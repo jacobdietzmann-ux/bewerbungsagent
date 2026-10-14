@@ -173,7 +173,7 @@ def main(argv=None) -> int:
                 flag = " (abgelaufen)" if r.get("verfuegbar") is False else ""
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Gelöscht (FIT < 50 %): {result['deleted_fit_under_50']} Stelle(n).")
-        print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', 90)} min): "
+        print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', 30)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         if result.get("restored_documented"):
             print(f"Wieder sichtbar (Unterlagen vorhanden): "
@@ -187,7 +187,7 @@ def main(argv=None) -> int:
         for s in result.get("skipped_role", []):
             print(f"Übersprungen (kein Test-/Absicherungs-Titel): "
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")
-        print(f"Automatisch bewerbt (FIT > 65 %): {result['generated_count']} Stelle(n).")
+        print(f"Automatisch bewerbt (FIT ≥ 50 %): {result['generated_count']} Stelle(n).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
 
@@ -205,7 +205,7 @@ def main(argv=None) -> int:
                 print(f"      {name}: {rel}")
         skipped = result.get("skipped_commute") or []
         if skipped:
-            print(f"  Übersprungen (Pendelweg > {config.data.get('max_pendelzeit_min', 90)} min): "
+            print(f"  Übersprungen (Pendelweg > {config.data.get('max_pendelzeit_min', 30)} min): "
                   f"{len(skipped)} Stelle(n)")
             for s in skipped:
                 print(f"      - {s.get('firma')} — {s.get('titel')} "

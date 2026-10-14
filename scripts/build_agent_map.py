@@ -39,10 +39,10 @@ _MODULES = [
     ("search/__init__.py", "Deduplizieren, Aggregator-/Lexikon-Seiten filtern, URLs bereinigen", "rein", "Suche"),
     ("fetch_descriptions.py", "Volltext der Anzeige per Headless-Chromium laden (Playwright)", "netz", "Anreicherung"),
     ("profile.py", "Profil laden; Keywords und Inhaltswörter extrahieren", "rein", "Bewertung"),
-    ("matching.py", "Fit-Score 0–100 (Titel ×7, Text ×3, Wort ×1, Ort +10)", "rein", "Bewertung"),
+    ("matching.py", "Fit-Score 0–100 (Titel ×6, Text ×4, Wort ×2, Ort +10)", "rein", "Bewertung"),
     ("industry.py", "Branche zuordnen (Arbeitgeber → Text → Titel)", "rein", "Anreicherung"),
     ("salary.py", "Gehalt schätzen aus Rolle, Seniorität, Branche, Ort", "rein", "Anreicherung"),
-    ("commute.py", "Pendelweg via Nominatim + OSRM, mit Cache; Grenze 90 min", "netz", "Anreicherung"),
+    ("commute.py", "Pendelweg via Nominatim + OSRM, mit Cache; Grenze 30 min", "netz", "Anreicherung"),
     ("documents.py", "Anschreiben + Lebenslauf als PDF (eigene DOCX-Vorlage oder ReportLab)", "rein", "Ausgabe"),
     ("dashboard.py", "Interaktives HTML-Dashboard rendern", "rein", "Ausgabe"),
     ("db.py", "SQLite-Speicher: Provider-/Nutzer-Felder getrennt, History-Schutz", "io", "Speicher"),
@@ -120,14 +120,8 @@ def _project(points, width, height, pad=48):
 def _commute_color(minutes):
     if minutes is None:
         return "#64748b"
-    if minutes <= 25:
+    if minutes <= 30:
         return "#22c55e"
-    if minutes <= 45:
-        return "#84cc16"
-    if minutes <= 60:
-        return "#eab308"
-    if minutes <= 90:
-        return "#f97316"
     return "#ef4444"
 
 
@@ -474,9 +468,9 @@ def _render(stats, system_svg, geo_svg, geo_meta):
 
     geo_legend = "".join(
         f'<span class="lg"><i style="background:{c}"></i>{lbl}</span>'
-        for c, lbl in [("#22c55e", "≤ 25 min"), ("#84cc16", "≤ 45 min"),
-                       ("#eab308", "≤ 60 min"), ("#f97316", "≤ 90 min"),
-                       ("#ef4444", "> 90 min (ausgeblendet)"), ("#64748b", "unbekannt")]
+        for c, lbl in [("#22c55e", "≤ 30 min (zulässig)"),
+                       ("#ef4444", "> 30 min (ausgeblendet)"),
+                       ("#64748b", "unbekannt")]
     )
 
     top_cities = "".join(
@@ -670,7 +664,7 @@ def _collect(config: Config) -> dict:
         except json.JSONDecodeError:
             geocache = {}
 
-    limit = config.data.get("max_pendelzeit_min", 90)
+    limit = config.data.get("max_pendelzeit_min", 30)
     status = Counter(a.get("status") for a in apps)
     docs = sum(1 for a in apps if a.get("dokumente"))
     desc = sum(1 for a in apps if (a.get("beschreibung") or "").strip())
@@ -711,7 +705,7 @@ def _collect(config: Config) -> dict:
         ("Bewerbungen", f"{len(apps)}", "in der Datenbank"),
         ("Sichtbar im Dashboard", f"{visible}", f"{len(apps) - visible} ausgeblendet"),
         ("Dokumente erzeugt", f"{docs}", f"Ordner: {folders} · PDFs: {pdfs}"),
-        ("Fit ≥ 65 %", f"{sum(1 for s in scores if s >= 65)}", f"von {len(scores)} bewertet"),
+        ("Fit ≥ 50 %", f"{sum(1 for s in scores if s >= 50)}", f"von {len(scores)} bewertet"),
         ("Pendelweg Ø", f"{round(sum(pend)/len(pend))} min" if pend else "–", f"{len(pend)} berechnet"),
         ("Branchen", f"{len(branches)}", "erkannt"),
         ("Anzeigen mit Text", f"{desc}", "Volltext geladen"),
@@ -737,13 +731,13 @@ def _collect(config: Config) -> dict:
         ("search", "SEARCH", "Provider abfragen, Treffer deduplizieren, Aggregator- und "
          "Lexikon-Seiten herausfiltern. Anschließend Branche zuordnen und Pendelweg berechnen.",
          "jobs.json", "#38bdf8"),
-        ("match", "MATCH", "Jede Stelle gegen das Profil scoren: Titel-Treffer ×7, Text-Treffer ×3, "
-         "Inhaltswörter ×1, Standort +10. Merge in SQLite mit History-Schutz.", "matches.json", "#22c55e"),
+        ("match", "MATCH", "Jede Stelle gegen das Profil scoren: Titel-Treffer ×6, Text-Treffer ×4, "
+         "Inhaltswörter ×2, Standort +10. Merge in SQLite mit History-Schutz.", "matches.json", "#22c55e"),
         ("generate", "GENERATE", "Anschreiben pro Stelle formulieren; Lebenslauf aus der eigenen "
          "DOCX-Vorlage mit pro Stelle angepasstem Profil-Absatz. PDFs in den Bewerbungsordner.",
          "01_Bewerbungen/", "#f59e0b"),
         ("dashboard", "DASHBOARD", "HTML-Board rendern: nur Stellen mit Dokumenten und Pendelweg "
-         "≤ 90 min in der Tabelle, Status-Verteilung und Wochenverlauf darüber.",
+         "≤ 30 min in der Tabelle, Status-Verteilung und Wochenverlauf darüber.",
          "dashboard.html", "#a78bfa"),
     ]
 
@@ -779,7 +773,7 @@ def _collect(config: Config) -> dict:
                    "bereinigten URL und ergänzt die Branche. Danach wird der Pendelweg berechnet — "
                    "das ist der Schritt, der Netzwerk braucht.", "in": "Provider-Treffer", "out": "data/jobs.json"},
         "match": {"title": "MATCH", "body": "Deterministisches Scoring gegen das Profil. Das Ergebnis ist "
-                  "nachvollziehbar (Titel ×7, Text ×3, Inhaltswort ×1, Standort +10) und reproduzierbar — "
+                  "nachvollziehbar (Titel ×6, Text ×4, Inhaltswort ×2, Standort +10) und reproduzierbar — "
                   "kein Sprachmodell. Danach Merge in SQLite: Nutzerfelder bleiben unangetastet.",
                   "in": "data/jobs.json", "out": "data/matches.json → data/jobs.db"},
         "generate": {"title": "GENERATE", "body": "Erzeugt pro Stelle Anschreiben und Lebenslauf. Der "

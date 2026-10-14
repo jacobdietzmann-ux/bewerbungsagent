@@ -170,7 +170,7 @@ class TestDeletedFlagIsReevaluated:
         assert result["restored_reason"] == 0
         assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
-    def test_pendelweg_grund_wird_nie_zurueckgeholt(self, config):
+    def test_weit_entfernte_stelle_bleibt_auch_mit_altem_grund_ausgeblendet(self, config):
         apps = [_job("weit", deleted=True, deleted_reason="Pendelweg > 90 min",
                      score=80, pendelzeit_min=200)]
         result = _run(config, apps)
@@ -201,16 +201,17 @@ class TestUserCriteriaAreUntouched:
 
 
 class TestStaleCommuteReason:
-    def test_alte_30_minuten_grenze_wird_neu_bewertet(self, config):
-        """Damals galt 30 min, heute 90 — bei 37 min gilt der Grund nicht mehr."""
-        apps = [_job("airbus", deleted=True, deleted_reason="Pendelzeit ueber 30 Minuten",
-                     score=78, pendelzeit_min=37)]
+    def test_veralteter_pendel_grund_wird_neu_bewertet(self, config):
+        """Alter Grund (``Pendelweg > 90 min``), aber die Strecke wurde neu auf
+        25 min berechnet — der Grund gilt nicht mehr und die Stelle kommt zurück."""
+        apps = [_job("airbus", deleted=True, deleted_reason="Pendelweg > 90 min",
+                     score=78, pendelzeit_min=25)]
         result = _run(config, apps)
         assert result["restored_reason"] == 1
         assert not Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
     def test_aktuelle_grenze_bleibt_wirksam(self, config):
-        apps = [_job("weit", deleted=True, deleted_reason="Pendelzeit ueber 30 Minuten",
+        apps = [_job("weit", deleted=True, deleted_reason="Pendelweg > 90 min",
                      score=78, pendelzeit_min=120)]
         assert _run(config, apps)["restored_reason"] == 0
         assert Store(config.db_path()).load_state()["applications"][0].get("deleted")

@@ -83,11 +83,12 @@ class TestGeoMap:
 
     def test_commute_colours(self, mod):
         assert mod._commute_color(10) == "#22c55e"
-        assert mod._commute_color(91) == "#ef4444"
+        assert mod._commute_color(30) == "#22c55e"
+        assert mod._commute_color(31) == "#ef4444"
         assert mod._commute_color(None) == "#64748b"
 
     def test_without_geodata_returns_hint(self, mod):
-        svg, meta = mod._build_geo_svg([], {}, 90)
+        svg, meta = mod._build_geo_svg([], {}, 30)
         assert "Keine Geodaten" in svg
         assert meta["total"] == 0
 
@@ -101,7 +102,7 @@ class TestGeoMap:
             "munchen": {"lat": 48.1371, "lon": 11.5754},
             "ismaning": {"lat": 48.2492, "lon": 11.6521},
         }
-        svg, meta = mod._build_geo_svg(apps, cache, 90, home_address=HOME_ADDR)
+        svg, meta = mod._build_geo_svg(apps, cache, 30, home_address=HOME_ADDR)
         assert meta["total"] == 2
         assert "Wohnort" in svg
         assert svg.count("<circle") >= 3  # zwei Stellen + Wohnort
@@ -129,7 +130,7 @@ class TestPrintRules:
         stats = {
             "kpis": [("Bewerbungen", "1", "in der Datenbank")],
             "stages": [], "commands": [], "filesystem": [], "sources": [],
-            "status": {}, "apps": [], "geocache": {}, "limit": 90, "nodes": [],
+            "status": {}, "apps": [], "geocache": {}, "limit": 30, "nodes": [],
         }
         html = mod._render(stats, "<svg></svg>", "<svg></svg>",
                            {"total": 0, "home": None, "points": []})

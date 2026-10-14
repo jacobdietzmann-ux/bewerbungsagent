@@ -142,6 +142,9 @@ class TestRoleSignal:
         "Senior Verification & Validation Engineer",
         "Prüfstandsingenieur (m/w/d)",
         "System Test Manager",
+        "Validierungsingenieur Gesamtfahrzeug",
+        "Erprobungsingenieur Gesamtfahrzeug Inbetriebnahme",
+        "Absicherungsingenieur (m/w/d)",
     ])
     def test_erkennt_testrollen(self, titel):
         assert has_role_signal(titel) is True
@@ -160,3 +163,35 @@ class TestRoleSignal:
     def test_leerer_titel_ist_kein_signal(self):
         assert has_role_signal("") is False
         assert has_role_signal(None) is False
+
+
+class TestFormulaWeights:
+    """Die Gewichtung 6/4/2 ist dokumentiert und muss exakt eingehalten werden.
+
+    Ein Titel-Treffer zählt 6, ein Text-Treffer 4, eine Inhaltswort-
+    Überschneidung 2 Punkte. Der Ort-Bonus kommt additiv oben drauf.
+    """
+
+    @staticmethod
+    def _profil():
+        from bewerbungsagent.profile import Profile
+        return Profile({
+            "_meta": {"hinweis": "Test"},
+            "personal": {"name": "Test"},
+            "skills": {"technik": ["HiL Prüfstand", "Testautomatisierung"]},
+        })
+
+    def test_titel_und_text_und_wort_gewichtet(self):
+        prof = self._profil()
+        job = {"titel": "HiL Prüfstand", "beschreibung": "Testautomatisierung mit Python",
+               "ort": "Hamburg"}  # kein Ort-Bonus
+        res = score_job(prof, job)
+        # Titel: „hil prufstand" ist unter den Treffern, Text: „testautomatisierung".
+        assert "hil prufstand" in res["title_hits"]
+        assert "testautomatisierung" in res["body_hits"]
+
+    def test_titel_treffer_zählt_staerker_als_text(self):
+        prof = self._profil()
+        titel_job = {"titel": "HiL Prüfstand", "beschreibung": "", "ort": "Hamburg"}
+        text_job = {"titel": "", "beschreibung": "HiL Prüfstand", "ort": "Hamburg"}
+        assert score_job(prof, titel_job)["score"] > score_job(prof, text_job)["score"]

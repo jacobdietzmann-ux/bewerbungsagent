@@ -15,6 +15,7 @@ from .documents import (
     generate_anschreiben,
     generate_lebenslauf_vorlage,
 )
+from .homeoffice import detect_home_office
 from .importer import import_old_dashboard
 from .industry import classify_industry
 from .matching import has_role_signal, match_jobs
@@ -23,7 +24,10 @@ from .salary import enrich_salary
 from .search import run_search as _search
 from .storage import load_json, now_iso, save_json
 
-FIT_RANK = {"hoch": 3, "mittel": 2, "niedrig": 1}
+# Unterlagen-Schwellen als konkreter Score. „mittel" = 50 heißt: Stellen ab
+# 50 % Fit werden gebaut (bewusst unter der Kategorie „hoch" ≥ 65), damit auch
+# solide mittlere Treffer Unterlagen bekommen. „niedrig" = 0 baut alles.
+FIT_RANK = {"hoch": 65, "mittel": 50, "niedrig": 0}
 
 # Dateinamen analog zu den bestehenden Bewerbungsordnern in 01_Bewerbungen/.
 _DOC_NAMES = {
@@ -121,6 +125,7 @@ def _enrich_job_context(config: Config, jobs: list[dict]) -> dict:
             job["branche_quelle"] = "Quelle"
         job["branche"] = classify_industry(job)
         job.setdefault("branche_quelle", "Heuristik")
+        job["homeoffice"] = detect_home_office(job)
         if job["branche"] == "Nicht ermittelt":
             unresolved += 1
 
@@ -172,10 +177,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
             continue
-        if job_ids is not None:
-            wanted = m.get("id") in job_ids
-        else:
-            wanted = FIT_RANK.get(m.get("fit_geschaetzt", "niedrig"), 1) >= threshold
+        wanted = m.get("id") in job_ids if job_ids is not None else _fit_value(m) >= threshold
         if not wanted:
             continue
         # Zu weiter Pendelweg: gar nicht erst anlegen.
@@ -200,7 +202,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     3. Stellen in ``research`` prüfen (Fit-Wert auffrischen/anzeigen).
     4. Stellen mit FIT < 50 % löschen — nur für noch nicht versendete Stellen
        (``research``/``docs``); versendete/abgeschlossene bleiben sichtbar.
-    5. Für Stellen mit FIT > 65 % automatisch Bewerbungsunterlagen erzeugen.
+    5. Für Stellen mit FIT ≥ 50 % automatisch Bewerbungsunterlagen erzeugen.
     """
     store = _store(config)
     state = store.load_state()
@@ -208,6 +210,11 @@ def run_enrich(config: Config, profile: Profile) -> dict:
 
     # 1) Pendelweg
     commute_stats = enrich_commute(apps, config.data_dir, *_commute_settings(config))
+
+    # 1b) Homeoffice-Anteil aus der Beschreibung (falls noch nicht gesetzt).
+    for a in apps:
+        if not a.get("homeoffice"):
+            a["homeoffice"] = detect_home_office(a)
 
     # 2) Gehaltsschätzung
     salary_stats = enrich_salary(apps)
@@ -257,8 +264,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             # Nachladen der Anzeigentexte: 14 Stellen waren unter „FIT < 50 %"
             # gelöscht worden, als sie mangels Text maximal 38 % erreichen
             # konnten, und lagen danach bei 50–68 %. Ebenso waren 2 Stellen unter
-            # „Pendelzeit über 30 Minuten" gelöscht — damals galt 30 min, heute
-            # 90 (eine davon mit 78 % Fit).
+            # „Pendelzeit über 30 Minuten" gelöscht — damals galt 90 min, heute
+            # 30 (eine davon mit 78 % Fit).
             if _commute_blocked(config, a):
                 continue                     # harte Grenze: bleibt ausgeblendet
             # Für dokumentierte Stellen wurden bewusst Unterlagen erzeugt — sie
@@ -295,7 +302,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             a["deleted_reason"] = "FIT < 50 %"
             deleted_count += 1
 
-    # 5) FIT > 65 % automatisch bewerben (nur wenn noch keine Unterlagen vorliegen)
+    # 5) FIT ≥ 50 % automatisch bewerben (nur wenn noch keine Unterlagen vorliegen)
     generated = []
     skipped_role = []
     for a in apps:
@@ -303,7 +310,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             continue
         if a.get("verfuegbar") is False:
             continue
-        if _fit_value(a) <= 65:
+        if _fit_value(a) < FIT_RANK["mittel"]:
             continue
         if a.get("dokumente"):
             continue
@@ -401,7 +408,7 @@ def _merge_state(existing: dict, matches: list[dict],
     score_fields = ("score", "fit_geschaetzt", "begruendung", "matched_skills",
                     "title_hits", "body_hits", "location_bonus", "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
-                    "pendelzeit_min", "pendeldistanz_km")
+                    "pendelzeit_min", "pendeldistanz_km", "homeoffice")
 
     result = []
     seen: set[str] = set()

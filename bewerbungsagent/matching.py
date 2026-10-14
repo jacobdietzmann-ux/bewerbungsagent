@@ -25,12 +25,15 @@ from .profile import Profile, normalize
 # gewünscht ist.
 _ROLE_SIGNAL_RE = re.compile(
     r"\w*test\w*"          # Test, Systemtest, Testingenieur, Testkoordinator
-    r"|\bverification\b|\bvalidation\b|\bverifikation\b|\bvalidierung\b"
-    r"|\babsicherung\b|\berprobung\b|\bversuchsingenieur\b"
-    r"|\bqualifikation\b|\bqualifizierung\b|\bqa\b|\bqualitaetssicherung\b"
+    # ``\w*`` statt ``\b`` am Ende: deutsche Komposita kleben den Stamm an eine
+    # Endung („Validierungsingenieur", „Erprobungsingenieur") — eine Wortgrenze
+    # direkt nach dem Stamm würde diese Rollen fälschlich ausschließen.
+    r"|\bverification\w*|\bvalidation\w*|\bverifikation\w*|\bvalidierung\w*"
+    r"|\babsicherung\w*|\berprobung\w*|\bversuchsingenieur\w*"
+    r"|\bqualifikation\w*|\bqualifizierung\w*|\bqa\b|\bqualitaetssicherung\w*"
     r"|\bpruef\w*|\bpruf\w*"          # Prüfstands-, Prüffeld-, Prüfingenieur
-    r"|\bmechatronik\b|\belektronik\b|\belektrotechnik\b"
-    r"|\bintegration\b"
+    r"|\bmechatronik\w*|\belektronik\w*|\belektrotechnik\w*"
+    r"|\bintegration\w*"
 )
 
 
@@ -97,8 +100,12 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     body_hits = profile.keywords_in(desc)
     word_hits = profile.words_in(f"{title} {desc}")
 
-    # Phrasen-Treffer im Titel zählen stärker als im Beschreibungstext.
-    raw = 7 * len(title_hits) + 3 * len(body_hits) + 1 * len(word_hits)
+    # Gewichtung: Titel-Treffer zählen am stärksten, gefolgt vom Anzeigentext;
+    # die Inhaltswort-Überschneidungen geben den „weichen" Ausschlag. 6/4/2
+    # statt 7/3/1 mildert die Titel-Dominanz und hebt Jobs im mittleren Bereich,
+    # die über Text- und Wort-Überschneidungen relevant sind, aber keinen
+    # wortwörtlichen Titel-Treffer haben.
+    raw = 6 * len(title_hits) + 4 * len(body_hits) + 2 * len(word_hits)
     score = min(100, raw)
 
     location_bonus = location_bonus_for(job, location)

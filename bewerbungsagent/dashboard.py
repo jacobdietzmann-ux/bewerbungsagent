@@ -11,7 +11,7 @@ Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
 Der Status ``research`` (reine Funde ohne Bewerbungsdokumente) wird nicht
 dargestellt: Tabelle, Status-Verteilung, KPIs und der Wochenverlauf lassen diese
 Einträge aus. Tabelle, Status-Verteilung und KPIs zeigen nur Stellen mit
-Dokumenten und einem Pendelweg ≤ 90 min; der Wochenverlauf behält die übrige
+Dokumenten und einem Pendelweg ≤ 30 min; der Wochenverlauf behält die übrige
 Historie, damit frühere Wochen nicht leer erscheinen.
 
 Die Daten werden als JSON in die HTML eingebettet (``const DATA``); der Server ist
@@ -95,7 +95,7 @@ def _exceeds_dashboard_commute_limit(app: dict) -> bool:
 
 
 def dashboard_applications(applications: list[dict]) -> list[dict]:
-    """Dokumentierte Bewerbungen ohne bekannte Pendelzeit über 90 Minuten."""
+    """Dokumentierte Bewerbungen ohne bekannte Pendelzeit über 30 Minuten."""
     return [
         app for app in documented_applications(applications)
         if not _exceeds_dashboard_commute_limit(app)
@@ -200,7 +200,7 @@ def build_dashboard(state: dict, output_path: Path) -> Path:
     # Der komplette Bestand wird eingebettet, damit der Wochenverlauf auch
     # frühere Bewerbungen ohne Dokumente zeigt: die Tabelle sowie die
     # Status-Verteilung und die KPIs beziehen sich nur auf relevante Stellen
-    # (mit Dokumenten, Pendelweg ≤ 90 min), der Wochenverlauf auf die Historie
+    # (mit Dokumenten, Pendelweg ≤ 30 min), der Wochenverlauf auf die Historie
     # ohne „Research"-Funde. Deshalb bekommt jede Zeile ein ``visible``-Flag
     # statt den Bestand vorab zu filtern.
     visible_keys = {_app_id(a) for a in dashboard_applications(apps)}
@@ -338,8 +338,9 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     <input type="text" id="searchBox" placeholder="Suche: Firma, Position, Branche …" style="max-width:260px" />
     <select id="fitFilter" style="max-width:200px">
       <option value="0">Alle Profil-Fits</option>
-      <option value="80">Nur ≥ 80 % (grün)</option>
+      <option value="50">Nur ≥ 50 % (mittel+)</option>
       <option value="65">Nur ≥ 65 % (gelb+)</option>
+      <option value="80">Nur ≥ 80 % (grün)</option>
     </select>
   </div>
 
@@ -389,7 +390,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="legend">
     <strong>Status-Workflow:</strong>
     <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
-    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ 90 min). Reine Funde (<code>Research</code>, noch ohne Dokumente) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
+    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ 30 min). Reine Funde (<code>Research</code>, noch ohne Dokumente) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
     <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
     <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
     <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
@@ -556,8 +557,8 @@ function commuteBadge(r) {
   }
   if (r.commute == null) return '<span style="color:#64748b">k. A.</span>';
   const c = +r.commute;
-  const color = c <= 30 ? "#22c55e" : (c <= 60 ? "#f59e0b" : "#ef4444");
-  const bg = c <= 30 ? "#15803d33" : (c <= 60 ? "#b4530933" : "#7f1d1d33");
+  const color = c <= 30 ? "#22c55e" : "#ef4444";
+  const bg = c <= 30 ? "#15803d33" : "#7f1d1d33";
   const km = r.commuteKm != null ? ` · ${r.commuteKm} km` : "";
   return `<span class="badge" style="background:${bg};color:${color};border:1px solid ${color}55">${c} min${km}</span>`;
 }

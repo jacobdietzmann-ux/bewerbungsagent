@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from bewerbungsagent.cleanup import run_cleanup
 from bewerbungsagent.config import Config
@@ -67,6 +68,8 @@ def _print_job_context(context: dict) -> None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Bewerbungsagent")
+    parser.add_argument("--config", default=None,
+                        help="Pfad zur config.json (Standard: ./config.json)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     ssearch = sub.add_parser("search", help="Web-Suche nach Stellenangeboten ausführen")
@@ -94,7 +97,19 @@ def main(argv=None) -> int:
 
     args = parser.parse_args(argv)
 
-    config, profile = load_config_and_profile()
+    try:
+        config, profile = load_config_and_profile(
+            Path(args.config) if args.config else None
+        )
+    except FileNotFoundError as exc:
+        print(f"\n✗ {exc}\n")
+        print("So startest du den Agenten ohne persönliche Daten (Sofortstart):")
+        print("  1. cp config.example.json config.json")
+        print("  2. python agent.py match          # nutzt das Demo-Profil aus dem Beispiel")
+        print("\nFür den echten Betrieb: in config.json `profile_json` auf dein eigenes")
+        print("Profil zeigen (z. B. ../02_Profil-und-Assets/Profil-Datenbank.json).")
+        print("Pfad zur Config überschreiben: python agent.py --config <pfad> match")
+        return 1
 
     if args.command == "search":
         definition = None

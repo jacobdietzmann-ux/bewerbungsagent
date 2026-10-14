@@ -1,5 +1,5 @@
 {
-  "profile_json": "../02_Profil-und-Assets/Profil-Datenbank.json",
+  "profile_json": "tests/fixtures/profil-demo.json",
   "data_dir": "data",
   "output_dir": "output",
   "dashboard_file": "dashboard.html",

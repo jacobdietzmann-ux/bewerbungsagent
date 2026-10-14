@@ -41,14 +41,9 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
-# Bewusst ignoriert: defensive Exceptions (BLE001) und try/except/pass (S110)
-# sind in einem Crawler/Importer gewollt; EXE001 (Shebang) ist irrelevant.
+# Nur Regeln ignorieren, die auch ausgewählt sind. Deutsche Docstrings/Kommentare
+# enthalten absichtlich Umlaute und typografische Zeichen (RUF001–003); die
+# Zeilenlänge (E501) ist Stil, kein Bug.
 ignore = [
-    "BLE001", "S110", "EXE001", "S606", "S101",
-    # Deutsche Docstrings/Kommentare enthalten absichtlich Umlaute und
-    # typografische Zeichen; Zeilenlänge ist Stil, kein Bug.
     "E501", "RUF001", "RUF002", "RUF003",
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]

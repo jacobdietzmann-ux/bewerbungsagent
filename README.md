@@ -79,6 +79,22 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
 └── output/                   # Generierte Dokumente (ein Ordner pro Stelle)
 ```
 
+## Schnellstart ohne persönliche Daten
+
+Der Agent ist so aufgebaut, dass er **auch ohne echte Lebenslaufdaten** läuft —
+für einen Reviewer oder ersten Test genügen zwei Befehle:
+
+```bash
+cp config.example.json config.json     # Beispiel nutzt das mitgelieferte Demo-Profil
+pip install -e .                       # Basis-Abhängigkeiten (siehe Installation)
+python agent.py match                  # Fit-Scoring gegen das Demo-Profil
+```
+
+`match` ist der sichere Einstieg: er braucht weder Netzwerk noch Browser.
+`search`/`fetch` benötigen zusätzlich `playwright install chromium`; die
+Dokument-Erzeugung (`generate`) erwartet eine DOCX-Vorlage oder fällt auf die
+eingebaute ReportLab-Vorlage zurück.
+
 ## Installation
 
 ### Reproduzierbar mit `uv` (empfohlen)
@@ -105,6 +121,17 @@ cd 04_Agent
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+# Browser für Suche-Beschreibungen (fetch) und den PDF-Export der Karte:
+playwright install chromium
+```
+
+Optionale Extras: JobSpy (LinkedIn/Indeed/Google) und semantisches Matching sind
+bewusst **nicht** in `requirements.txt` enthalten — sie ziehen schwere
+Abhängigkeiten (pandas/pydantic bzw. torch). Mit `pip` nachinstallieren:
+
+```bash
+pip install -e ".[jobspy]"       # JobSpy-Provider
+pip install -e ".[semantic]"     # experimentelles semantisches Matching
 ```
 
 ## Nutzung

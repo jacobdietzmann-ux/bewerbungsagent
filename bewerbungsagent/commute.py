@@ -207,6 +207,7 @@ class _Geocoder:
             tmp.write_text(json.dumps(self.cache, ensure_ascii=False), encoding="utf-8")
             tmp.replace(self.cache_path)
         except OSError:
+            # Cache ist best-effort: ein Schreibfehler darf den Lauf nicht stoppen.
             pass
 
 
@@ -318,6 +319,7 @@ def enrich_commute(apps: list[dict], data_dir: Path,
         tmp.write_text(json.dumps(route_cache, ensure_ascii=False), encoding="utf-8")
         tmp.replace(route_cache_path)
     except OSError:
+        # Routen-Cache ist best-effort: ein Schreibfehler darf den Lauf nicht stoppen.
         pass
 
     return stats

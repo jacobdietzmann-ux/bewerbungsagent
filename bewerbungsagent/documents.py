@@ -602,8 +602,8 @@ _STRONG_SKILL_HINTS = (
 
 # Rollenabhängige Fallback-Schwerpunkte (falls zu wenige harte Treffer).
 _CHIP_SUMMARY = {
-    "de": ["Embedded Systems", "C/C++ & Python", "Mikrocontroller / ECU (AURIX)", "Test & Integration"],
-    "en": ["Embedded systems", "C/C++ & Python", "Microcontroller / ECU (AURIX)", "Test & integration"],
+    "de": ["Embedded Systems", "C/C++ & Python", "Mikrocontroller / ECU", "Test & Integration"],
+    "en": ["Embedded systems", "C/C++ & Python", "Microcontroller / ECU", "Test & integration"],
 }
 _TEST_SUMMARY = {
     "de": ["Testautomatisierung", "HiL / XiL-Prüfstände", "Anforderungsbasiertes Testen (DOORS)", "ADAS / E/E-Systeme"],

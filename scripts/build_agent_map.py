@@ -135,9 +135,9 @@ def _build_geo_svg(apps, geocache, limit_minutes, width=1180, height=620,
                    home_address: str = ""):
     """Zeichnet die Karte; der Wohnort kommt aus der Konfiguration.
 
-    Früher wurde der Eintrag über den Anfang der Adresse gesucht
-    (``k.startswith("muster")``) — dadurch stand ein Teil der Wohnadresse im
-    Quelltext. Jetzt wird der konfigurierte Schlüssel verwendet.
+    Früher wurde der Eintrag über den Anfang der Adresse gesucht — dadurch
+    stand ein Teil der Wohnadresse im Quelltext. Jetzt wird der konfigurierte
+    Schlüssel verwendet.
     """
     from bewerbungsagent.profile import normalize
     home = None

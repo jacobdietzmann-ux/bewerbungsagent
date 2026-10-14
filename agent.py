@@ -155,7 +155,7 @@ def main(argv=None) -> int:
         if result["research_checked"]:
             print(f"Research-Stellen geprüft ({len(result['research_checked'])}):")
             for r in result["research_checked"]:
-                flag = "" if r["verfuegbar"] else " (abgelaufen)"
+                flag = " (abgelaufen)" if r.get("verfuegbar") is False else ""
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Gelöscht (FIT < 50 %): {result['deleted_fit_under_50']} Stelle(n).")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', 90)} min): "

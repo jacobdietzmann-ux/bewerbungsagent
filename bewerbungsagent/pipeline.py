@@ -209,7 +209,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             research_checked.append({
                 "firma": a.get("firma"), "titel": a.get("titel"),
                 "fit": _fit_value(a), "ort": a.get("ort"),
-                "verfuegbar": a.get("verfuegbar", True),
+                "verfuegbar": a.get("verfuegbar"),
             })
 
     # 4) Bereinigung:
@@ -321,6 +321,12 @@ def _merge_state(existing: dict, matches: list[dict],
                  limit: int = MAX_COMMUTE_MINUTES) -> dict:
     apps = existing.get("applications", []) if isinstance(existing, dict) else []
     by_key = {a.get("key"): a for a in apps if a.get("key")}
+    # Felder, die aus dem Matching-Ergebnis übernommen werden.
+    # Wichtig: ``score_job()`` liefert nur Scoring-Felder plus die Kopie des Job-
+    # Datensatzes. Fehlt ein Feld dort (z. B. ``verfuegbar``, weil jobs.json
+    # gerade nichts dazu weiß), darf der vorhandene Wert NICHT überschrieben
+    # werden — sonst wird aus „geprüft verfügbar" ein ``None`` und im Dashboard
+    # landete fälschlich das Badge „abgelaufen".
     score_fields = ("score", "fit_geschaetzt", "begruendung", "matched_skills",
                     "title_hits", "body_hits", "location_bonus", "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
@@ -333,7 +339,8 @@ def _merge_state(existing: dict, matches: list[dict],
         if key in by_key:
             old = by_key[key]
             for f in score_fields:
-                old[f] = m.get(f)
+                if f in m and m[f] is not None:
+                    old[f] = m[f]
             old.setdefault("status", "research")
             old.setdefault("dokumente", {})
             old.setdefault("created", now_iso())

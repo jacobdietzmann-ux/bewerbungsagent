@@ -128,6 +128,20 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   Vergleiche müssen die ASCII-Form verwenden.
 - **Sprach-Erkennung für Dateinamen**: `key.endswith("_en")` verwenden — nicht
   `"en" in key` (das matcht auch „anschreiben"/„lebenslauf").
+- **`verfuegbar` ist ein Tri-State**: `True`/`False` = geprüft, `None` =
+  unbekannt (nie geprüft). Nur `False` bedeutet „abgelaufen". Wer das Feld
+  truthy prüft, macht aus „unbekannt" fälschlich „abgelaufen" —
+  `dashboard._availability()` kapselt das. Ebenso darf `_merge_state()`
+  vorhandene Felder nicht mit `None` überschreiben: Das Matching-Ergebnis
+  enthält `verfuegbar` gar nicht, ein blindes `old[f] = m.get(f)` löschte den
+  Flag bei jedem Match-Lauf.
+- **Abgelaufene Anzeigen kontextgebunden erkennen**: Die Seite wird als
+  kompletter `body`-Text gelesen; Jobbörsen listen darauf reihenweise fremde
+  Anzeigen. Ein nacktes `"abgelaufen"` oder ein Präfix wie
+  `"diese stellenanzeige ist"` traf deshalb auch aktive Stellen. Muster müssen
+  Anzeige/Stelle + Aussage verbinden (`fetch_descriptions._EXPIRED_PATTERNS`).
+  Nach jeder Muster-Änderung die alten Flags mit
+  `python scripts/recheck_expired.py --apply` neu bewerten.
 
 ## Evaluation (`eval/`)
 

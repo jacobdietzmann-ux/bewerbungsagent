@@ -76,16 +76,28 @@ Deshalb sind die vom Agenten **automatisch erzeugten** Dateien ausgenommen
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/dashboard.html
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/dashboard.html.pre-*
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.json
-/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.pre-*
-/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.backup-*
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/matches.json
-/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/matches.pre-*
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json
-/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.pre-*
-/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.backup.*
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/geocode_cache.json
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/commute_cache.json
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.db*
+# Lokale Sicherungskopien vor einem Eingriff
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/*.pre-*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/*.backup-*
+/DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/*.bak
+# Python-Bytecode
+/**/__pycache__
+# Konflikt-/Temporärkopien
+/**/*.conflict*
+/**/*.tmp
 ```
+
+> ⚠️ Sicherungskopien **müssen** einem dieser Muster folgen. Ein Name wie
+> `state.json.pre-recheck-<zeit>` passt nur auf `*.pre-*` — das frühere
+> `state.pre-*` griff nicht, und die Dateien landeten unbemerkt in der Cloud.
+
+**Wichtig:** `__pycache__` wird nur aus dem Sync genommen, nicht gelöscht —
+Python erzeugt die Dateien bei Bedarf selbst neu.
 
 **Kein Datenverlust:** Diese Dateien sind aus `data/jobs.db` reproduzierbar und
 werden zusätzlich von `scripts/backup_state.sh` gesichert. Quelle der Wahrheit

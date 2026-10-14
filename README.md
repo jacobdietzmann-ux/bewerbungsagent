@@ -158,6 +158,15 @@ Die freie Websuche ist bewusst **pluggable**:
 - **StepStone** (Standard) liefert einzelne Stellenangebote. Die **Detailseiten** blockieren
   zwar den `requests`-Weg, aber `python agent.py fetch` lädt die vollständigen Beschreibungen
   über einen echten Headless-Browser (Chromium) — damit wird das Fit-Scoring präzise.
+  Erkennt der Fetcher eine abgelaufene Anzeige, setzt er `verfuegbar: False`
+  (Badge „abgelaufen" im Dashboard). Weil die Seite als kompletter Seitentext gelesen wird und
+  Jobbörsen darauf fremde Anzeigen auflisten, sind die Muster bewusst kontextgebunden. Nach einer
+  Änderung an den Mustern die alten Flags neu bewerten:
+
+  ```bash
+  python scripts/recheck_expired.py            # Probelauf: nur prüfen
+  python scripts/recheck_expired.py --apply    # Korrekturen speichern
+  ```
 - **DuckDuckGo** liefert teils Jobbörsen-Treffer, wird aber bei mehreren Anfragen schnell
   rate-limited; **Bing** liefert bei deutschen Job-Queries oft unbrauchbare Treffer.
 - **JobSpy** aggregiert LinkedIn/Indeed/Google Jobs inklusive Beschreibung; läuft auf den ersten

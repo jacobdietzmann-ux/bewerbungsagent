@@ -135,6 +135,17 @@ def _fmt_date(app: dict) -> str:
     return today_de
 
 
+def _availability(app: dict) -> bool | None:
+    """Verfügbarkeit der Anzeige als Tri-State.
+
+    ``True``/``False`` = geprüft, ``None`` = unbekannt (nie geprüft).
+    Ein unbekannter Wert darf im Dashboard NICHT als „abgelaufen" gelten —
+    ``bool(None)`` wäre ``False`` und hätte genau dieses falsche Badge erzeugt.
+    """
+    value = app.get("verfuegbar")
+    return None if value is None else bool(value)
+
+
 def _to_data(app: dict) -> dict:
     fit = int(app.get("fit_pct") or app.get("score") or 0)
 
@@ -175,7 +186,7 @@ def _to_data(app: dict) -> dict:
         "docs": docs,
         "notes": app.get("notes", "") or "",
         "beschreibung": app.get("beschreibung", "") or "",
-        "verfuegbar": bool(app.get("verfuegbar", True)),
+        "verfuegbar": _availability(app),
         "matched": app.get("matched_skills", []) or [],
         "interviewDate": app.get("interviewDate", "") or "",
         "statusChangedAt": app.get("statusChangedAt", "") or "",

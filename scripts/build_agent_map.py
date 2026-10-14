@@ -554,6 +554,14 @@ padding:12px 15px;font-size:12.5px;color:#c3d3e8;line-height:1.6;margin:14px 0}}
 .map-footer{{margin:22px 0 10px;padding-top:14px;border-top:1px solid #1e2f47;
 font-size:12.5px;color:#94a3b8}}
 .map-footer a{{color:#7dd3fc;word-break:break-all}}
+.repo-banner{{display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+background:#0f2440;border:1px solid #1e4a75;border-radius:10px;
+padding:12px 16px;margin:16px 0 6px}}
+.repo-banner .rb-label{{font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+color:#7dd3fc;font-weight:700}}
+.repo-banner a{{font-size:clamp(15px,2.1vw,21px);font-weight:700;color:#e2f1ff;
+word-break:break-all;text-decoration:none;border-bottom:2px solid #2f6fa8}}
+.repo-banner a:hover{{color:#fff;border-bottom-color:#7dd3fc}}
 /* Druck/PDF: Farben behalten und Karten nicht mitten durchschneiden. */
 @media print{{
   html,body{{background:#0b1220 !important}}
@@ -567,6 +575,11 @@ font-size:12.5px;color:#94a3b8}}
 <h1>🗺️ Agenten-Map</h1>
 <p class="sub">Was der Bewerbungsagent tut, was er kann und wo er was verarbeitet —
 Stand {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
+
+<div class="repo-banner">
+  <span class="rb-label">Quellcode öffentlich:</span>
+  <a href="{REPO_URL}" target="_blank" rel="noopener">{REPO_URL}</a>
+</div>
 
 <section class="kpis">{kpi_cards}</section>
 

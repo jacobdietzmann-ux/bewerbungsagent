@@ -5,6 +5,10 @@ Alle Ergebnisse werden in Caches abgelegt (``data/geocode_cache.json`` und
 ``data/commute_cache.json``), damit wiederholte Läufe keine erneuten
 API-Aufrufe benötigen. Nominatim wird mit dem geforderten Politeness-Abstand
 (≥ 1 s) abgefragt.
+
+Die Wohnadresse steht **nicht** im Quelltext, sondern unter
+``commute.home_address`` in der ``config.json`` — sie ist eine persönliche
+Angabe und gehört nicht in ein geteiltes Repository.
 """
 
 from __future__ import annotations
@@ -18,7 +22,10 @@ import requests
 
 from .profile import normalize
 
-HOME_ADDRESS = "Musterstraße 1, 12345 Musterstadt"
+# Kontakt für die APIs (Nominatim verlangt eine identifizierbare Kennung).
+# Bewusst ohne persönliche Daten — die Projekt-URL genügt der Anforderung.
+_USER_AGENT = ("Bewerbungsagent/1.0 "
+               "(+https://github.com/jacobdietzmann-ux/bewerbungsagent)")
 
 # Stellen mit längerem Pendelweg werden gar nicht erst angelegt: es werden
 # weder Bewerbungsunterlagen erzeugt noch erscheinen sie im Dashboard.
@@ -44,7 +51,6 @@ def exceeds_commute_limit(app: dict, limit: int | None = None) -> bool:
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
-_USER_AGENT = "Bewerbungsagent/1.0 (persönliches Bewerbungs-Tool; vorname.nachname@example.com)"
 
 # Ortsnamen, die zur Münchener Metropolregion zählen (dort wird ein realer
 # Arbeitsweg angenommen). Reihenfolge irrelevant, nur Zugehörigkeit zählt.
@@ -212,12 +218,24 @@ def _route_driving(home: dict, dest: dict) -> tuple[float, int] | None:
     return round(route["distance"] / 1000.0, 1), round(route["duration"] / 60.0)
 
 
-def enrich_commute(apps: list[dict], data_dir: Path) -> dict:
+def enrich_commute(apps: list[dict], data_dir: Path,
+                   home_address: str | None = None) -> dict:
     """Berechnet Pendelzeit/-distanz für alle Stellen und schreibt sie zurück.
+
+    ``home_address`` kommt aus ``commute.home_address`` der Konfiguration.
+    Fehlt sie, wird ein klarer Hinweis geworfen statt still eine falsche
+    Adresse zu verwenden.
 
     Felder pro Stelle: ``pendel_modus`` (Auto|Remote), ``pendelzeit_min``,
     ``pendeldistanz_km``.
     """
+    if not home_address or not str(home_address).strip():
+        raise RuntimeError(
+            "Keine Wohnadresse konfiguriert. Bitte `commute.home_address` in der "
+            "config.json setzen (z. B. \"Musterstraße 1, 12345 Musterstadt\")."
+        )
+    home_address = str(home_address).strip()
+
     geocoder = _Geocoder(data_dir / "geocode_cache.json")
     route_cache_path = data_dir / "commute_cache.json"
     route_cache: dict[str, dict] = {}
@@ -227,9 +245,9 @@ def enrich_commute(apps: list[dict], data_dir: Path) -> dict:
         except (json.JSONDecodeError, OSError):
             route_cache = {}
 
-    home = geocoder.geocode(HOME_ADDRESS)
+    home = geocoder.geocode(home_address)
     if not home:
-        raise RuntimeError(f"Wohnadresse nicht geokodierbar: {HOME_ADDRESS}")
+        raise RuntimeError(f"Wohnadresse nicht geokodierbar: {home_address}")
 
     stats = {"total": len(apps), "remote": 0, "routed": 0, "cached": 0, "failed": 0}
 

@@ -54,6 +54,15 @@ def _store(config: Config) -> Store:
     return Store(config.db_path())
 
 
+def _home_address(config: Config) -> str:
+    """Wohnadresse aus der Konfiguration (``commute.home_address``).
+
+    Absichtlich nicht im Quelltext: Sie ist eine persönliche Angabe und gehört
+    nicht in ein geteiltes Repository.
+    """
+    return (config.data.get("commute") or {}).get("home_address") or ""
+
+
 def _persist_state(config: Config, store: Store, state: dict) -> None:
     """Schreibt den Bestand in SQLite und aktualisiert den JSON-Snapshot (Backup)."""
     store.save_state(state)
@@ -117,7 +126,7 @@ def _enrich_job_context(config: Config, jobs: list[dict]) -> dict:
     # Save the industry assignment even if the routing service is unavailable.
     save_json(config.jobs_path(), jobs)
     commute = (
-        enrich_commute(jobs, config.data_dir)
+        enrich_commute(jobs, config.data_dir, _home_address(config))
         if jobs else
         {"total": 0, "remote": 0, "routed": 0, "cached": 0, "failed": 0}
     )
@@ -197,7 +206,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     apps = state.get("applications", [])
 
     # 1) Pendelweg
-    commute_stats = enrich_commute(apps, config.data_dir)
+    commute_stats = enrich_commute(apps, config.data_dir, _home_address(config))
 
     # 2) Gehaltsschätzung
     salary_stats = enrich_salary(apps)

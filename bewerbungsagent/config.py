@@ -46,6 +46,12 @@ DEFAULT_CONFIG: dict = {
     # angelegt: keine Unterlagen, keine Anzeige im Dashboard. Unbekannte
     # Pendelzeiten (z. B. Remote) gelten nicht als zu weit.
     "max_pendelzeit_min": 90,
+    # Persönliche Angaben gehören nicht in den Quelltext: Die Wohnadresse steht
+    # hier (bzw. in der lokalen config.json) und wird für Pendelweg-Geocoding
+    # benötigt. Beispiel: "Musterstraße 1, 12345 Musterstadt".
+    "commute": {
+        "home_address": "",
+    },
     "documents": {
         "languages": ["de", "en"],
         "accent_color": "#0B3D5C",

@@ -131,17 +131,27 @@ def _commute_color(minutes):
     return "#ef4444"
 
 
-def _build_geo_svg(apps, geocache, limit_minutes, width=1180, height=620):
-    home_key = None
-    for k in geocache:
-        if k.startswith("muster"):
-            home_key = k
-            break
-    home = geocache.get(home_key) if home_key else None
+def _build_geo_svg(apps, geocache, limit_minutes, width=1180, height=620,
+                   home_address: str = ""):
+    """Zeichnet die Karte; der Wohnort kommt aus der Konfiguration.
+
+    Früher wurde der Eintrag über den Anfang der Adresse gesucht
+    (``k.startswith("muster")``) — dadurch stand ein Teil der Wohnadresse im
+    Quelltext. Jetzt wird der konfigurierte Schlüssel verwendet.
+    """
+    from bewerbungsagent.profile import normalize
+    home = None
+    if home_address:
+        wanted = normalize(home_address)
+        home = geocache.get(home_address)
+        if home is None:
+            for k, v in geocache.items():
+                if normalize(k) == wanted:
+                    home = v
+                    break
 
     # Orte aus den Stellen mit Pendelzeit/Koordinaten auflösen.
     from bewerbungsagent.commute import resolve_office
-    from bewerbungsagent.profile import normalize
 
     city_counts: Counter = Counter()
     plotted = []
@@ -682,9 +692,18 @@ def _collect(config: Config) -> dict:
                    if isinstance(v, dict) else 1
                    for v in skills.values())
 
+    # „Sichtbar“ bedeutet dasselbe wie im Dashboard: Unterlagen vorhanden UND
+    # Dateien noch auf der Platte. Eine eigene Zählung (nur `not deleted`) wich
+    # davon ab (164 statt 46) — zwei Zahlen für denselben Begriff verwirren.
+    try:
+        from bewerbungsagent.dashboard import dashboard_applications
+        visible = len(dashboard_applications(apps))
+    except Exception:
+        visible = sum(1 for a in apps if not a.get("deleted"))
+
     kpis = [
         ("Bewerbungen", f"{len(apps)}", "in der Datenbank"),
-        ("Sichtbar im Board", f"{sum(1 for a in apps if not a.get('deleted'))}", f"{deleted} ausgeblendet"),
+        ("Sichtbar im Dashboard", f"{visible}", f"{len(apps) - visible} ausgeblendet"),
         ("Dokumente erzeugt", f"{docs}", f"Ordner: {folders} · PDFs: {pdfs}"),
         ("Fit ≥ 65 %", f"{sum(1 for s in scores if s >= 65)}", f"von {len(scores)} bewertet"),
         ("Pendelweg Ø", f"{round(sum(pend)/len(pend))} min" if pend else "–", f"{len(pend)} berechnet"),
@@ -807,7 +826,9 @@ def main(argv=None) -> int:
 
     config = Config()
     stats = _collect(config)
-    geo_svg, geo_meta = _build_geo_svg(stats["apps"], stats["geocache"], stats["limit"])
+    home_address = (config.data.get("commute") or {}).get("home_address") or ""
+    geo_svg, geo_meta = _build_geo_svg(stats["apps"], stats["geocache"], stats["limit"],
+                                       home_address=home_address)
     system_svg = _build_system_svg()
 
     html = _render(stats, system_svg, geo_svg, geo_meta)

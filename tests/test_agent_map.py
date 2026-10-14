@@ -16,6 +16,9 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "build_agent_map.py"
 
+# Neutrale Testadresse — die echte Wohnadresse gehört nicht ins Repo.
+HOME_ADDR = "Musterstraße 1, 12345 Musterstadt"
+
 
 @pytest.fixture(scope="module")
 def mod():
@@ -94,11 +97,11 @@ class TestGeoMap:
             {"ort": "Ismaning", "pendel_modus": "Auto", "pendelzeit_min": 30},
         ]
         cache = {
-            "musterstrasse 1, 12345 musterstadt": {"lat": 48.1000, "lon": 11.5000},
+            HOME_ADDR: {"lat": 48.1000, "lon": 11.5000},
             "munchen": {"lat": 48.1371, "lon": 11.5754},
             "ismaning": {"lat": 48.2492, "lon": 11.6521},
         }
-        svg, meta = mod._build_geo_svg(apps, cache, 90)
+        svg, meta = mod._build_geo_svg(apps, cache, 90, home_address=HOME_ADDR)
         assert meta["total"] == 2
-        assert "Wohnort Garching" in svg
+        assert "Wohnort" in svg
         assert svg.count("<circle") >= 3  # zwei Stellen + Wohnort

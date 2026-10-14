@@ -156,8 +156,15 @@ Eine eigenständige Übersichtsseite zeigt in einer einzigen HTML-Datei, **was d
 macht, was er kann und wo er was verarbeitet**:
 
 ```bash
-python scripts/build_agent_map.py        # → output/agent-map.html
+python scripts/build_agent_map.py            # → output/agent-map.html
+python scripts/build_agent_map.py --pdf      # zusätzlich → output/agent-map.pdf
+python scripts/build_agent_map.py --pdf --pdf-format hoch   # PDF hochkant
 ```
+
+Die Karte dient auch als Arbeitsnachweis. Für eine Bewerbung ist das PDF
+praktischer als die HTML, weil es sich anhängen und überall öffnen lässt.
+Standard ist **Querformat**: Die Karten sind 1180 px breit und würden hochkant
+auf 632 px verkleinert (Ortslabels ~4,4 pt statt ~6,7 pt).
 
 Enthalten sind:
 

@@ -92,6 +92,37 @@ def location_bonus_for(job: dict, location: str | None = None) -> int:
     return 0
 
 
+def fit_value(job: dict) -> int:
+    """Der gespeicherte Fit-Wert (0–100) einer Stelle.
+
+    Eine Stelle kann zwei Felder tragen: ``fit_pct`` (aus dem Alt-Dashboard
+    importiert) und ``score`` (vom eigenen Scoring). Beide werden hier zu *einem*
+    Wert zusammengeführt, damit Filtern, Löschen und Tabelle nie auseinander-
+    laufen:
+
+    * ``fit_pct`` fehlt → ``score``.
+    * ``fit_pct == 0`` bei vorhandenem ``score`` → ``score``. Null bedeutet in
+      den Alt-Daten „nicht bewertet", nicht „schlechtester Wert"; 12 importierte
+      Einträge hätten sonst 0 % statt ihrer echten 7–18 % gezeigt.
+    * sonst ``fit_pct`` (bewusst: die Werte des Alt-Dashboards bleiben erhalten).
+    """
+    fit_pct = job.get("fit_pct")
+    score = job.get("score")
+    try:
+        score_v = round(float(score)) if score is not None else 0
+    except (TypeError, ValueError):
+        score_v = 0
+    if fit_pct is None:
+        return score_v
+    try:
+        fit_v = round(float(fit_pct))
+    except (TypeError, ValueError):
+        return score_v
+    if fit_v == 0 and score_v > 0:
+        return score_v
+    return fit_v
+
+
 def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     """Berechnet Score (0–100), Kategorie und Begründung für einen Job."""
     title, desc = _job_text(job)

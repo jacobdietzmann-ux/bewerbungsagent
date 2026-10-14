@@ -11,7 +11,8 @@ Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
 Der Status ``research`` (reine Funde ohne Bewerbungsdokumente) wird nicht
 dargestellt: Tabelle, Status-Verteilung, KPIs und der Wochenverlauf lassen diese
 Einträge aus. Tabelle, Status-Verteilung und KPIs zeigen nur Stellen mit
-Dokumenten und einem Pendelweg ≤ 30 min; der Wochenverlauf behält die übrige
+Dokumenten und einem Pendelweg innerhalb der konfigurierten Grenze
+(``max_pendelzeit_min``, Standard 35 min); der Wochenverlauf behält die übrige
 Historie, damit frühere Wochen nicht leer erscheinen.
 
 Die Daten werden als JSON in die HTML eingebettet (``const DATA``); der Server ist
@@ -25,8 +26,9 @@ import os
 from datetime import date
 from pathlib import Path
 
-from .commute import exceeds_commute_limit
+from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
+from .matching import fit_value
 from .statuses import ORDER, STATUS, normalize_status
 from .storage import now_iso
 
@@ -90,15 +92,21 @@ def documented_applications(applications: list[dict]) -> list[dict]:
     return result
 
 
-def _exceeds_dashboard_commute_limit(app: dict) -> bool:
-    return exceeds_commute_limit(app)
+def _exceeds_dashboard_commute_limit(app: dict, limit: int = MAX_COMMUTE_MINUTES) -> bool:
+    return exceeds_commute_limit(app, limit=limit)
 
 
-def dashboard_applications(applications: list[dict]) -> list[dict]:
-    """Dokumentierte Bewerbungen ohne bekannte Pendelzeit über 30 Minuten."""
+def dashboard_applications(applications: list[dict],
+                           limit: int = MAX_COMMUTE_MINUTES) -> list[dict]:
+    """Dokumentierte Bewerbungen innerhalb der Pendelzeit-Grenze.
+
+    ``limit`` kommt aus ``max_pendelzeit_min`` der Konfiguration; der Standard
+    ist die Modulkonstante, damit Aufrufe ohne Konfiguration (Tests, Skripte)
+    dasselbe Verhalten zeigen.
+    """
     return [
         app for app in documented_applications(applications)
-        if not _exceeds_dashboard_commute_limit(app)
+        if not _exceeds_dashboard_commute_limit(app, limit)
     ]
 
 
@@ -147,7 +155,7 @@ def _availability(app: dict) -> bool | None:
 
 
 def _to_data(app: dict) -> dict:
-    fit = int(app.get("fit_pct") or app.get("score") or 0)
+    fit = fit_value(app)
 
     docs = []
     for key, stored in _existing_documents(app):
@@ -195,15 +203,16 @@ def _to_data(app: dict) -> dict:
     }
 
 
-def build_dashboard(state: dict, output_path: Path) -> Path:
+def build_dashboard(state: dict, output_path: Path,
+                    commute_limit: int = MAX_COMMUTE_MINUTES) -> Path:
     apps = state.get("applications", []) if isinstance(state, dict) else []
     # Der komplette Bestand wird eingebettet, damit der Wochenverlauf auch
     # frühere Bewerbungen ohne Dokumente zeigt: die Tabelle sowie die
     # Status-Verteilung und die KPIs beziehen sich nur auf relevante Stellen
-    # (mit Dokumenten, Pendelweg ≤ 30 min), der Wochenverlauf auf die Historie
-    # ohne „Research"-Funde. Deshalb bekommt jede Zeile ein ``visible``-Flag
-    # statt den Bestand vorab zu filtern.
-    visible_keys = {_app_id(a) for a in dashboard_applications(apps)}
+    # (mit Dokumenten, Pendelweg innerhalb der Grenze), der Wochenverlauf auf die
+    # Historie ohne „Research"-Funde. Deshalb bekommt jede Zeile ein
+    # ``visible``-Flag statt den Bestand vorab zu filtern.
+    visible_keys = {_app_id(a) for a in dashboard_applications(apps, commute_limit)}
     data = [_to_data(a) for a in apps]
     for row in data:
         row["visible"] = row["id"] in visible_keys
@@ -212,6 +221,7 @@ def build_dashboard(state: dict, output_path: Path) -> Path:
     data_json = json.dumps(data, ensure_ascii=False, indent=2).replace("</", "<\\/")
     html_doc = (_HTML_TEMPLATE
                 .replace("__DATA__", data_json)
+                .replace("__COMMUTE_LIMIT__", str(int(commute_limit)))
                 .replace("__GENERATED__", now_iso()))
 
     output_path.write_text(html_doc, encoding="utf-8")
@@ -390,7 +400,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="legend">
     <strong>Status-Workflow:</strong>
     <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
-    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ 30 min). Reine Funde (<code>Research</code>, noch ohne Dokumente) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
+    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ __COMMUTE_LIMIT__ min). Reine Funde (<code>Research</code>, noch ohne Dokumente) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
     <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
     <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
     <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
@@ -404,6 +414,10 @@ const ORDER = __ORDER__;
 // dargestellt. Daher bleiben diese Einträge aus allen Auswertungen (KPIs,
 // Status-Verteilung, Wochenverlauf, Status-Schalter) ausgeschlossen.
 const SHOWN_STATUSES = ORDER.filter(s => s !== "research");
+// Pendelzeit-Grenze aus der Konfiguration (max_pendelzeit_min) — so kann die
+// Anzeige nicht von der Ausschlusslogik abweichen. Genau das war zuvor der Fall:
+// die Grenze stand als 30 an vier Stellen im Code.
+const COMMUTE_LIMIT = __COMMUTE_LIMIT__;
 const EDITABLE = ["status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt"];
 const KEY = "bewerbungsagent-dashboard-v1";
 const HIDDEN_STATUSES_KEY = "bewerbungsagent-hidden-statuses";
@@ -557,8 +571,9 @@ function commuteBadge(r) {
   }
   if (r.commute == null) return '<span style="color:#64748b">k. A.</span>';
   const c = +r.commute;
-  const color = c <= 30 ? "#22c55e" : "#ef4444";
-  const bg = c <= 30 ? "#15803d33" : "#7f1d1d33";
+  const over = c > COMMUTE_LIMIT;
+  const color = over ? "#ef4444" : "#22c55e";
+  const bg = over ? "#7f1d1d33" : "#15803d33";
   const km = r.commuteKm != null ? ` · ${r.commuteKm} km` : "";
   return `<span class="badge" style="background:${bg};color:${color};border:1px solid ${color}55">${c} min${km}</span>`;
 }

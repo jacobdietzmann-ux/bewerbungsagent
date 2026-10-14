@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 from bewerbungsagent.cleanup import run_cleanup
+from bewerbungsagent.commute import MAX_COMMUTE_MINUTES
 from bewerbungsagent.config import Config
 from bewerbungsagent.documents import CV_TEMPLATES, DEFAULT_CV_TEMPLATE
 from bewerbungsagent.pipeline import (
@@ -173,7 +174,7 @@ def main(argv=None) -> int:
                 flag = " (abgelaufen)" if r.get("verfuegbar") is False else ""
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Gelöscht (FIT < 50 %): {result['deleted_fit_under_50']} Stelle(n).")
-        print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', 30)} min): "
+        print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         if result.get("restored_documented"):
             print(f"Wieder sichtbar (Unterlagen vorhanden): "
@@ -205,7 +206,7 @@ def main(argv=None) -> int:
                 print(f"      {name}: {rel}")
         skipped = result.get("skipped_commute") or []
         if skipped:
-            print(f"  Übersprungen (Pendelweg > {config.data.get('max_pendelzeit_min', 30)} min): "
+            print(f"  Übersprungen (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
                   f"{len(skipped)} Stelle(n)")
             for s in skipped:
                 print(f"      - {s.get('firma')} — {s.get('titel')} "

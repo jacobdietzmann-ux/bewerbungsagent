@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bewerbungsagent.matching import (
+    fit_value,
     has_role_signal,
     location_bonus_for,
     match_jobs,
@@ -256,3 +257,39 @@ class TestSprachvarianten:
         })
         assert "requirement" not in prof.keyword_phrases
         assert "interface" not in prof.keyword_phrases
+
+
+class TestFitValue:
+    """Ein einziger Fit-Wert für Filter, Löschlogik und Tabelle.
+
+    ``fit_pct`` (Alt-Dashboard) und ``score`` (eigenes Scoring) mussten zuvor an
+    zwei Stellen unterschiedlich zusammengeführt werden — die Tabelle zeigte
+    18 %, die Löschlogik sah 0 %. Bei 12 importierten Einträgen trat genau das auf.
+    """
+
+    def test_score_ohne_fit_pct(self):
+        assert fit_value({"score": 42}) == 42
+
+    def test_fit_pct_gewinnt_wenn_gesetzt(self):
+        assert fit_value({"fit_pct": 70, "score": 42}) == 70
+
+    def test_fit_pct_null_faellt_auf_score_zurueck(self):
+        """0 heißt in den Alt-Daten „nicht bewertet", nicht „schlechtester Wert"."""
+        assert fit_value({"fit_pct": 0, "score": 18}) == 18
+
+    def test_fit_pct_null_ohne_score_bleibt_null(self):
+        assert fit_value({"fit_pct": 0}) == 0
+
+    def test_leere_stelle_ist_null(self):
+        assert fit_value({}) == 0
+
+    def test_ungueltige_werte_werfen_nicht(self):
+        assert fit_value({"fit_pct": "unbekannt", "score": 5}) == 5
+        assert fit_value({"score": "x"}) == 0
+
+    def test_pipeline_und_dashboard_stimmen_ueberein(self):
+        from bewerbungsagent.dashboard import _to_data
+        from bewerbungsagent.pipeline import _fit_value
+        for job in ({"fit_pct": 0, "score": 18}, {"fit_pct": 70, "score": 42},
+                    {"score": 30}, {"fit_pct": 0}, {}):
+            assert _fit_value(job) == _to_data(dict(job))["fit"]

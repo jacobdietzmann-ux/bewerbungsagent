@@ -46,7 +46,7 @@ _MODULES = [
     ("matching.py", "Fit-Score 0–100 (Titel ×6, Text ×4, Wort ×2, Ort +10)", "rein", "Bewertung"),
     ("industry.py", "Branche zuordnen (Arbeitgeber → Text → Titel)", "rein", "Anreicherung"),
     ("salary.py", "Gehalt schätzen aus Rolle, Seniorität, Branche, Ort", "rein", "Anreicherung"),
-    ("commute.py", "Pendelweg via Nominatim + OSRM, mit Cache; Grenze 30 min", "netz", "Anreicherung"),
+    ("commute.py", "Pendelweg via Nominatim + OSRM, mit Cache; Grenze 35 min", "netz", "Anreicherung"),
     ("documents.py", "Anschreiben + Lebenslauf als PDF (eigene DOCX-Vorlage oder ReportLab)", "rein", "Ausgabe"),
     ("dashboard.py", "Interaktives HTML-Dashboard rendern", "rein", "Ausgabe"),
     ("db.py", "SQLite-Speicher: Provider-/Nutzer-Felder getrennt, History-Schutz", "io", "Speicher"),
@@ -121,10 +121,10 @@ def _project(points, width, height, pad=48):
     return f
 
 
-def _commute_color(minutes):
+def _commute_color(minutes, limit_minutes=35):
     if minutes is None:
         return "#64748b"
-    if minutes <= 30:
+    if minutes <= limit_minutes:
         return "#22c55e"
     return "#ef4444"
 
@@ -210,7 +210,7 @@ def _build_geo_svg(apps, geocache, limit_minutes, width=1180, height=620,
         if minutes is None:
             continue
         x, y = f(lat, lon)
-        c = _commute_color(minutes)
+        c = _commute_color(minutes, limit_minutes)
         op = 0.30 if minutes > limit_minutes else 0.14
         w = 1.6 if minutes > limit_minutes else 1.0
         parts.append(f'<line x1="{hx:.1f}" y1="{hy:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
@@ -219,7 +219,7 @@ def _build_geo_svg(apps, geocache, limit_minutes, width=1180, height=620,
     # Punkte
     for lat, lon, minutes, ort in plotted:
         x, y = f(lat, lon)
-        c = _commute_color(minutes)
+        c = _commute_color(minutes, limit_minutes)
         r = 4.2 if (minutes or 0) <= limit_minutes else 3.2
         label = f"{ort} · {minutes} min" if minutes is not None else ort
         parts.append(
@@ -472,8 +472,8 @@ def _render(stats, system_svg, geo_svg, geo_meta):
 
     geo_legend = "".join(
         f'<span class="lg"><i style="background:{c}"></i>{lbl}</span>'
-        for c, lbl in [("#22c55e", "≤ 30 min (zulässig)"),
-                       ("#ef4444", "> 30 min (ausgeblendet)"),
+        for c, lbl in [("#22c55e", f"≤ {stats['limit']} min (zulässig)"),
+                       ("#ef4444", f"> {stats['limit']} min (ausgeblendet)"),
                        ("#64748b", "unbekannt")]
     )
 
@@ -690,7 +690,7 @@ def _collect(config: Config) -> dict:
         except json.JSONDecodeError:
             geocache = {}
 
-    limit = config.data.get("max_pendelzeit_min", 30)
+    limit = config.data.get("max_pendelzeit_min", 35)
     status = Counter(a.get("status") for a in apps)
     docs = sum(1 for a in apps if a.get("dokumente"))
     desc = sum(1 for a in apps if (a.get("beschreibung") or "").strip())
@@ -763,7 +763,7 @@ def _collect(config: Config) -> dict:
          "DOCX-Vorlage mit pro Stelle angepasstem Profil-Absatz. PDFs in den Bewerbungsordner.",
          "01_Bewerbungen/", "#f59e0b"),
         ("dashboard", "DASHBOARD", "HTML-Board rendern: nur Stellen mit Dokumenten und Pendelweg "
-         "≤ 30 min in der Tabelle, Status-Verteilung und Wochenverlauf darüber.",
+         "≤ 35 min in der Tabelle, Status-Verteilung und Wochenverlauf darüber.",
          "dashboard.html", "#a78bfa"),
     ]
 

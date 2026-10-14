@@ -18,7 +18,7 @@ from .documents import (
 from .homeoffice import detect_home_office
 from .importer import import_old_dashboard
 from .industry import classify_industry
-from .matching import has_role_signal, match_jobs
+from .matching import fit_value, has_role_signal, match_jobs
 from .profile import Profile, normalize
 from .salary import enrich_salary
 from .search import run_search as _search
@@ -81,12 +81,8 @@ def safe_name(value: str) -> str:
 
 
 def _fit_value(job: dict) -> int:
-    """Einheitlicher Fit-Wert (0–100) für alte (fit_pct) und neue (score) Stellen."""
-    raw = job.get("fit_pct") if job.get("fit_pct") is not None else job.get("score")
-    try:
-        return round(float(raw)) if raw is not None else 0
-    except (TypeError, ValueError):
-        return 0
+    """Einheitlicher Fit-Wert — siehe :func:`matching.fit_value`."""
+    return fit_value(job)
 
 
 # --------------------------------------------------------------------------
@@ -370,10 +366,10 @@ def run_import_old(config: Config) -> dict:
 
 def run_dashboard(config: Config) -> dict:
     state = _store(config).load_state()
-    path = build_dashboard(state, config.dashboard_path)
+    path = build_dashboard(state, config.dashboard_path, _commute_limit_minutes(config))
     all_applications = state.get("applications", [])
     documented = documented_applications(all_applications)
-    applications = dashboard_applications(all_applications)
+    applications = dashboard_applications(all_applications, _commute_limit_minutes(config))
     return {
         "path": str(path),
         "applications": sum(not bool(app.get("deleted")) for app in applications),

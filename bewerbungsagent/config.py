@@ -51,6 +51,8 @@ DEFAULT_CONFIG: dict = {
     # benötigt. Beispiel: "Musterstraße 1, 12345 Musterstadt".
     "commute": {
         "home_address": "",
+        # Kontakt für Nominatim/OSRM. Leer lassen genügt (Projekt-URL).
+        "contact_email": "",
     },
     "documents": {
         "languages": ["de", "en"],

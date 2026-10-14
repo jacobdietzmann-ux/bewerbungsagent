@@ -54,13 +54,14 @@ def _store(config: Config) -> Store:
     return Store(config.db_path())
 
 
-def _home_address(config: Config) -> str:
-    """Wohnadresse aus der Konfiguration (``commute.home_address``).
+def _commute_settings(config: Config) -> tuple[str, str]:
+    """Wohnadresse und Kontaktadresse aus ``commute``.
 
-    Absichtlich nicht im Quelltext: Sie ist eine persönliche Angabe und gehört
-    nicht in ein geteiltes Repository.
+    Beide sind persönliche Angaben und stehen deshalb in der privaten
+    ``config.json`` (im Google-Drive-Ordner) — nicht im Quelltext.
     """
-    return (config.data.get("commute") or {}).get("home_address") or ""
+    commute = config.data.get("commute") or {}
+    return commute.get("home_address") or "", commute.get("contact_email") or ""
 
 
 def _persist_state(config: Config, store: Store, state: dict) -> None:
@@ -126,7 +127,7 @@ def _enrich_job_context(config: Config, jobs: list[dict]) -> dict:
     # Save the industry assignment even if the routing service is unavailable.
     save_json(config.jobs_path(), jobs)
     commute = (
-        enrich_commute(jobs, config.data_dir, _home_address(config))
+        enrich_commute(jobs, config.data_dir, *_commute_settings(config))
         if jobs else
         {"total": 0, "remote": 0, "routed": 0, "cached": 0, "failed": 0}
     )
@@ -206,7 +207,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     apps = state.get("applications", [])
 
     # 1) Pendelweg
-    commute_stats = enrich_commute(apps, config.data_dir, _home_address(config))
+    commute_stats = enrich_commute(apps, config.data_dir, *_commute_settings(config))
 
     # 2) Gehaltsschätzung
     salary_stats = enrich_salary(apps)

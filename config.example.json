@@ -34,7 +34,8 @@
   },
   "max_pendelzeit_min": 90,
   "commute": {
-    "home_address": "Musterstraße 1, 12345 Musterstadt"
+    "home_address": "Musterstraße 1, 12345 Musterstadt",
+    "contact_email": "vorname.nachname@example.com"
   },
   "documents": {
     "languages": ["de", "en"],

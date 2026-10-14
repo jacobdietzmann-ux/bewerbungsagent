@@ -38,7 +38,7 @@ def test_search_persists_industry_and_commute_before_matching(
     }
     monkeypatch.setattr("bewerbungsagent.pipeline._search", lambda *_args, **_kwargs: ([job], []))
 
-    def add_commute(jobs, _data_dir, home_address=None):
+    def add_commute(jobs, _data_dir, home_address=None, contact_email=None):
         assert jobs[0]["branche"] == "Defense / Wehrtechnik"
         jobs[0].update({
             "pendel_modus": "Auto",

@@ -7,7 +7,7 @@ from bewerbungsagent import commute
 
 def test_failed_route_is_marked_as_not_determined(tmp_path, monkeypatch):
     class Geocoder:
-        def __init__(self, _cache_path):
+        def __init__(self, _cache_path, _agent=None):
             pass
 
         def geocode(self, _query):
@@ -33,3 +33,10 @@ def test_missing_home_address_raises_clear_error(tmp_path):
     import pytest
     with pytest.raises(RuntimeError, match="home_address"):
         commute.enrich_commute([], tmp_path, "")
+
+
+def test_user_agent_uses_contact_email_only_when_configured():
+    """Die Kontaktadresse kommt aus der privaten Config, nicht aus dem Code."""
+    assert "example.com" in commute.user_agent("ich@example.com")
+    assert "example.com" not in commute.user_agent("")
+    assert commute.user_agent("").startswith("Bewerbungsagent/1.0")

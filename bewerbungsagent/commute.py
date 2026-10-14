@@ -22,10 +22,18 @@ import requests
 
 from .profile import normalize
 
-# Kontakt für die APIs (Nominatim verlangt eine identifizierbare Kennung).
-# Bewusst ohne persönliche Daten — die Projekt-URL genügt der Anforderung.
-_USER_AGENT = ("Bewerbungsagent/1.0 "
-               "(+https://github.com/jacobdietzmann-ux/bewerbungsagent)")
+# Standard-Kennung für die APIs. Nominatim verlangt eine identifizierbare
+# Angabe, die Projekt-URL genügt. Eine Kontaktadresse kann über
+# ``commute.contact_email`` ergänzt werden — sie steht dann nur in der privaten
+# Konfiguration, nicht im Repository.
+_USER_AGENT_BASE = ("Bewerbungsagent/1.0 "
+                    "(+https://github.com/jacobdietzmann-ux/bewerbungsagent)")
+
+
+def user_agent(contact_email: str | None = None) -> str:
+    """User-Agent für Nominatim/OSRM, optional mit Kontaktadresse."""
+    mail = (contact_email or "").strip()
+    return f"Bewerbungsagent/1.0 ({mail})" if mail else _USER_AGENT_BASE
 
 # Stellen mit längerem Pendelweg werden gar nicht erst angelegt: es werden
 # weder Bewerbungsunterlagen erzeugt noch erscheinen sie im Dashboard.
@@ -144,8 +152,9 @@ def _simplify(office: str) -> str:
 class _Geocoder:
     """Nominatim-Geocoder mit Disk-Cache."""
 
-    def __init__(self, cache_path: Path):
+    def __init__(self, cache_path: Path, agent: str | None = None):
         self.cache_path = cache_path
+        self.agent = agent or _USER_AGENT_BASE
         self.cache: dict[str, dict] = {}
         if cache_path.exists():
             try:
@@ -170,7 +179,7 @@ class _Geocoder:
             r = requests.get(
                 _NOMINATIM_URL,
                 params={"q": query, "format": "json", "limit": 1},
-                headers={"User-Agent": _USER_AGENT},
+                headers={"User-Agent": self.agent},
                 timeout=15,
             )
         except requests.RequestException:
@@ -201,12 +210,13 @@ class _Geocoder:
             pass
 
 
-def _route_driving(home: dict, dest: dict) -> tuple[float, int] | None:
+def _route_driving(home: dict, dest: dict,
+                   agent: str | None = None) -> tuple[float, int] | None:
     """Rückgabe (Distanz_km, Dauer_min) oder None bei Fehler."""
     url = f"{_OSRM_URL}/{home['lon']},{home['lat']};{dest['lon']},{dest['lat']}"
     try:
         r = requests.get(url, params={"overview": "false"}, timeout=20,
-                         headers={"User-Agent": _USER_AGENT})
+                         headers={"User-Agent": agent or _USER_AGENT_BASE})
     except requests.RequestException:
         return None
     if r.status_code != 200:
@@ -219,7 +229,8 @@ def _route_driving(home: dict, dest: dict) -> tuple[float, int] | None:
 
 
 def enrich_commute(apps: list[dict], data_dir: Path,
-                   home_address: str | None = None) -> dict:
+                   home_address: str | None = None,
+                   contact_email: str | None = None) -> dict:
     """Berechnet Pendelzeit/-distanz für alle Stellen und schreibt sie zurück.
 
     ``home_address`` kommt aus ``commute.home_address`` der Konfiguration.
@@ -236,7 +247,8 @@ def enrich_commute(apps: list[dict], data_dir: Path,
         )
     home_address = str(home_address).strip()
 
-    geocoder = _Geocoder(data_dir / "geocode_cache.json")
+    agent = user_agent(contact_email)
+    geocoder = _Geocoder(data_dir / "geocode_cache.json", agent)
     route_cache_path = data_dir / "commute_cache.json"
     route_cache: dict[str, dict] = {}
     if route_cache_path.exists():
@@ -285,7 +297,7 @@ def enrich_commute(apps: list[dict], data_dir: Path,
             route = route_cache[cache_key]
             stats["cached"] += 1
         else:
-            route = _route_driving(home, dest)
+            route = _route_driving(home, dest, agent)
             if route is None:
                 a["pendel_modus"] = "Nicht ermittelt"
                 a["pendelzeit_min"] = None

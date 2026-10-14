@@ -665,7 +665,6 @@ def _collect(config: Config) -> dict:
 
     limit = config.data.get("max_pendelzeit_min", 90)
     status = Counter(a.get("status") for a in apps)
-    deleted = sum(1 for a in apps if a.get("deleted"))
     docs = sum(1 for a in apps if a.get("dokumente"))
     desc = sum(1 for a in apps if (a.get("beschreibung") or "").strip())
     pend = [a.get("pendelzeit_min") for a in apps if a.get("pendelzeit_min") is not None]

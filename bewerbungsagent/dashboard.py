@@ -401,6 +401,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     <strong>Status-Workflow:</strong>
     <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
     <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ __COMMUTE_LIMIT__ min). Reine Funde (<code>Research</code>, noch ohne Dokumente) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
+    <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
     <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
     <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
     <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
@@ -571,11 +572,24 @@ function commuteBadge(r) {
   }
   if (r.commute == null) return '<span style="color:#64748b">k. A.</span>';
   const c = +r.commute;
-  const over = c > COMMUTE_LIMIT;
-  const color = over ? "#ef4444" : "#22c55e";
-  const bg = over ? "#7f1d1d33" : "#15803d33";
+  const ratio = c / COMMUTE_LIMIT;
+  // Farbe nach Restluft bis zur Grenze: je weniger Puffer, desto wärmer.
+  // Fünf feste Stufen statt eines kontinuierlichen Verlaufs — die Farbe muss
+  // beim Überfliegen der Tabelle eindeutig lesbar bleiben. Der oberste Split
+  // liegt bei 90 %, weil sich sonst die 25-Minuten-Sammelgruppe (München,
+  // 83 % der Grenze) nicht von den wirklich knappen 28-30 Minuten unterscheiden
+  // ließe.
+  let color, bg, hint;
+  if (ratio <= 0.5)       { color = "#22c55e"; bg = "#15803d33"; hint = "viel Luft"; }
+  else if (ratio <= 0.75) { color = "#84cc16"; bg = "#3f621233"; hint = "entspannt"; }
+  else if (ratio <= 0.9)  { color = "#f59e0b"; bg = "#b4530933"; hint = "wird knapper"; }
+  else if (ratio <= 1.0)  { color = "#f97316"; bg = "#c2410c33"; hint = "knapp an der Grenze"; }
+  else                    { color = "#ef4444"; bg = "#7f1d1d33"; hint = "über der Grenze"; }
   const km = r.commuteKm != null ? ` · ${r.commuteKm} km` : "";
-  return `<span class="badge" style="background:${bg};color:${color};border:1px solid ${color}55">${c} min${km}</span>`;
+  const rest = COMMUTE_LIMIT - c;
+  const luft = rest > 0 ? `noch ${rest} min Luft` : `${-rest} min über der Grenze`;
+  const title = `${c} von ${COMMUTE_LIMIT} min (${Math.round(ratio * 100)} % der Grenze) — ${luft}`;
+  return `<span class="badge" title="${title}" style="background:${bg};color:${color};border:1px solid ${color}55">${c} min${km}</span>`;
 }
 function linkBadge(r) {
   if (!r.link) return '<span style="color:#64748b">–</span>';

@@ -227,10 +227,11 @@ def main(argv=None) -> int:
 
     elif args.command == "dashboard":
         result = run_dashboard(config)
+        limit = config.data.get("max_pendelzeit_min", MAX_COMMUTE_MINUTES)
         print(f"Dashboard erzeugt: {result['path']} "
               f"({result['applications']} relevante Stellen; "
               f"{result['hidden_without_documents']} ohne Bewerbungsdokumente und "
-              f"{result['hidden_too_far']} mit mehr als 90 Minuten Pendelzeit ausgeblendet)")
+              f"{result['hidden_too_far']} mit mehr als {limit} Minuten Pendelzeit ausgeblendet)")
 
     elif args.command == "status":
         _print_jobs(config)

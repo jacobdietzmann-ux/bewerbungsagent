@@ -122,10 +122,25 @@ def _project(points, width, height, pad=48):
 
 
 def _commute_color(minutes, limit_minutes=30):
+    """Farbe nach Restluft bis zur Pendelweg-Grenze.
+
+    Fünf Stufen, damit sich die 25-Minuten-Sammelgruppe (München, 83 % der
+    Grenze) von den wirklich knappen 28–30 Minuten unterscheidet. Die Skala ist
+    relativ zur Grenze — eine feste 30/60-Skala wäre bei einer Grenze von 30 min
+    durchgehend rot.
+    """
     if minutes is None:
         return "#64748b"
-    if minutes <= limit_minutes:
+    limit = limit_minutes or 30
+    ratio = minutes / limit
+    if ratio <= 0.5:
         return "#22c55e"
+    if ratio <= 0.75:
+        return "#84cc16"
+    if ratio <= 0.9:
+        return "#f59e0b"
+    if ratio <= 1.0:
+        return "#f97316"
     return "#ef4444"
 
 
@@ -472,7 +487,10 @@ def _render(stats, system_svg, geo_svg, geo_meta):
 
     geo_legend = "".join(
         f'<span class="lg"><i style="background:{c}"></i>{lbl}</span>'
-        for c, lbl in [("#22c55e", f"≤ {stats['limit']} min (zulässig)"),
+        for c, lbl in [("#22c55e", f"≤ {stats['limit'] // 2} min (≤ 50 %)"),
+                       ("#84cc16", f"≤ {round(stats['limit'] * 0.75)} min (≤ 75 %)"),
+                       ("#f59e0b", f"≤ {round(stats['limit'] * 0.9)} min (≤ 90 %)"),
+                       ("#f97316", f"≤ {stats['limit']} min (an der Grenze)"),
                        ("#ef4444", f"> {stats['limit']} min (ausgeblendet)"),
                        ("#64748b", "unbekannt")]
     )

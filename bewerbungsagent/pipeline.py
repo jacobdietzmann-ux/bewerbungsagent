@@ -6,7 +6,12 @@ import os
 import re
 from pathlib import Path
 
-from .commute import MAX_COMMUTE_MINUTES, enrich_commute, exceeds_commute_limit
+from .commute import (
+    MAX_COMMUTE_MINUTES,
+    commute_limit_minutes,
+    enrich_commute,
+    exceeds_commute_limit,
+)
 from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard, dashboard_applications, documented_applications
 from .db import Store
@@ -149,11 +154,7 @@ def _enrich_job_context(config: Config, jobs: list[dict]) -> dict:
 
 def _commute_limit_minutes(config: Config) -> int:
     """Obergrenze des Pendelwegs in Minuten (konfigurierbar, sonst Standard)."""
-    raw = config.data.get("max_pendelzeit_min")
-    try:
-        return int(raw) if raw is not None else MAX_COMMUTE_MINUTES
-    except (TypeError, ValueError):
-        return MAX_COMMUTE_MINUTES
+    return commute_limit_minutes(config.data)
 
 
 def _commute_blocked(config: Config, job: dict) -> bool:

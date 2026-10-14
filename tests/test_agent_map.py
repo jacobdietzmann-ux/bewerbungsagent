@@ -82,10 +82,23 @@ class TestGeoMap:
             assert 0 <= x <= 1000 and 0 <= y <= 600
 
     def test_commute_colours(self, mod):
-        assert mod._commute_color(10) == "#22c55e"
-        assert mod._commute_color(30) == "#22c55e"
-        assert mod._commute_color(31) == "#ef4444"
+        # Fünf Stufen in Richtung Grenze (Standardgrenze 30 min).
+        assert mod._commute_color(5) == "#22c55e"     # 17 %
+        assert mod._commute_color(15) == "#22c55e"    # genau 50 %
+        assert mod._commute_color(22) == "#84cc16"    # 73 %
+        assert mod._commute_color(25) == "#f59e0b"    # 83 % (München-Sammelgruppe)
+        assert mod._commute_color(28) == "#f97316"    # 93 % (knapp an der Grenze)
+        assert mod._commute_color(30) == "#f97316"    # genau an der Grenze
+        assert mod._commute_color(31) == "#ef4444"    # darüber
         assert mod._commute_color(None) == "#64748b"
+
+    def test_farbskala_folgt_der_konfigurierten_grenze(self, mod):
+        """Bei anderer Grenze wandert die Skala mit — vorher war sie an 30/60 fixiert."""
+        assert mod._commute_color(25, 60) == "#22c55e"   # 42 %
+        assert mod._commute_color(40, 60) == "#84cc16"   # 67 %
+        assert mod._commute_color(50, 60) == "#f59e0b"   # 83 %
+        assert mod._commute_color(57, 60) == "#f97316"   # 95 %
+        assert mod._commute_color(61, 60) == "#ef4444"
 
     def test_without_geodata_returns_hint(self, mod):
         svg, meta = mod._build_geo_svg([], {}, 30)

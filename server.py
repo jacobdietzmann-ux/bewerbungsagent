@@ -59,6 +59,9 @@ STATE_FILE = os.path.join(SCRIPT_DIR, "data", "state.json")
 DB_FILE = os.path.join(SCRIPT_DIR, "data", "jobs.db")
 # Dashboard-Template/Quellcode, dessen Änderung einen Neubau auslösen soll.
 DASHBOARD_SRC = os.path.join(SCRIPT_DIR, "bewerbungsagent", "dashboard.py")
+# Das erzeugte Dashboard. Änderungen daran (z. B. durch ``agent.py dashboard``)
+# müssen der laufende Server ebenfalls bemerken.
+DASHBOARD_OUT = os.path.join(SCRIPT_DIR, "dashboard.html")
 
 EDITABLE = ("status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt")
 
@@ -153,9 +156,17 @@ def _state_mtime() -> float:
 
 
 def _dashboard_mtime() -> float:
-    """Neueste Änderung an der DB ODER am Dashboard-Quellcode/Template."""
+    """Neueste Änderung an der DB, am Dashboard-Template ODER am erzeugten HTML.
+
+    Das erzeugte ``dashboard.html`` muss mitgezählt werden: sonst erkennt der
+    Server einen externen Lauf von ``agent.py dashboard`` nicht und liefert
+    weiter seinen In-Memory-Stand aus. Genau das passierte — im Browser stand
+    eine alte Fassung (Grenze 90 min), während auf der Platte längst 30 min
+    geschrieben war.
+    """
     src_mtime = os.path.getmtime(DASHBOARD_SRC) if os.path.exists(DASHBOARD_SRC) else -1.0
-    return max(_state_mtime(), src_mtime)
+    out_mtime = os.path.getmtime(DASHBOARD_OUT) if os.path.exists(DASHBOARD_OUT) else -1.0
+    return max(_state_mtime(), src_mtime, out_mtime)
 
 
 def _rebuild_dashboard() -> bytes:
@@ -172,7 +183,12 @@ def _rebuild_dashboard() -> bytes:
             importlib.reload(_dash)
             config = Config()
             state = _read_state()
-            path = _dash.build_dashboard(state, config.dashboard_path)
+            # Grenze aus der Konfiguration mitgeben: ohne sie baute der Server
+            # das Dashboard mit dem Modul-Standard und ignorierte
+            # ``max_pendelzeit_min`` aus der config.json.
+            from bewerbungsagent.commute import commute_limit_minutes
+            path = _dash.build_dashboard(state, config.dashboard_path,
+                                         commute_limit_minutes(config.data))
             with open(path, "rb") as fh:
                 html = fh.read()
         except Exception as exc:
@@ -183,6 +199,28 @@ def _rebuild_dashboard() -> bytes:
 
 
 def _dashboard_html() -> bytes:
+    """Aktueller HTML-Stand — die Datei auf der Platte hat Vorrang.
+
+    Der Server hielt das Dashboard nur im Speicher und baute es ausschließlich
+    bei Zustandsänderungen neu. Ein externer Lauf von ``agent.py dashboard``
+    blieb dadurch unsichtbar: der Browser zeigte weiter den alten Stand.
+    Deshalb wird vor jeder Auslieferung die Datei geprüft.
+    """
+    global _DASH_HTML, _DASH_MTIME
+    try:
+        disk_mtime = os.path.getmtime(DASHBOARD_OUT)
+    except OSError:
+        disk_mtime = -1.0
+    if disk_mtime > _DASH_MTIME:
+        try:
+            with open(DASHBOARD_OUT, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            data = b""
+        if data:
+            _DASH_HTML = data
+            _DASH_MTIME = disk_mtime
+            return data
     if not _DASH_HTML:
         _schedule_dashboard_rebuild()
         return _DASH_LOADING

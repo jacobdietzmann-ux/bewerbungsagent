@@ -42,6 +42,21 @@ def user_agent(contact_email: str | None = None) -> str:
 MAX_COMMUTE_MINUTES = 30
 
 
+def commute_limit_minutes(config_data: dict | None = None) -> int:
+    """Die konfigurierte Pendelweg-Grenze in Minuten.
+
+    ``max_pendelzeit_min`` aus der Konfiguration, sonst der Standard. Diese
+    Funktion ist die *einzige* Stelle, an der die Grenze ermittelt wird —
+    zuvor las sie jedes Modul selbst, und nach einer Änderung standen vier
+    verschiedene Werte (30/35/90) gleichzeitig im Code.
+    """
+    raw = (config_data or {}).get("max_pendelzeit_min")
+    try:
+        return int(raw) if raw is not None else MAX_COMMUTE_MINUTES
+    except (TypeError, ValueError):
+        return MAX_COMMUTE_MINUTES
+
+
 def exceeds_commute_limit(app: dict, limit: int | None = None) -> bool:
     """True, wenn der bekannte Pendelweg die Obergrenze überschreitet.
 

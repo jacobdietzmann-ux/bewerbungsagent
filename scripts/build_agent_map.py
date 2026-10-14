@@ -553,6 +553,13 @@ padding:14px 16px;font-size:13px;min-height:66px;line-height:1.6}}
 @media(max-width:900px){{.two{{grid-template-columns:1fr}}}}
 .note{{background:#0f1c30;border-left:3px solid var(--accent);border-radius:8px;
 padding:12px 15px;font-size:12.5px;color:#c3d3e8;line-height:1.6;margin:14px 0}}
+/* Druck/PDF: Farben behalten und Karten nicht mitten durchschneiden. */
+@media print{{
+  html,body{{background:#0b1220 !important}}
+  .card,.kpi,table,.note{{break-inside:avoid;page-break-inside:avoid}}
+  h1,h2,h3{{break-after:avoid;page-break-after:avoid}}
+  *{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+}}
 </style></head>
 <body><div class="wrap">
 
@@ -818,9 +825,45 @@ def _collect(config: Config) -> dict:
     }
 
 
+def export_pdf(html_path: Path, pdf_path: Path, landscape: bool = False) -> Path:
+    """Druckt die Karte über Headless-Chromium als PDF.
+
+    Für Bewerbungen ist ein PDF praktischer als die lokale HTML: es lässt sich
+    anhängen und überall öffnen. Hintergrundfarben bleiben an, damit die
+    farbcodierten Karten erhalten bleiben.
+
+    ``landscape`` ist für die breiten Karten besser: bei A4 hochkant schrumpft
+    die 1180 px breite Karte auf rund 60 % und die kleinsten Ortslabels landen
+    bei ~5 pt; im Querformat sind es ~89 % und ~7 pt.
+    """
+    from playwright.sync_api import sync_playwright
+
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            executable_path="/usr/bin/chromium", headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+        page = browser.new_page(viewport={"width": 1240, "height": 1754})
+        page.goto(html_path.resolve().as_uri(), wait_until="load")
+        page.wait_for_timeout(1200)
+        page.emulate_media(media="print")
+        page.pdf(path=str(pdf_path), format="A4", landscape=landscape,
+                 print_background=True,
+                 margin={"top": "10mm", "bottom": "10mm",
+                         "left": "10mm", "right": "10mm"})
+        browser.close()
+    return pdf_path
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Agenten-Map erzeugen")
     ap.add_argument("--out", default=None, help="Zielpfad (Standard: output/agent-map.html)")
+    ap.add_argument("--pdf", nargs="?", const=True, default=False,
+                    help="Zusätzlich als PDF exportieren (optionaler Pfad)")
+    ap.add_argument("--pdf-format", choices=("quer", "hoch"), default="quer",
+                    help="Ausrichtung des PDF (Standard: quer — die Karten sind "
+                         "1180 px breit und werden hochkant auf 632 px verkleinert)")
     args = ap.parse_args(argv)
 
     config = Config()
@@ -835,6 +878,11 @@ def main(argv=None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"Agenten-Map erzeugt: {out} ({out.stat().st_size:,} B)")
+
+    if args.pdf:
+        pdf_out = out.with_suffix(".pdf") if args.pdf is True else Path(args.pdf)
+        export_pdf(out, pdf_out, landscape=args.pdf_format == "quer")
+        print(f"PDF erzeugt: {pdf_out} ({pdf_out.stat().st_size:,} B)")
     return 0
 
 

@@ -105,3 +105,34 @@ class TestGeoMap:
         assert meta["total"] == 2
         assert "Wohnort" in svg
         assert svg.count("<circle") >= 3  # zwei Stellen + Wohnort
+
+
+class TestPrintRules:
+    """Der PDF-Export braucht Druckregeln im HTML.
+
+    Ohne ``print-color-adjust`` verliert das PDF die farbcodierten Karten, und
+    ohne ``break-inside:avoid`` werden Karten mitten durchgeschnitten.
+    """
+
+    def test_geodaten_testadresse_ist_neutral(self):
+        """Regression: hier standen die echten Wohnkoordinaten als Fixture."""
+        assert "Musterstraße" in HOME_ADDR
+        assert "48.24" not in HOME_ADDR
+
+    def test_export_pdf_ist_vorhanden_und_konfigurierbar(self, mod):
+        import inspect
+        sig = inspect.signature(mod.export_pdf)
+        assert "landscape" in sig.parameters
+        assert sig.parameters["landscape"].default is False
+
+    def test_render_enthaelt_druckregeln(self, mod):
+        stats = {
+            "kpis": [("Bewerbungen", "1", "in der Datenbank")],
+            "stages": [], "commands": [], "filesystem": [], "sources": [],
+            "status": {}, "apps": [], "geocache": {}, "limit": 90, "nodes": [],
+        }
+        html = mod._render(stats, "<svg></svg>", "<svg></svg>",
+                           {"total": 0, "home": None, "points": []})
+        assert "@media print" in html
+        assert "print-color-adjust:exact" in html
+        assert "break-inside:avoid" in html

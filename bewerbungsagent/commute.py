@@ -39,7 +39,7 @@ def user_agent(contact_email: str | None = None) -> str:
 # weder Bewerbungsunterlagen erzeugt noch erscheinen sie im Dashboard.
 # Maßgeblich ist der berechnete Auto-Pendelweg; unbekannte Werte (``None``,
 # z. B. Remote oder fehlgeschlagenes Routing) gelten nicht als zu weit.
-MAX_COMMUTE_MINUTES = 35
+MAX_COMMUTE_MINUTES = 30
 
 
 def exceeds_commute_limit(app: dict, limit: int | None = None) -> bool:

@@ -9,13 +9,13 @@ from bewerbungsagent.commute import (
 from bewerbungsagent.pipeline import _commute_blocked, _flag_far_commute, _merge_state
 
 
-def test_default_limit_is_35_minutes():
-    assert MAX_COMMUTE_MINUTES == 35
+def test_default_limit_is_30_minutes():
+    assert MAX_COMMUTE_MINUTES == 30
 
 
 def test_exceeds_commute_limit_known_values():
-    assert exceeds_commute_limit({"pendelzeit_min": 36}) is True
-    assert exceeds_commute_limit({"pendelzeit_min": 35}) is False
+    assert exceeds_commute_limit({"pendelzeit_min": 31}) is True
+    assert exceeds_commute_limit({"pendelzeit_min": 30}) is False
     assert exceeds_commute_limit({"pendelzeit_min": 25}) is False
 
 
@@ -48,8 +48,8 @@ def test_commute_blocked_falls_back_to_default(tmp_config):
     class _Cfg:
         data = tmp_config
 
-    assert _commute_blocked(_Cfg(), {"pendelzeit_min": 36}) is True
-    assert _commute_blocked(_Cfg(), {"pendelzeit_min": 34}) is False
+    assert _commute_blocked(_Cfg(), {"pendelzeit_min": 31}) is True
+    assert _commute_blocked(_Cfg(), {"pendelzeit_min": 29}) is False
 
 
 class TestFlagFarCommute:

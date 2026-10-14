@@ -12,7 +12,7 @@ Der Status ``research`` (reine Funde ohne Bewerbungsdokumente) wird nicht
 dargestellt: Tabelle, Status-Verteilung, KPIs und der Wochenverlauf lassen diese
 Einträge aus. Tabelle, Status-Verteilung und KPIs zeigen nur Stellen mit
 Dokumenten und einem Pendelweg innerhalb der konfigurierten Grenze
-(``max_pendelzeit_min``, Standard 35 min); der Wochenverlauf behält die übrige
+(``max_pendelzeit_min``, Standard 30 min); der Wochenverlauf behält die übrige
 Historie, damit frühere Wochen nicht leer erscheinen.
 
 Die Daten werden als JSON in die HTML eingebettet (``const DATA``); der Server ist

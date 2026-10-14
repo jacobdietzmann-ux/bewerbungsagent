@@ -83,12 +83,12 @@ class TestGeoMap:
 
     def test_commute_colours(self, mod):
         assert mod._commute_color(10) == "#22c55e"
-        assert mod._commute_color(35) == "#22c55e"
-        assert mod._commute_color(36) == "#ef4444"
+        assert mod._commute_color(30) == "#22c55e"
+        assert mod._commute_color(31) == "#ef4444"
         assert mod._commute_color(None) == "#64748b"
 
     def test_without_geodata_returns_hint(self, mod):
-        svg, meta = mod._build_geo_svg([], {}, 35)
+        svg, meta = mod._build_geo_svg([], {}, 30)
         assert "Keine Geodaten" in svg
         assert meta["total"] == 0
 
@@ -130,7 +130,7 @@ class TestPrintRules:
         stats = {
             "kpis": [("Bewerbungen", "1", "in der Datenbank")],
             "stages": [], "commands": [], "filesystem": [], "sources": [],
-            "status": {}, "apps": [], "geocache": {}, "limit": 35, "nodes": [],
+            "status": {}, "apps": [], "geocache": {}, "limit": 30, "nodes": [],
         }
         html = mod._render(stats, "<svg></svg>", "<svg></svg>",
                            {"total": 0, "home": None, "points": []})
@@ -146,7 +146,7 @@ class TestRepoLink:
         stats = {
             "kpis": [], "stages": [], "commands": [], "filesystem": [],
             "sources": [], "status": {}, "apps": [], "geocache": {},
-            "limit": 35, "nodes": [],
+            "limit": 30, "nodes": [],
         }
         html = mod._render(stats, "", "", {"total": 0, "home": None, "points": []})
         assert mod.REPO_URL in html

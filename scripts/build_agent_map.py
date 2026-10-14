@@ -46,7 +46,7 @@ _MODULES = [
     ("matching.py", "Fit-Score 0–100 (Titel ×6, Text ×4, Wort ×2, Ort +10)", "rein", "Bewertung"),
     ("industry.py", "Branche zuordnen (Arbeitgeber → Text → Titel)", "rein", "Anreicherung"),
     ("salary.py", "Gehalt schätzen aus Rolle, Seniorität, Branche, Ort", "rein", "Anreicherung"),
-    ("commute.py", "Pendelweg via Nominatim + OSRM, mit Cache; Grenze 35 min", "netz", "Anreicherung"),
+    ("commute.py", "Pendelweg via Nominatim + OSRM, mit Cache; Grenze 30 min", "netz", "Anreicherung"),
     ("documents.py", "Anschreiben + Lebenslauf als PDF (eigene DOCX-Vorlage oder ReportLab)", "rein", "Ausgabe"),
     ("dashboard.py", "Interaktives HTML-Dashboard rendern", "rein", "Ausgabe"),
     ("db.py", "SQLite-Speicher: Provider-/Nutzer-Felder getrennt, History-Schutz", "io", "Speicher"),
@@ -121,7 +121,7 @@ def _project(points, width, height, pad=48):
     return f
 
 
-def _commute_color(minutes, limit_minutes=35):
+def _commute_color(minutes, limit_minutes=30):
     if minutes is None:
         return "#64748b"
     if minutes <= limit_minutes:
@@ -690,7 +690,7 @@ def _collect(config: Config) -> dict:
         except json.JSONDecodeError:
             geocache = {}
 
-    limit = config.data.get("max_pendelzeit_min", 35)
+    limit = config.data.get("max_pendelzeit_min", 30)
     status = Counter(a.get("status") for a in apps)
     docs = sum(1 for a in apps if a.get("dokumente"))
     desc = sum(1 for a in apps if (a.get("beschreibung") or "").strip())
@@ -763,7 +763,7 @@ def _collect(config: Config) -> dict:
          "DOCX-Vorlage mit pro Stelle angepasstem Profil-Absatz. PDFs in den Bewerbungsordner.",
          "01_Bewerbungen/", "#f59e0b"),
         ("dashboard", "DASHBOARD", "HTML-Board rendern: nur Stellen mit Dokumenten und Pendelweg "
-         "≤ 35 min in der Tabelle, Status-Verteilung und Wochenverlauf darüber.",
+         "≤ 30 min in der Tabelle, Status-Verteilung und Wochenverlauf darüber.",
          "dashboard.html", "#a78bfa"),
     ]
 

@@ -564,10 +564,15 @@ function commuteBadge(r) {
 }
 function linkBadge(r) {
   if (!r.link) return '<span style="color:#64748b">–</span>';
+  // ``referrerpolicy="no-referrer"`` zusätzlich zu ``rel="noreferrer"``:
+  // StepStone (und andere Portale mit WAF) brechen die Verbindung ab
+  // (ERR_HTTP2_PROTOCOL_ERROR), wenn der Referer eine lokale Adresse ist — das
+  // Dashboard läuft unter http://127.0.0.1:8766. ``rel="noreferrer"`` allein
+  // genügt nicht in jedem Browser/Extension-Setup; das Attribut wirkt auch dann.
   if (r.verfuegbar === false) {
-    return `<a class="folder" href="${r.link}" target="_blank" rel="noopener noreferrer" title="Stellenanzeige ist nicht mehr verfügbar" style="opacity:.45;text-decoration:line-through">Anzeige ↗</a>`;
+    return `<a class="folder" href="${esc(r.link)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="Stellenanzeige ist nicht mehr verfügbar" style="opacity:.45;text-decoration:line-through">Anzeige ↗</a>`;
   }
-  return `<a class="folder" href="${r.link}" target="_blank" rel="noopener noreferrer" title="Stellenanzeige öffnen">Anzeige ↗</a>`;
+  return `<a class="folder" href="${esc(r.link)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" title="Stellenanzeige öffnen">Anzeige ↗</a>`;
 }
 function commuteVal(r) {
   if (r.commuteMode === "Remote") return 0;
@@ -725,7 +730,7 @@ function renderRows() {
     const statusOpts = ORDER.map(s =>
       `<option value="${s}" ${s === r.status ? "selected" : ""}>${STATUS[s].label}</option>`).join("");
     const docLinks = (r.docs || []).map(d =>
-      `<a class="folder" href="${d.href}" target="_blank" rel="noopener noreferrer">${d.label}</a>`).join("<br>");
+      `<a class="folder" href="${esc(d.href)}" target="_blank" rel="noopener noreferrer">${esc(d.label)}</a>`).join("<br>");
     const openBtn = r.folder
       ? `<br><a class="folder folder-open" href="#" data-folder="${encodeURIComponent(r.folder)}">Ordner ↗</a>`
       : "";

@@ -195,3 +195,64 @@ class TestFormulaWeights:
         titel_job = {"titel": "HiL Prüfstand", "beschreibung": "", "ort": "Hamburg"}
         text_job = {"titel": "", "beschreibung": "HiL Prüfstand", "ort": "Hamburg"}
         assert score_job(prof, titel_job)["score"] > score_job(prof, text_job)["score"]
+
+
+class TestSprachvarianten:
+    """Deutsche Profilbegriffe müssen englische Anzeigen treffen (und umgekehrt).
+
+    Der eigene Lebenslauf ist zweisprachig: die EN-Fassung nennt „Test automation",
+    das Profil führt „Testautomatisierung". Vor diesem Fix fand der Scorer die
+    eigene Kernkompetenz in Test-Automation-Anzeigen nicht — u. a. bei beiden
+    Quantum-Systems-Testrollen.
+    """
+
+    @staticmethod
+    def _profil():
+        from bewerbungsagent.profile import Profile
+        return Profile({
+            "_meta": {"hinweis": "Test"},
+            "personal": {"name": "Test"},
+            "skills": {"technik": ["Testautomatisierung", "XiL-/HiL-Prüfstände"]},
+        })
+
+    def test_englische_anzeige_trifft_deutschen_profilbegriff(self):
+        prof = self._profil()
+        assert "test automation" in prof.keyword_phrases
+        assert "test automation" in prof.keywords_in("Test Automation Engineer (m/f/d)")
+
+    def test_deutsche_kurzform_trifft_ebenfalls(self):
+        prof = self._profil()
+        assert "testautomation" in prof.keywords_in("Einführung einer Testautomation")
+
+    def test_prufstand_varianten(self):
+        prof = self._profil()
+        assert "test bench" in prof.keyword_phrases
+        assert "test bench" in prof.keywords_in("Work on our test bench in Munich")
+
+    def test_ohne_grundbegriff_keine_varianten(self):
+        """Die Brücke greift nur, wenn der Grundbegriff im Profil steht."""
+        from bewerbungsagent.profile import Profile
+        prof = Profile({
+            "_meta": {"hinweis": "Test"},
+            "personal": {"name": "Test"},
+            "skills": {"technik": ["Python"]},
+        })
+        assert "test automation" not in prof.keyword_phrases
+        assert "test bench" not in prof.keyword_phrases
+
+    def test_keine_generischen_woerter_als_synonym(self):
+        """Nackte Allerweltswörter („requirement", „interface") dürfen keine
+        Synonyme sein — sie stünden in fast jeder Anzeige und verwässerten den
+        Score. Mehrwort-Varianten wie „requirements based testing" sind erlaubt."""
+        from bewerbungsagent.profile import _SYNONYMS, Profile
+        flat = {v for vs in _SYNONYMS.values() for v in vs}
+        assert "requirement" not in flat
+        assert "requirements" not in flat
+        assert "interface" not in flat
+        prof = Profile({
+            "_meta": {"hinweis": "Test"},
+            "personal": {"name": "Test"},
+            "skills": {"technik": ["Testautomatisierung"]},
+        })
+        assert "requirement" not in prof.keyword_phrases
+        assert "interface" not in prof.keyword_phrases

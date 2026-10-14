@@ -54,6 +54,25 @@ _ROLE_WORD_NOISE = {
 }
 
 
+# Sprachvarianten zwischen Profil (teils deutsch) und Anzeigen (teils englisch).
+# Schlüssel ist ein Fragment der *normalisierten* Profilphrase; die Werte sind
+# gleichbedeutende Varianten, die zusätzlich als Schlüsselbegriff gelten.
+# Bewusst klein und eindeutig gehalten: nur Begriffe, die der eigene Lebenslauf
+# in beiden Sprachen verwendet (siehe ``documents.py``-Übersetzungen). Generische
+# Wörter wie „requirement“ oder „interface“ bleiben absichtlich draußen — sie
+# stünden in fast jeder Anzeige und würden den Score verwässern statt schärfen.
+_SYNONYMS: dict[str, tuple[str, ...]] = {
+    # EN-CV: „Test automation", Anzeigen: „Testautomation"/„Test automation".
+    "testautomatisierung": ("test automation", "testautomation"),
+    # „XiL-/HiL-Prüfstände" ↔ englische Anzeigen.
+    "prufstand": ("test bench", "testbench", "test rig"),
+    # „Anforderungsbasiertes Testen (DOORS)" ↔ „requirements-based testing".
+    "anforderungsbasiertes testen": ("requirements based testing",),
+    # „Fehleranalyse (Root-Cause-Analyse)" ↔ englische Schreibweisen.
+    "fehleranalyse": ("root cause analyse", "fault analysis"),
+}
+
+
 def normalize(text: str) -> str:
     """Kleinbuchstaben, Umlaute/ß auflösen, Diakritika entfernen."""
     if not text:
@@ -278,6 +297,22 @@ class Profile:
                     norm.add(n)
                     if n not in self.display_map and p:
                         self.display_map[n] = p
+
+        # Sprachvarianten: Bewerber-Unterlagen sind zweisprachig, Anzeigen sind
+        # es nicht. Die EN-Version des Lebenslaufs nennt z. B. „Test automation“,
+        # während das Profil „Testautomatisierung“ führt — ohne diese Brücke fand
+        # der Scorer die eigene Kernkompetenz in 7 Anzeigen nicht, darunter beide
+        # Quantum-Systems-Testrollen. Angehängt wird nur, wenn der Grundbegriff
+        # tatsächlich im Profil steht.
+        for key, variants in _SYNONYMS.items():
+            if not any(key in n for n in norm):
+                continue
+            for v in variants:
+                nv = normalize(v)
+                if len(nv) < 3:
+                    continue
+                norm.add(nv)
+                self.display_map.setdefault(nv, v)
 
         # Einzelne Fachbegriffe aus Skills + Tags (z. B. „Linux“ aus
         # „Linux (Arch/CachyOS, Ubuntu)“, „Embedded“ aus „Embedded Systems“),

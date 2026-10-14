@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from bewerbungsagent.matching import match_jobs, score_job
+from bewerbungsagent.matching import location_bonus_for, match_jobs, score_job
 
 
 def _job(titel="Testingenieur (m/w/d)", beschreibung="", ort=""):
@@ -73,3 +73,46 @@ class TestMatchJobs:
         snapshot = dict(job)
         match_jobs(demo_profile, [job])
         assert job == snapshot
+
+
+class TestLocationBonus:
+    """Der Bonus kommt aus der echten Pendelzeit, nicht mehr aus dem Ortsnamen.
+
+    Vorher galt „munchen" irgendwo im Ortsfeld als Treffer: Ismaning (9 min)
+    und Gräfelfing (29 min) bekamen 0 Punkte, München (25 min) 10.
+    """
+
+    def test_nah_und_weit_werden_monoton_bewertet(self):
+        near = location_bonus_for({"pendelzeit_min": 9, "ort": "Ismaning"}, "München")
+        mid = location_bonus_for({"pendelzeit_min": 31, "ort": "Gilching"}, "München")
+        far = location_bonus_for({"pendelzeit_min": 80, "ort": "Regensburg"}, "München")
+        assert near == 10
+        assert near > mid > far >= 0
+
+    def test_vorort_ohne_namensgleichheit_bekommt_vollen_bonus(self):
+        """Regression: Ismaning/Gräfelfing fielen durch den Textvergleich."""
+        for ort, minutes in (("Ismaning", 9), ("Gräfelfing", 29), ("Planegg", 29)):
+            assert location_bonus_for({"pendelzeit_min": minutes, "ort": ort},
+                                      "München") == 10
+
+    def test_ueber_der_grenze_kein_bonus(self):
+        assert location_bonus_for({"pendelzeit_min": 95, "ort": "München"},
+                                  "München") == 0
+
+    def test_remote_bekommt_vollen_bonus(self):
+        assert location_bonus_for({"pendel_modus": "Remote", "pendelzeit_min": None},
+                                  "München") == 10
+
+    def test_ohne_pendeldaten_greift_der_ortsvergleich(self):
+        assert location_bonus_for({"ort": "München Bogenhausen"}, "München") == 10
+        assert location_bonus_for({"ort": "Berlin"}, "München") == 0
+
+    def test_bonus_erhoeht_den_score(self, demo_profile):
+        job = _job(titel="Testingenieur", beschreibung="CAN und HiL", ort="Garching")
+        ohne = score_job(demo_profile, {**job, "ort": "Berlin"})["score"]
+        mit = score_job(demo_profile, {**job, "pendelzeit_min": 20})["score"]
+        assert mit >= ohne
+
+    def test_begruendung_nennt_pendelweg(self, demo_profile):
+        job = {**_job(titel="Testingenieur", beschreibung="CAN"), "pendelzeit_min": 25}
+        assert "Pendelweg 25 min" in score_job(demo_profile, job)["begruendung"]

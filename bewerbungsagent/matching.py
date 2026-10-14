@@ -20,6 +20,45 @@ def _job_text(job: dict) -> tuple[str, str]:
     return title, desc
 
 
+def _as_minutes(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+# Bonus absteigend nach realer Pendelzeit. Die Obergrenze bleibt +10, damit die
+# Score-Skala unverändert interpretierbar bleibt.
+_COMMUTE_BONUS = ((30, 10), (45, 8), (60, 6), (75, 4), (90, 2))
+
+
+def location_bonus_for(job: dict, location: str | None = None) -> int:
+    """Standort-Bonus (0–10) aus dem **echten Pendelweg**.
+
+    Vorher wurde nur der Ortsname verglichen („munchen" irgendwo im Feld
+    ``ort``). Das bewertete Vororte falsch: Ismaning (9 min) und Gräfelfing
+    (29 min) bekamen 0 Punkte, München (25 min) 10 — obwohl die Fahrzeit der
+    eigentliche Maßstab ist und bereits berechnet vorliegt.
+
+    Ohne Pendeldaten greift weiterhin der Ortsvergleich, damit eine fehlende
+    Route niemanden benachteiligt.
+    """
+    if (job.get("pendel_modus") or "") == "Remote":
+        return 10
+    minutes = _as_minutes(job.get("pendelzeit_min"))
+    if minutes is not None:
+        return next((bonus for limit, bonus in _COMMUTE_BONUS
+                     if minutes <= limit), 0)
+
+    ort = normalize(job.get("ort") or job.get("location") or "")
+    loc = normalize(location or "")
+    # "munich"/"munchen" gleich behandeln (englische vs. deutsche Schreibung).
+    ort, loc = ort.replace("munich", "munchen"), loc.replace("munich", "munchen")
+    if loc and ort and (loc in ort or ort in loc):
+        return 10
+    return 0
+
+
 def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     """Berechnet Score (0–100), Kategorie und Begründung für einen Job."""
     title, desc = _job_text(job)
@@ -32,15 +71,7 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     raw = 7 * len(title_hits) + 3 * len(body_hits) + 1 * len(word_hits)
     score = min(100, raw)
 
-    # Standort-Bonus (max +10), wenn der Ort zum Suchort passt.
-    location_bonus = 0
-    ort = normalize(job.get("ort") or job.get("location") or "")
-    loc = normalize(location or "")
-    # "munich"/"munchen" gleich behandeln (englische vs. deutsche Schreibung).
-    ort = ort.replace("munich", "munchen")
-    loc = loc.replace("munich", "munchen")
-    if loc and ort:
-        location_bonus = 10 if loc in ort or ort in loc else 0
+    location_bonus = location_bonus_for(job, location)
     score = min(100, score + location_bonus)
 
     if score >= 65:
@@ -51,7 +82,8 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
         category = "niedrig"
 
     matched = sorted(set(title_hits + body_hits))
-    begruendung = _reasoning(category, len(title_hits), len(body_hits), len(word_hits), location_bonus)
+    begruendung = _reasoning(category, len(title_hits), len(body_hits), len(word_hits),
+                             location_bonus, _as_minutes(job.get("pendelzeit_min")))
 
     return {
         "score": score,
@@ -64,7 +96,8 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     }
 
 
-def _reasoning(category: str, title_hits: int, body_hits: int, word_hits: int, loc_bonus: int) -> str:
+def _reasoning(category: str, title_hits: int, body_hits: int, word_hits: int,
+               loc_bonus: int, commute: float | None = None) -> str:
     parts = []
     if title_hits:
         parts.append(f"{title_hits} Profil-Begriff(e) direkt im Stellentitel")
@@ -73,7 +106,10 @@ def _reasoning(category: str, title_hits: int, body_hits: int, word_hits: int, l
     if word_hits:
         parts.append(f"{word_hits} weitere Inhaltswort-Überschneidungen")
     if loc_bonus:
-        parts.append("Standort passt")
+        if commute is not None:
+            parts.append(f"Pendelweg {commute:.0f} min")
+        else:
+            parts.append("Standort passt")
     base = "; ".join(parts) if parts else "kaum Überschneidung mit dem Profil"
     return f"Fit {category}: {base}."
 

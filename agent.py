@@ -125,6 +125,10 @@ def main(argv=None) -> int:
                   f"({len(saved.get('query_terms', []))} Begriffe, {saved.get('location')})")
         result = run_search(config, profile, definition=definition)
         print(f"Suche abgeschlossen: {result['count']} Stelle(n) gefunden.")
+        rejected = result.get("triage_rejected", 0)
+        if rejected:
+            print(f"  Ausgefiltert (domänenfremd, z. B. Vertrieb/Marketing): {rejected} "
+                  f"— protokolliert in data/triage_rejected.json")
         _print_job_context(result["context"])
         for err in result["errors"]:
             print(f"  ! {err}")

@@ -95,12 +95,12 @@ def _fit_value(job: dict) -> int:
 # --------------------------------------------------------------------------
 
 def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
-    jobs, errors = _search(config, profile, definition)
+    jobs, errors, triage_rejected = _search(config, profile, definition)
     save_json(config.jobs_path(), jobs)
     context = _enrich_job_context(config, jobs)
     return {
         "count": len(jobs), "errors": errors, "path": str(config.jobs_path()),
-        "context": context,
+        "context": context, "triage_rejected": triage_rejected,
     }
 
 

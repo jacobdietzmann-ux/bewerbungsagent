@@ -36,7 +36,8 @@ def test_search_persists_industry_and_commute_before_matching(
         "ort": "Röthenbach an der Pegnitz",
         "url": "https://example.test/job",
     }
-    monkeypatch.setattr("bewerbungsagent.pipeline._search", lambda *_args, **_kwargs: ([job], []))
+    monkeypatch.setattr("bewerbungsagent.pipeline._search",
+                        lambda *_args, **_kwargs: ([job], [], 0))
 
     def add_commute(jobs, _data_dir, home_address=None, contact_email=None):
         assert jobs[0]["branche"] == "Defense / Wehrtechnik"

@@ -420,3 +420,40 @@ synchronisiert werden (Binärdatei, nicht mergebar, WAL-Korruption). Deshalb:
 - SQLAlchemy + Alembic sind neue Kern-Abhängigkeiten.
 - Der Server überwacht für den Dashboard-Neubau jetzt die DB (inkl. ``-wal``),
   nicht mehr ``state.json``.
+
+## ADR-021 – Relevanz-Triage vor dem Matching (regelbasiert)
+
+**Kontext.** Die Suche lieferte auch domänenfremde Treffer (Taxifahrer, Vertrieb,
+Marketing, Buchhaltung, Gastronomie). Sie landeten im Bestand, wurden gescort und
+mussten nachträglich als „nicht passende Rolle" gelöscht werden — bei einem früheren
+Lauf waren das 115 Einträge mit Studenten-/Praktikumsbezug.
+
+**Entscheidung.** Ein eigenes Modul `bewerbungsagent/triage.py` klassifiziert jeden
+Treffer anhand von **Titel und Firma** (ohne die Anzeige zu laden) in `relevant`,
+`unsure` oder `reject`. Nur `reject` fliegt bereits in `run_search` heraus.
+
+**Begründung.**
+
+* Die Klassifikation braucht die Beschreibung nicht — die Anzeige wird erst geladen,
+  wenn der Titel allein nicht reicht (spart Fetch-Zeit und Browsersitzungen).
+* Drei Klassen statt zwei: „im Zweifel behalten" ist die richtige Voreinstellung.
+  Ein False Negative (echte Ingenieursrolle verworfen) kostet eine Bewerbungschance
+  und fällt nicht auf; ein False Positive kostet nur einen Eintrag, den der Fit
+  ohnehin aussortiert.
+* Eine Fremd-Domäne wird nur durch ein *fachliches* Technik-Signal entschärft, nicht
+  durch ein Führungswort — sonst rutschte „Head of International Sales" durch.
+* Verworfene Treffer werden in `data/triage_rejected.json` protokolliert, damit die
+  Entscheidung nachvollziehbar bleibt und nichts stillschweigend verschwindet.
+* Regelbasiert und deterministisch (kein Modell): gleiche Eingabe → gleiche Klasse.
+
+**Parameter & Trade-offs.**
+
+* Deutsche Komposita brauchen `\w*` statt `\b` vor dem Wortstamm
+  („Industrie**mechaniker**", „Alten**pfleger**") — dieselbe Falle wie bei
+  `has_role_signal`.
+* `search.triage: false` schaltet die Triage ab.
+* Bekannte Grenze: `unsure` ist bewusst großzügig (12 von 318 Stellen im Bestand).
+  Erst ein Modell oder mehr Trainingsdaten können hier schärfer trennen.
+
+**Status.** Umgesetzt. 67 Tests für den Klassifikator, 5 Integrationstests für die
+Einbindung in die Suche.

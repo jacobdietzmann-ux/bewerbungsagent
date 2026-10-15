@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
 from . import bing, duckduckgo, jobspy, manual, stepstone
@@ -189,7 +190,29 @@ def run_search(config: Config, profile: Profile,
         job.setdefault("ort", "")
         job.setdefault("status", "neu")
         job.setdefault("titel", job.get("titel", ""))
-    return jobs, errors
+
+    # Relevanz-Triage: domänenfremde Treffer (Vertrieb, Marketing, Finanzen,
+    # Gastronomie, Fahren …) fliegen raus, *bevor* sie den Bestand erreichen.
+    # Sie werden nicht stillschweigend verworfen, sondern zur Nachvollziehbarkeit
+    # in ``data/triage_rejected.json`` protokolliert.
+    if s.get("triage", True):
+        jobs, rejected = _triage.split(jobs)
+        if rejected:
+            try:
+                from ..storage import save_json
+                save_json(config.data_dir / "triage_rejected.json",
+                          [{"titel": j.get("titel"), "firma": j.get("firma"),
+                            "url": j.get("url"),
+                            "grund": _triage.verdict_for(j).reason} for j in rejected])
+            except Exception as exc:  # pragma: no cover - defensiv
+                errors.append(f"triage-Protokoll: {exc}")
+        # IDs nach dem Filter neu und lückenlos vergeben.
+        for i, job in enumerate(jobs, start=1):
+            job["id"] = i
+        triage_rejected = len(rejected)
+    else:
+        triage_rejected = 0
+    return jobs, errors, triage_rejected
 
 
 def _to_job(raw: dict) -> dict:

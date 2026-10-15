@@ -36,24 +36,28 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
      zuverlässig; Indeed (403) und Google Jobs (deprecated) liefern in vielen Umgebungen leer.
      Siehe [ADR-017](docs/DECISIONS.md).
    - **Manueller Import** für selbst gesammelte Anzeigen.
-2. **Beschreibungs-Fetch** (`fetch`) – lädt die **vollständigen Stellenbeschreibungen**
+2. **Relevanz-Triage** – verwirft domänenfremde Treffer (Vertrieb, Marketing, Finanzen,
+   Gastronomie, Fahren, Pflege, handwerkliche Fertigung) und Studenten-/Praktikumsstellen
+   bereits bei der Suche, bevor sie bewertet werden. Regelbasiert und nachvollziehbar
+   (`bewerbungsagent/triage.py`); unklare Titel bleiben im Bestand, dort entscheidet der Fit.
+3. **Beschreibungs-Fetch** (`fetch`) – lädt die **vollständigen Stellenbeschreibungen**
    (Aufgaben + Anforderungen) über einen echten Headless-Browser (Chromium). StepStone blockiert
    den `requests`-Weg, der Browser rendert die Detailseite aber vollständig — dadurch wird der
    Fit präzise statt nur titelbasiert geschätzt.
-3. **Profil-Fitting** – bewertet jede Stelle gegen dein Skill-Profil (Score 0–100,
+4. **Profil-Fitting** – bewertet jede Stelle gegen dein Skill-Profil (Score 0–100,
    Kategorie *hoch/mittel/niedrig*, passende Skills, Begründung).
-4. **Dokumentenerstellung** – erzeugt für jede passende Stelle ein auf dich zugeschnittenes
+5. **Dokumentenerstellung** – erzeugt für jede passende Stelle ein auf dich zugeschnittenes
    **Anschreiben** und einen **Lebenslauf** (PDF, wahlweise Deutsch und/oder Englisch).
    Mit `documents.anschreiben_quellen` wird jeder Anspruch im Anschreiben mit **Quelle und
    Zeitraum belegt** (Retrieval-Schicht `bewerbungsagent/rag.py`); mit
    `documents.anschreiben_luecken` werden bestätigte Lücken transparent benannt statt
    verschwiegen.
-5. **Dashboard** – interaktives HTML-Dashboard (angelehnt an das alte `00_Dashboard`):
+6. **Dashboard** – interaktives HTML-Dashboard (angelehnt an das alte `00_Dashboard`):
    Suche, Profil-Fit-Filter, Status-Sichtfilter, KPI-Karten, Status- und Wochen-Diagramme,
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
    Änderungen werden über einen lokalen Server dauerhaft in `data/jobs.db` (SQLite)
    gespeichert.
-6. **Alt-Dashboard-Import** – übernimmt den kompletten Inhalt des bisherigen Dashboards
+7. **Alt-Dashboard-Import** – übernimmt den kompletten Inhalt des bisherigen Dashboards
    (`00_Dashboard/Bewerbungs-Dashboard.md` + `dashboard-state.json`): alle Bewerbungen mit
    Status, Profil-Fit, Arbeitsort, Gehalt, Ansprechpartner, Stellenanzeige-URL und
    Dokument-Links.
@@ -292,6 +296,11 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   (verfügbar: `manual`, `stepstone`, `duckduckgo`, `bing`, `jobspy`).
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
   (Standard 4).
+- `search.triage` – Relevanz-Triage an/aus (Standard `true`). Domänenfremde Treffer
+  (Vertrieb, Marketing, Finanzen, Gastronomie, Fahren, Pflege, handwerkliche Fertigung)
+  werden schon bei der Suche verworfen, statt erst später gelöscht zu werden. Verworfene
+  Treffer werden zur Nachvollziehbarkeit in `data/triage_rejected.json` protokolliert.
+  Unklare Titel bleiben im Bestand — dort entscheidet der Fit.
 - `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 30). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.

@@ -207,3 +207,76 @@ class TestFahrerassistenzIstTechnik:
     ])
     def test_fahrerjobs_werden_abgelehnt(self, titel):
         assert classify(titel).label == REJECT
+
+
+class TestNutzerentscheidung:
+    """Restfälle, die ein Regelwerk nicht prinzipiell entscheiden kann.
+
+    „Sales Manager *Embedded*" nennt Technik, meint aber Vertrieb. Statt dafür
+    Wörter anzuhäufen (Overfitting), entscheidet der Nutzer — dauerhaft und in
+    der Konfiguration nachvollziehbar.
+    """
+
+    TITEL = "(Senior) Consultant Sicherheitsevaluierung (m/w/d)"
+
+    def test_ohne_eintrag_bleibt_es_unsure(self):
+        """Die Regel allein kann diesen Fall nicht entscheiden."""
+        assert classify(self.TITEL).label == UNSURE
+
+    def test_reject_eintrag_verwirft(self):
+        v = classify(self.TITEL, reject_patterns=["Consultant Sicherheitsevaluierung"])
+        assert v.is_reject
+        assert "Nutzerentscheidung" in v.reason
+
+    def test_keep_eintrag_schlaegt_reject(self):
+        """Eine zu breite Reject-Regel darf nie eine Stelle verlieren."""
+        v = classify(self.TITEL,
+                     reject_patterns=["Consultant"],
+                     keep_patterns=["Sicherheitsevaluierung"])
+        assert v.label == RELEVANT
+        assert "Nutzerentscheidung" in v.reason
+
+    def test_keep_gewinnt_auch_gegen_regel_reject(self):
+        """Selbst eine Studenten-/Domänenregel wird vom Nutzer überstimmt."""
+        v = classify("Werkstudent Testautomatisierung", keep_patterns=["Werkstudent"])
+        assert v.label == RELEVANT
+
+    def test_gross_klein_egal(self):
+        v = classify(self.TITEL, reject_patterns=["consultant sicherheitsevaluierung"])
+        assert v.is_reject
+
+    def test_leere_liste_wirkt_nicht(self):
+        assert classify(self.TITEL, reject_patterns=[]) == classify(self.TITEL)
+        assert classify(self.TITEL, reject_patterns=["", "  "]).label == UNSURE
+
+    def test_projektleitung_versicherungs_software(self):
+        titel = "Projektleitung Versicherungs-Software (all Genders)"
+        assert classify(titel).label == UNSURE
+        assert classify(titel, reject_patterns=["Projektleitung Versicherungs-Software"]).is_reject
+
+
+class TestOverridesAusConfig:
+    def test_liest_search_triage_reject(self):
+        from bewerbungsagent.triage import verdict_for
+
+        class _Cfg:
+            def __init__(self):
+                self.data = {"search": {"triage_reject": ["Sicherheitsevaluierung"]}}
+
+        v = verdict_for({"titel": "(Senior) Consultant Sicherheitsevaluierung (m/w/d)"},
+                        _Cfg())
+        assert v.is_reject
+
+    def test_ohne_config_keine_overrides(self):
+        from bewerbungsagent.triage import verdict_for
+        assert verdict_for({"titel": "Senior Test Engineer"}).label == RELEVANT
+        assert verdict_for({"titel": "Teamleitung"}).label == UNSURE
+
+    def test_fehlende_oder_kaputte_werte_sind_egal(self):
+        from bewerbungsagent.triage import verdict_for
+        for data in ({}, {"search": {}}, {"search": {"triage_reject": "kein-liste"}},
+                     {"search": {"triage_reject": None}}):
+            class _Cfg:
+                def __init__(self, d):
+                    self.data = d
+            assert verdict_for({"titel": "Test Engineer"}, _Cfg(data)).label == RELEVANT

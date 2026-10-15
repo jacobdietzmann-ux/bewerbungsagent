@@ -457,3 +457,40 @@ Treffer anhand von **Titel und Firma** (ohne die Anzeige zu laden) in `relevant`
 
 **Status.** Umgesetzt. 67 Tests für den Klassifikator, 5 Integrationstests für die
 Einbindung in die Suche.
+
+## ADR-022 – Nutzerentscheidung für Triage-Restfälle
+
+**Kontext.** Nach der Triage (ADR-021) blieben Fälle übrig, die ein Regelwerk nicht
+prinzipiell entscheiden kann: „Sales Manager **Embedded** & Displays" nennt Technik,
+meint aber Vertrieb; „(Senior) Consultant **Sicherheits**evaluierung" nennt Sicherheit
+(vgl. SOTIF/Safety), ist aber Consulting in einem anderen Feld; „Projektleitung
+**Versicherungs-Software**" nennt Software, ist aber Branchen-Projektleitung.
+
+**Entscheidung.** Zwei Listen in der Konfiguration: `search.triage_reject` und
+`search.triage_keep` (Titel-Fragmente, Teilstring-Vergleich, Groß-/Kleinschreibung
+egal). Sie werden in `classify()` **vor** allen Regeln geprüft.
+
+**Begründung.**
+
+* Das ist strukturell dieselbe Situation wie bei `has_role_signal`: Ein Titel allein
+  belegt keine Rolle. Nur liefert hier die Grammatik kein Signal — die Bedeutung hängt
+  am Weltwissen (was ist „Finance Systems"?).
+* Weitere Wörter in `_NON_TECH_SIGNAL` aufzunehmen wäre Overfitting: „Finance" kommt
+  auch in „Finance Software Engineer" vor, und das *wäre* technisch. Aufzählung skaliert
+  nicht — der Mensch entscheidet.
+* `triage_keep` gewinnt gegen alles (inkl. Studenten- und Domänenregeln), damit eine zu
+  breit geratene Reject-Regel nie eine echte Stelle entfernt. Die Fehlerarten sind
+  asymmetrisch: ein verworfenes Ingenieursangebot fällt nicht auf.
+* Die Entscheidung wird protokolliert („Nutzerentscheidung (verwerfen): …"), bleibt
+  damit in `data/triage_rejected.json` und im Dashboard nachvollziehbar und ist
+  reproduzierbar (Config = Quelle der Wahrheit).
+
+**Parameter & Trade-offs.**
+
+* Teilstring statt Regex: robuster gegen Tippfehler, lesbar für den Nutzer; eine
+  bewusst breite Regel muss der Nutzer selbst verantworten.
+* Die Listen gehören in die private `config.json` (persönliche Kriterien), nicht ins
+  Repo; `config.example.json` zeigt sie leer.
+
+**Status.** Umgesetzt. 9 Tests für den Mechanismus (Vorrang, Groß/Klein, leere Liste,
+`keep` schlägt `reject` und Regeln, fehlende/kaputte Config-Werte).

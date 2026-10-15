@@ -196,14 +196,15 @@ def run_search(config: Config, profile: Profile,
     # Sie werden nicht stillschweigend verworfen, sondern zur Nachvollziehbarkeit
     # in ``data/triage_rejected.json`` protokolliert.
     if s.get("triage", True):
-        jobs, rejected = _triage.split(jobs)
+        jobs, rejected = _triage.split(jobs, config)
         if rejected:
             try:
                 from ..storage import save_json
                 save_json(config.data_dir / "triage_rejected.json",
                           [{"titel": j.get("titel"), "firma": j.get("firma"),
                             "url": j.get("url"),
-                            "grund": _triage.verdict_for(j).reason} for j in rejected])
+                            "grund": _triage.verdict_for(j, config).reason}
+                           for j in rejected])
             except Exception as exc:  # pragma: no cover - defensiv
                 errors.append(f"triage-Protokoll: {exc}")
         # IDs nach dem Filter neu und lückenlos vergeben.

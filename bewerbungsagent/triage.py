@@ -146,26 +146,62 @@ def _hit(pattern: re.Pattern[str], text: str) -> str:
     return m.group(0) if m else ""
 
 
+def _match_override(text: str, patterns: list[str] | None) -> str:
+    """Erster passender Nutzer-Eintrag aus einer Liste (Substring, ohne Groß/Klein).
+
+    Die Einträge sind bewusst *keine* Regex: der Nutzer trägt Titel-Fragmente ein
+    („Projektleitung Versicherungs-Software"), keine Muster. Das ist robuster
+    gegen Tippfehler und bleibt lesbar.
+    """
+    if not patterns:
+        return ""
+    low = text.lower()
+    for p in patterns:
+        needle = str(p).strip().lower()
+        if needle and needle in low:
+            return str(p)
+    return ""
+
+
 def classify(title: str | None, firma: str | None = None,
-             beschreibung: str | None = None) -> Verdict:
+             beschreibung: str | None = None,
+             *, reject_patterns: list[str] | None = None,
+             keep_patterns: list[str] | None = None) -> Verdict:
     """Ordnet eine Stelle ein: ``relevant``, ``unsure`` oder ``reject``.
 
     Regelwerk (in dieser Reihenfolge):
 
+    0. Nutzerentscheidung (``reject_patterns``/``keep_patterns``) — gewinnt immer.
     1. Studenten-/Praktikumsrolle → ``reject`` (nie eine Vollzeitstelle).
-    2. Eindeutig andere Domäne **ohne** technisches Signal → ``reject``.
-    3. Technisches Signal **und** andere Domäne → ``unsure`` (z. B. „Sales
+    2. Fahrertätigkeit mit technisch klingendem Namen („Testfahrer") → ``reject``.
+    3. Eindeutig andere Domäne **ohne** technisches Signal → ``reject``.
+    4. Technisches Signal **und** andere Domäne → ``unsure`` (z. B. „Sales
        Engineer"): technisch möglich, aber die Rolle muss der Mensch beurteilen.
-    4. Technisches Signal → ``relevant``.
-    5. Sonst → ``unsure``.
+    5. Technisches Signal → ``relevant``.
+    6. Sonst → ``unsure``.
 
     ``beschreibung`` wird nur für die letzte Stufe herangezogen: nennt ein
     unklarer Titel im Text doch Technik, wird daraus ``relevant``. So fällt die
     teure Entscheidung erst, wenn der Titel allein nicht reicht.
+
+    ``reject_patterns``/``keep_patterns`` kommen aus ``search.triage_reject`` /
+    ``triage_keep`` der Konfiguration. Sie existieren, weil ein Regelwerk die
+    Grenze nicht prinzipiell ziehen kann: „Sales Manager *Embedded*" nennt
+    Technik, meint aber Vertrieb. Statt dafür Wörter anzuhäufen (Overfitting),
+    entscheidet der Nutzer den Restfall — dauerhaft und nachvollziehbar.
     """
     t = (title or "").strip()
     if not t:
         return Verdict(UNSURE, "Kein Titel")
+
+    # 0) Nutzerentscheidung. ``keep`` gewinnt gegen ``reject``, damit eine
+    #    versehentlich zu breite Reject-Regel eine echte Stelle nie verliert.
+    keep_hit = _match_override(t, keep_patterns)
+    if keep_hit:
+        return Verdict(RELEVANT, f"Nutzerentscheidung (behalten): {keep_hit}")
+    reject_hit = _match_override(t, reject_patterns)
+    if reject_hit:
+        return Verdict(REJECT, f"Nutzerentscheidung (verwerfen): {reject_hit}")
 
     if is_student_role(t):
         return Verdict(REJECT, "Studenten-/Praktikumsstelle")
@@ -203,12 +239,29 @@ def classify(title: str | None, firma: str | None = None,
     return Verdict(UNSURE, "Kein eindeutiges Signal")
 
 
-def verdict_for(job: dict) -> Verdict:
-    """Bequemer Aufruf für einen Job-Datensatz."""
-    return classify(job.get("titel"), job.get("firma"), job.get("beschreibung"))
+def verdict_for(job: dict, config=None) -> Verdict:
+    """Bequemer Aufruf für einen Job-Datensatz.
+
+    ``config`` (optional) liefert ``search.triage_reject`` / ``triage_keep``.
+    """
+    reject, keep = _overrides_from_config(config)
+    return classify(job.get("titel"), job.get("firma"), job.get("beschreibung"),
+                    reject_patterns=reject, keep_patterns=keep)
 
 
-def split(jobs: list[dict]) -> tuple[list[dict], list[dict]]:
+def _overrides_from_config(config) -> tuple[list[str] | None, list[str] | None]:
+    """Liest die Nutzerentscheidungen aus ``search.triage_reject``/``triage_keep``."""
+    data = getattr(config, "data", None)
+    if not isinstance(data, dict):
+        return None, None
+    search = data.get("search") or {}
+    reject = search.get("triage_reject")
+    keep = search.get("triage_keep")
+    return (reject if isinstance(reject, list) else None,
+            keep if isinstance(keep, list) else None)
+
+
+def split(jobs: list[dict], config=None) -> tuple[list[dict], list[dict]]:
     """Teilt Jobs in (behalten, verworfen) — nur ``reject`` fliegt raus.
 
     ``unsure`` bleibt bewusst im Bestand: der Fit entscheidet, nicht der Titel.
@@ -216,5 +269,5 @@ def split(jobs: list[dict]) -> tuple[list[dict], list[dict]]:
     kept: list[dict] = []
     rejected: list[dict] = []
     for job in jobs:
-        (rejected if verdict_for(job).is_reject else kept).append(job)
+        (rejected if verdict_for(job, config).is_reject else kept).append(job)
     return kept, rejected

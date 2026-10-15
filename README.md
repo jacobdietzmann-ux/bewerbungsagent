@@ -301,6 +301,12 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   werden schon bei der Suche verworfen, statt erst später gelöscht zu werden. Verworfene
   Treffer werden zur Nachvollziehbarkeit in `data/triage_rejected.json` protokolliert.
   Unklare Titel bleiben im Bestand — dort entscheidet der Fit.
+- `search.triage_reject` / `search.triage_keep` – Nutzerentscheidungen als Liste von
+  Titel-Fragmenten (Teilstring, Groß-/Kleinschreibung egal). Nötig für Restfälle, die ein
+  Regelwerk nicht prinzipiell entscheiden kann: „Sales Manager **Embedded**" nennt Technik,
+  meint aber Vertrieb. Statt dafür Wörter anzuhäufen, entscheidet der Nutzer — dauerhaft
+  und nachvollziehbar. `triage_keep` gewinnt gegen `triage_reject` und gegen alle Regeln,
+  damit eine zu breite Reject-Regel nie eine echte Stelle verliert.
 - `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 30). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.

@@ -280,3 +280,37 @@ class TestOverridesAusConfig:
                 def __init__(self, d):
                     self.data = d
             assert verdict_for({"titel": "Test Engineer"}, _Cfg(data)).label == RELEVANT
+
+
+class TestFirmenbezogeneNutzerentscheidung:
+    """Ein generischer Titel darf nur *eine* Firma treffen, nicht alle.
+
+    „Teamleitung" als Keep-Muster ohne Firmenbezug würde auch
+    „Teamleitung Vertrieb" behalten und damit die Vertriebs-Regel aushebeln.
+    Der ``|``-Operator verlangt, dass alle Teile vorkommen.
+    """
+
+    def test_firma_gebunden_trifft_nur_die_gemeinte_stelle(self):
+        v = classify("Teamleitung", "VITES GmbH",
+                     keep_patterns=["Teamleitung | VITES"])
+        assert v.label == RELEVANT
+
+    def test_andere_firma_wird_nicht_mitbehalten(self):
+        """Regression: breites „Teamleitung" würde Vertriebs-Lärm durchlassen."""
+        v = classify("Teamleitung Vertrieb", "Handels GmbH",
+                     keep_patterns=["Teamleitung | VITES"])
+        assert v.is_reject
+
+    def test_ohne_firma_im_haystack_kein_treffer(self):
+        v = classify("Teamleitung", None, keep_patterns=["Teamleitung | VITES"])
+        assert v.label != RELEVANT
+
+    def test_einteilige_muster_funktionieren_weiter(self):
+        v = classify("Projektleitung Versicherungs-Software (all Genders)", "Global Side",
+                     reject_patterns=["Projektleitung Versicherungs-Software"])
+        assert v.is_reject
+
+    def test_leere_teile_werden_ignoriert(self):
+        # "|" allein oder mit Leerstrings darf nichts matchen.
+        assert classify("Senior Test Engineer", "X", keep_patterns=["|", " | "]).label == RELEVANT
+        assert classify("Teamleitung", "VITES", reject_patterns=["|"]).label == UNSURE

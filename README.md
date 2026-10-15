@@ -307,6 +307,8 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   meint aber Vertrieb. Statt dafür Wörter anzuhäufen, entscheidet der Nutzer — dauerhaft
   und nachvollziehbar. `triage_keep` gewinnt gegen `triage_reject` und gegen alle Regeln,
   damit eine zu breite Reject-Regel nie eine echte Stelle verliert.
+  Mit `|` lässt sich eine Regel an die Firma binden: `"Teamleitung | VITES"` trifft nur
+  diese Stelle, nicht jede „Teamleitung Vertrieb".
 - `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 30). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.

@@ -152,14 +152,23 @@ def _match_override(text: str, patterns: list[str] | None) -> str:
     Die Einträge sind bewusst *keine* Regex: der Nutzer trägt Titel-Fragmente ein
     („Projektleitung Versicherungs-Software"), keine Muster. Das ist robuster
     gegen Tippfehler und bleibt lesbar.
+
+    Ein Eintrag darf den Firmennamen mit ``|`` abgrenzen
+    (``"Teamleitung | VITES"``). Nötig, weil ein generischer Titel wie
+    „Teamleitung" sonst zu breit wirkt: ohne Firmenbezug würde er auch
+    „Teamleitung Vertrieb" behalten und damit die Vertriebs-Regel aushebeln.
     """
     if not patterns:
         return ""
     low = text.lower()
     for p in patterns:
-        needle = str(p).strip().lower()
-        if needle and needle in low:
-            return str(p)
+        raw = str(p).strip()
+        if not raw:
+            continue
+        # ``A | B`` = alle Teile müssen vorkommen (Titel UND Firma).
+        parts = [part.strip().lower() for part in raw.split("|") if part.strip()]
+        if parts and all(part in low for part in parts):
+            return raw
     return ""
 
 
@@ -196,10 +205,13 @@ def classify(title: str | None, firma: str | None = None,
 
     # 0) Nutzerentscheidung. ``keep`` gewinnt gegen ``reject``, damit eine
     #    versehentlich zu breite Reject-Regel eine echte Stelle nie verliert.
-    keep_hit = _match_override(t, keep_patterns)
+    #    Geprüft wird Titel **und** Firma, damit ein Eintrag wie
+    #    „Teamleitung | VITES" genau eine Stelle trifft, nicht jede Teamleitung.
+    haystack = f"{t} · {firma or ''}"
+    keep_hit = _match_override(haystack, keep_patterns)
     if keep_hit:
         return Verdict(RELEVANT, f"Nutzerentscheidung (behalten): {keep_hit}")
-    reject_hit = _match_override(t, reject_patterns)
+    reject_hit = _match_override(haystack, reject_patterns)
     if reject_hit:
         return Verdict(REJECT, f"Nutzerentscheidung (verwerfen): {reject_hit}")
 

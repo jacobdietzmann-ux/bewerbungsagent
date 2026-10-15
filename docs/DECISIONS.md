@@ -494,3 +494,54 @@ egal). Sie werden in `classify()` **vor** allen Regeln geprüft.
 
 **Status.** Umgesetzt. 9 Tests für den Mechanismus (Vorrang, Groß/Klein, leere Liste,
 `keep` schlägt `reject` und Regeln, fehlende/kaputte Config-Werte).
+
+## ADR-023 – Ablaufsteuerung als Graph (LangGraph), optional
+
+**Kontext.** `pipeline.run_full` ist ein Fließband: jeder Schritt läuft immer,
+in derselben Reihenfolge, ohne Zurück. Das ist für deterministische Arbeit
+richtig, hat aber drei Grenzen:
+
+1. Die Relevanz-Triage (ADR-021) liefert `unsure`, wenn der Titel allein nicht
+   reicht. Das Fließband kann darauf nicht reagieren — `fetch_descriptions`
+   lädt entweder für alle Stellen die Beschreibung (teuer) oder für keine.
+2. `fetch_descriptions` lädt Beschreibungen für *alle* Stellen ohne Text — auch
+   für die, deren Titel schon eindeutig war.
+3. Vor dem Versand gibt es keinen Haltepunkt im Ablauf.
+
+**Entscheidung.** Ein Ablauf-Graph in `bewerbungsagent/orchestrator.py` mit
+Zustand, Verzweigungen, zwei begrenzten Schleifen und einem Review-Knoten.
+LangGraph kommt als **optionale** Abhängigkeitsgruppe `graph`.
+
+**Begründung.**
+
+* Der Graph ruft **dieselben** Funktionen auf (`run_search`, `run_match`, …).
+  Er ändert die Logik nicht, nur die Reihenfolge und die Verzweigungen — dadurch
+  bleiben 500+ Tests gültig.
+* Optional, weil ein linearer Ablauf keinen Graphen braucht (Overhead). Der
+  Nutzen entsteht erst durch Verzweigung/Schleife/Freigabe. Ohne Installation
+  bleibt `agent.py pipeline` der Weg; `agent.py ablauf` meldet das klar.
+* Eine Verzweigung mit **Obergrenze** (`MAX_BESCHREIBUNG_VERSUCHE`): Pflicht,
+  sonst terminiert der Graph nicht.
+* **Kein Graph-Retry für `generate`.** Erste Fassung hatte eine Schleife, die
+  `generate` wiederholte, solange Dokumente entstanden — reine Doppelarbeit:
+  `generate_anschreiben` kürzt intern (4 → 3 → 2 Aufzählungspunkte), ein
+  erneuter Aufruf liefert dasselbe Ergebnis. Beim Live-Lauf kostete das drei
+  vollständige Durchläufe à ~30 s. Entfernt; die Schleife, die wirklich etwas
+  ändert, ist das Nachladen der Beschreibung.
+* `fetch_descriptions(only_unsure=True)` ist neu: Lädt der Graph nur die
+  unklaren Fälle nach, spart das die Browseraufrufe für alles andere.
+* Der Review-Knoten ist ein **reiner Durchlauf**, kein Terminal-Dialog. Die
+  Bewertung passiert dort, wo ohnehin gearbeitet wird: im Dashboard (Status
+  ändern, Eintrag löschen). Doppelte Abfragen wären Reibung ohne Nutzen. Der
+  Knoten bleibt, damit der Ablauf sichtbar macht, *dass* eine menschliche
+  Entscheidung vor dem Versand steht — und ein späterer Modus „nur mit Freigabe"
+  dort andocken kann. `--ohne-review` überspringt ihn.
+
+**Nebenbefund (eigener Bug).** `run_generate` prüfte nicht, ob eine Stelle schon
+Unterlagen hat: es liest `matches.json`, die Dokument-Info steht aber nur in der
+DB. Jeder Lauf erzeugte dieselben 36 Stellen erneut. Behoben — der Mengenlauf
+überspringt jetzt dokumentierte Stellen (im Live-Lauf 55), `--ids` erzeugt
+weiterhin neu (ausdrücklicher Wunsch).
+
+**Status.** Umgesetzt. 17 Tests (Graphstruktur, vollständiger Lauf, Schleife
+terminiert, Review überspringbar, generate-Idempotenz).

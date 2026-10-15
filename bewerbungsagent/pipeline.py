@@ -168,9 +168,23 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     min_fit = min_fit or config.data["documents"].get("min_fit_for_generation", "mittel")
     threshold = FIT_RANK.get(min_fit, FIT_RANK["mittel"])
 
+    # Welche Stellen haben schon Unterlagen? Die Information steht in der DB
+    # (``state.json``/``jobs.db``), *nicht* in ``matches.json`` — die beiden
+    # laufen sonst auseinander und derselbe Lauf erzeugt alles erneut.
+    # Nur beim Mengenlauf (``--all``) wird übersprungen; ``--ids`` ist ein
+    # ausdrücklicher Wunsch und erzeugt weiter neu.
+    bereits_dokumentiert: set[str] = set()
+    if job_ids is None:
+        for a in _store(config).load_state().get("applications", []):
+            if a.get("dokumente"):
+                key = a.get("key") or _job_key(a)
+                if key:
+                    bereits_dokumentiert.add(key)
+
     selected = []
     skipped_commute = []
     skipped_student = []
+    skipped_existing = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
@@ -178,6 +192,9 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         # Studenten-/Praktikumsstellen werden nie bedient.
         if is_student_role(m.get("titel")):
             skipped_student.append(m)
+            continue
+        if bereits_dokumentiert and ((m.get("key") or _job_key(m)) in bereits_dokumentiert):
+            skipped_existing.append(m)
             continue
         wanted = m.get("id") in job_ids if job_ids is not None else _fit_value(m) >= threshold
         if not wanted:
@@ -193,7 +210,8 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         created.extend(_generate_one(config, profile, job, template=template))
 
     return {"generated": created, "jobs_processed": len(selected),
-            "skipped_commute": skipped_commute, "skipped_student": skipped_student}
+            "skipped_commute": skipped_commute, "skipped_student": skipped_student,
+            "skipped_existing": len(skipped_existing)}
 
 
 def run_enrich(config: Config, profile: Profile) -> dict:

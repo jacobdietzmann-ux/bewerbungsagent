@@ -57,7 +57,15 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
    Änderungen werden über einen lokalen Server dauerhaft in `data/jobs.db` (SQLite)
    gespeichert.
-7. **Alt-Dashboard-Import** – übernimmt den kompletten Inhalt des bisherigen Dashboards
+7. **Ablauf als Graph** (`ablauf`, optional) – dieselben Stufen, aber als
+   Zustandsgraph mit Verzweigung: Stellen, deren Titel für die Relevanz-Triage
+   nicht reicht, werden gezielt nachgeladen (`fetch --only-unsure`), statt für
+   alles einen Browseraufruf zu bezahlen. Der Ablauf macht außerdem sichtbar,
+   dass vor dem Versand eine menschliche Entscheidung steht — die Bewertung
+   passiert im Dashboard; `--ohne-review` überspringt den Knoten.
+   Braucht die optionale Gruppe (`pip install -e ".[graph]"`); ohne sie läuft
+   `pipeline` unverändert linear. Siehe [ADR-023](docs/DECISIONS.md).
+8. **Alt-Dashboard-Import** – übernimmt den kompletten Inhalt des bisherigen Dashboards
    (`00_Dashboard/Bewerbungs-Dashboard.md` + `dashboard-state.json`): alle Bewerbungen mit
    Status, Profil-Fit, Arbeitsort, Gehalt, Ansprechpartner, Stellenanzeige-URL und
    Dokument-Links.

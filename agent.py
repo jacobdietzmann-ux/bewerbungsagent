@@ -87,6 +87,9 @@ def main(argv=None) -> int:
     sub.add_parser("dashboard", help="HTML-Dashboard (neu) erzeugen")
     sub.add_parser("status", help="Übersicht der aktuellen Stellen anzeigen")
     sub.add_parser("pipeline", help="Vollständigen Ablauf ausführen")
+    ablauf = sub.add_parser("ablauf", help="Ablauf als Graph ausführen (LangGraph)")
+    ablauf.add_argument("--ohne-review", action="store_true",
+                        help="Freigabe-Knoten überspringen (Bewertung erfolgt im Dashboard)")
 
     gen = sub.add_parser("generate", help="Bewerbungsunterlagen erzeugen")
     gen.add_argument("--all", action="store_true", help="alle passenden Stellen (gem. min_fit)")
@@ -256,6 +259,31 @@ def main(argv=None) -> int:
         print(f"Matching: {result['match']} Stelle(n)")
         print(f"Dokumente: {len(result['generated'])} Datei(en)")
         print(f"Dashboard: {result['dashboard']['path']}")
+
+    elif args.command == "ablauf":
+        from bewerbungsagent.orchestrator import run_abo
+        review = not args.ohne_review
+        try:
+            result = run_abo(config, profile, review=review)
+        except RuntimeError as exc:
+            print(str(exc))
+            return 1
+        print(f"Ablauf durchlaufen: {' → '.join(result.get('weg', []))}")
+        s = result.get("search") or {}
+        print(f"  Suche          : {s.get('count', 0)} Stelle(n)")
+        if s.get("triage_rejected"):
+            print(f"  Triage verworfen: {s['triage_rejected']} (Protokoll: data/triage_rejected.json)")
+        print(f"  Triage unsicher : {result.get('triage_unsure_verbleibend', 0)} "
+              f"(nachgeladen: {result.get('beschreibung_versuche', 0)}×)")
+        print(f"  Matching        : {(result.get('match') or {}).get('matched', 0)} Stelle(n)")
+        print(f"  Dokumente       : {len((result.get('generate') or {}).get('generated', []))} Datei(en)")
+        if review:
+            print("  Freigabe        : erfolgt im Dashboard (Status ändern oder Eintrag löschen)")
+        else:
+            print("  Freigabe        : übersprungen (--ohne-review)")
+        d = result.get("dashboard") or {}
+        if d.get("path"):
+            print(f"  Dashboard       : {d['path']} ({d.get('applications', 0)} relevant)")
 
     return 0
 

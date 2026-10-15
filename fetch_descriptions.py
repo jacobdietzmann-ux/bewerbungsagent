@@ -160,7 +160,16 @@ def load_page_text(page, url: str) -> str:
     return page.inner_text("body")
 
 
-def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = False) -> dict:
+def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = False,
+                       only_unsure: bool = False) -> dict:
+    """Lädt fehlende Anzeigentexte per Browser.
+
+    ``only_unsure=True`` beschränkt den Lauf auf Stellen, deren **Titel allein
+    nicht** für die Relevanz-Entscheidung reicht (Triage-Klasse ``unsure``).
+    Damit lädt der Orchestrator nur die tatsächlich unklaren Fälle nach, statt
+    für jede Stelle einen Browseraufruf zu bezahlen — das ist der Kern der
+    Verzweigung ``triage → fetch → triage``.
+    """
     jobs_path = config.jobs_path()
     if not jobs_path.exists():
         print("Keine jobs.json gefunden. Zuerst `python agent.py search` ausführen.")
@@ -168,6 +177,9 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
 
     jobs = json.loads(jobs_path.read_text(encoding="utf-8"))
     targets = [j for j in jobs if j.get("url") and not (j.get("beschreibung") or "").strip()]
+    if only_unsure:
+        from bewerbungsagent.triage import UNSURE, verdict_for
+        targets = [j for j in targets if verdict_for(j, config).label == UNSURE]
     if limit:
         targets = targets[:limit]
 
@@ -213,10 +225,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Stellenbeschreibungen per Browser laden")
     parser.add_argument("--limit", type=int, default=None, help="max. Anzahl zu laden")
     parser.add_argument("--headed", action="store_true", help="sichtbaren Browser verwenden")
+    parser.add_argument("--only-unsure", action="store_true",
+                        help="nur Stellen, deren Titel für die Triage nicht reicht")
     args = parser.parse_args(argv)
 
     config = Config()
-    result = fetch_descriptions(config, limit=args.limit, headed=args.headed)
+    result = fetch_descriptions(config, limit=args.limit, headed=args.headed,
+                               only_unsure=args.only_unsure)
     print(f"\nFertig: {result['fetched']} geladen, {result['skipped']} leer, {result['errors']} Fehler.")
     return 0
 

@@ -104,6 +104,17 @@ def run_search(config: Config, profile: Profile, definition: dict | None = None)
     }
 
 
+def letzter_fund_meta(config: Config) -> dict:
+    """Jüngster Fund (``{}``, wenn noch keiner protokolliert ist).
+
+    Das Dashboard markiert damit die zuletzt gefundenen Stellen. Gespeichert wird
+    der ``created``-Zeitstempel der zuletzt neu erfassten Stellen — nicht das
+    Zeitfenster des letzten Laufs. Ein Lauf ohne neue Funde würde das Label sonst
+    bei allen Stellen verschwinden lassen, obwohl die Funde die neuesten bleiben.
+    """
+    return _store(config).get_meta("letzter_fund") or {}
+
+
 def run_match(config: Config, profile: Profile) -> dict:
     jobs = load_json(config.jobs_path(), [])
     context = _enrich_job_context(config, jobs)
@@ -115,8 +126,13 @@ def run_match(config: Config, profile: Profile) -> dict:
     save_json(config.matches_path(), matches)
     store = _store(config)
     state = _merge_state(store.load_state(), matches, limit=_commute_limit_minutes(config))
+    neu = state.get("neu") or []
+    if neu:
+        # Alle Stellen eines Laufs erhalten denselben ``created``-Stempel; der
+        # früheste davon ist der Bezugspunkt für „neu gefunden".
+        store.set_meta("letzter_fund", {"zeitpunkt": min(neu), "anzahl": len(neu)})
     _persist_state(config, store, state)
-    return {"matched": len(matches), "state": state, "context": context}
+    return {"matched": len(matches), "state": state, "context": context, "neu": len(neu)}
 
 
 def _enrich_job_context(config: Config, jobs: list[dict]) -> dict:
@@ -185,6 +201,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     skipped_commute = []
     skipped_student = []
     skipped_existing = []
+    skipped_role = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
@@ -203,6 +220,14 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         if _commute_blocked(config, m):
             skipped_commute.append(m)
             continue
+        # Wie in ``run_enrich``: ein hoher Fit entsteht auch bei Software-Rollen
+        # über generische Technologie-Treffer. Beim Mengenlauf wird nur
+        # beworben, wenn der Titel eine Test-/Absicherungsrolle belegt.
+        # ``--ids`` bleibt davon unberührt (ausdrücklicher Wunsch).
+        if job_ids is None and not has_role_signal(m.get("titel")):
+            skipped_role.append({"firma": m.get("firma"), "titel": m.get("titel"),
+                                 "fit": _fit_value(m)})
+            continue
         selected.append(m)
 
     created = []
@@ -211,7 +236,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
 
     return {"generated": created, "jobs_processed": len(selected),
             "skipped_commute": skipped_commute, "skipped_student": skipped_student,
-            "skipped_existing": len(skipped_existing)}
+            "skipped_role": skipped_role, "skipped_existing": len(skipped_existing)}
 
 
 def run_enrich(config: Config, profile: Profile) -> dict:
@@ -402,7 +427,8 @@ def run_import_old(config: Config) -> dict:
 
 def run_dashboard(config: Config) -> dict:
     state = _store(config).load_state()
-    path = build_dashboard(state, config.dashboard_path, _commute_limit_minutes(config))
+    path = build_dashboard(state, config.dashboard_path, _commute_limit_minutes(config),
+                           letzter_fund_meta(config))
     all_applications = state.get("applications", [])
     documented = documented_applications(all_applications)
     applications = dashboard_applications(all_applications, _commute_limit_minutes(config))
@@ -444,6 +470,7 @@ def _merge_state(existing: dict, matches: list[dict],
 
     result = []
     seen: set[str] = set()
+    neu_zeitpunkte: list[str] = []
     for m in matches:
         key = m["key"]
         if key in by_key:
@@ -460,6 +487,7 @@ def _merge_state(existing: dict, matches: list[dict],
             m.setdefault("status", "research")
             m.setdefault("dokumente", {})
             m.setdefault("created", now_iso())
+            neu_zeitpunkte.append(m["created"])
             # Neue Stellen mit zu weitem Pendelweg gar nicht erst anlegen.
             _flag_far_commute(m, limit)
             result.append(m)
@@ -470,7 +498,7 @@ def _merge_state(existing: dict, matches: list[dict],
         if a.get("key") not in seen:
             result.append(a)
 
-    return {"updated": now_iso(), "applications": result}
+    return {"updated": now_iso(), "applications": result, "neu": neu_zeitpunkte}
 
 
 def _flag_far_commute(app: dict, limit: int) -> bool:

@@ -187,8 +187,10 @@ def _rebuild_dashboard() -> bytes:
             # das Dashboard mit dem Modul-Standard und ignorierte
             # ``max_pendelzeit_min`` aus der config.json.
             from bewerbungsagent.commute import commute_limit_minutes
+            from bewerbungsagent.pipeline import letzter_fund_meta
             path = _dash.build_dashboard(state, config.dashboard_path,
-                                         commute_limit_minutes(config.data))
+                                         commute_limit_minutes(config.data),
+                                         letzter_fund_meta(config))
             with open(path, "rb") as fh:
                 html = fh.read()
         except Exception as exc:

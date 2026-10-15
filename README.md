@@ -193,23 +193,25 @@ funktioniert die Anzeige, aber Statusänderungen werden nur lokal im Browser geh
 Über „Ordner ↗“ in der Links-Spalte öffnet der Server den jeweiligen Bewerbungsordner im
 Dateimanager.
 
-## Wöchentlicher Lauf (automatisch)
+## Täglicher Lauf (automatisch)
 
-Damit die Stellen und Unterlagen montags vorliegen, läuft der Ablauf automatisch —
-per **systemd-User-Timer**, ohne Cloud (Begründung: [ADR-024](docs/DECISIONS.md)).
+Damit die Stellen und Unterlagen jeden Tag aktuell vorliegen, läuft der Ablauf
+automatisch — per **systemd-User-Timer**, ohne Cloud (Begründung:
+[ADR-024](docs/DECISIONS.md)).
 
 ```bash
 # Einmalig einrichten (Units liegen im Repo unter docs/systemd/)
-cp docs/systemd/bewerbungsagent-wochenlauf.* ~/.config/systemd/user/
+cp docs/systemd/bewerbungsagent-tageslauf.* ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now bewerbungsagent-wochenlauf.timer
+systemctl --user enable --now bewerbungsagent-tageslauf.timer
 
 # Prüfen
-systemctl --user list-timers bewerbungsagent-wochenlauf.timer
+systemctl --user list-timers bewerbungsagent-tageslauf.timer
 ```
 
-Der Timer feuert **Montag 06:00** (plus Streuung) und holt einen verpassten Lauf
-nach, wenn der Rechner aus war (`Persistent=true`) — so fällt kein Montag aus.
+Der Timer feuert **täglich 12:00** (plus Streuung bis 5 min) und holt einen
+verpassten Lauf nach, wenn der Rechner aus war (`Persistent=true`) — so fällt
+kein Tag aus.
 
 Der Lauf macht dasselbe wie `agent.py ablauf`, aber mit `--beschreibung alle`:
 vollständige Anzeigentexte für einen präzisen Fit, nicht nur für unklare Titel.
@@ -217,12 +219,19 @@ vollständige Anzeigentexte für einen präzisen Fit, nicht nur für unklare Tit
 **Ergebnis prüfen:**
 
 ```bash
-cat data/wochenlauf-status.json     # { "zustand": "OK" | "FEHLER" | "LAUFEND", ... }
-tail -40 data/wochenlauf.log        # Verlauf des Laufs
+cat data/tageslauf-status.json     # { "zustand": "OK" | "FEHLER" | "LAUFEND", ... }
+tail -40 data/tageslauf.log        # Verlauf des Laufs
 ```
 
-Von Hand auslösen: `systemctl --user start bewerbungsagent-wochenlauf.service`
-oder direkt `scripts/wochenlauf.sh`.
+Die Stellen, die der Lauf neu gefunden hat, tragen im Dashboard das Badge
+**„neu gefunden"** (Filter: „Nur neu gefundene"). Sie bleiben markiert, bis ein
+Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht. Sie
+erscheinen auch ohne Unterlagen, damit das Label sichtbar ist; ein Hinweis nennt,
+wie viele Funde ausserhalb der Pendelgrenze liegen. Details:
+[ADR-025](docs/DECISIONS.md).
+
+Von Hand auslösen: `systemctl --user start bewerbungsagent-tageslauf.service`
+oder direkt `scripts/tageslauf.sh`.
 
 ## Agenten-Map (was der Agent tut)
 

@@ -8,11 +8,15 @@ Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
   Versand-Datum (auto), Löschen, Ordner öffnen, Dokument-Links
 - Persistenz über einen lokalen Helfer-Server (GET/POST ``/state``), siehe server.py
 
-Der Status ``research`` (reine Funde ohne Bewerbungsdokumente) wird nicht
-dargestellt: Tabelle, Status-Verteilung, KPIs und der Wochenverlauf lassen diese
-Einträge aus. Tabelle, Status-Verteilung und KPIs zeigen nur Stellen mit
-Dokumenten und einem Pendelweg innerhalb der konfigurierten Grenze
-(``max_pendelzeit_min``, Standard 30 min); der Wochenverlauf behält die übrige
+Sichtbar sind Stellen mit Bewerbungsdokumenten und einem Pendelweg innerhalb der
+konfigurierten Grenze (``max_pendelzeit_min``, Standard 30 min) — zusätzlich die
+zuletzt gefundenen Stellen, auch ohne Unterlagen, damit das Label „neu gefunden"
+überhaupt zu sehen ist. Das Zeitfenster dafür steht in der ``meta``-Tabelle der
+Datenbank (``letzter_fund``).
+
+Aus den Kennzahlen (KPIs) und dem Wochenverlauf bleiben ``research``-Einträge
+(reine Funde) ausgenommen; die Status-Verteilung folgt der Tabelle, damit
+Diagramm und Tabelle dieselben Zahlen zeigen. Der Wochenverlauf behält die übrige
 Historie, damit frühere Wochen nicht leer erscheinen.
 
 Die Daten werden als JSON in die HTML eingebettet (``const DATA``); der Server ist
@@ -23,7 +27,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
@@ -114,6 +118,39 @@ def _app_id(app: dict) -> str:
     return app.get("key") or f"{app.get('firma', '')}|{app.get('titel', '')}"
 
 
+def _parse_iso(value) -> datetime | None:
+    """ISO-Zeitstempel tolerant einlesen (auch reine Datumsangaben)."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+    return dt
+
+
+def zuletzt_gefunden(app: dict, letzter_fund: dict | None) -> bool:
+    """Gehört die Stelle zum jüngsten Fund?
+
+    ``created`` ist der Erfassungszeitpunkt (``_merge_state`` setzt ihn einmal je
+    Lauf für alle neuen Stellen). Gespeichert ist der ``created``-Stempel des
+    jüngsten Fundes; alles ab diesem Zeitpunkt ist „neu gefunden".
+
+    Zeitstempel werden als ``datetime`` verglichen, nicht als Zeichenketten:
+    ``2026-10-15T16:14:00+02:00`` und ``2026-10-15T16:14:00+01:00`` beschreiben
+    verschiedene Zeitpunkte, sortieren als Text aber gleich.
+    """
+    if not letzter_fund:
+        return False
+    grenze = _parse_iso(letzter_fund.get("zeitpunkt"))
+    created = _parse_iso(app.get("created"))
+    if grenze is None or created is None:
+        return False
+    if (grenze.tzinfo is None) != (created.tzinfo is None):
+        return False  # nicht vergleichbar: lieber kein Label als ein falsches
+    return created >= grenze
+
+
 def _fmt_date(app: dict) -> str:
     """Liefert das „Gefunden am"-Datum eines Eintrags (DD.MM.YYYY).
 
@@ -154,7 +191,7 @@ def _availability(app: dict) -> bool | None:
     return None if value is None else bool(value)
 
 
-def _to_data(app: dict) -> dict:
+def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
     fit = fit_value(app)
 
     docs = []
@@ -199,12 +236,23 @@ def _to_data(app: dict) -> dict:
         "interviewDate": app.get("interviewDate", "") or "",
         "statusChangedAt": app.get("statusChangedAt", "") or "",
         "sentAt": app.get("sentAt", "") or "",
+        "neuImLauf": zuletzt_gefunden(app, letzter_fund),
         "deleted": bool(app.get("deleted")),
     }
 
 
+def _last_run_label(letzter_fund: dict | None) -> str:
+    """Zeitpunkt des jüngsten Fundes, z. B. „15.10.2026 16:14"."""
+    zeitpunkt = _parse_iso((letzter_fund or {}).get("zeitpunkt"))
+    if zeitpunkt is None:
+        return ""
+    return (f"{zeitpunkt.day:02d}.{zeitpunkt.month:02d}.{zeitpunkt.year} "
+            f"{zeitpunkt:%H:%M}")
+
+
 def build_dashboard(state: dict, output_path: Path,
-                    commute_limit: int = MAX_COMMUTE_MINUTES) -> Path:
+                    commute_limit: int = MAX_COMMUTE_MINUTES,
+                    letzter_fund: dict | None = None) -> Path:
     apps = state.get("applications", []) if isinstance(state, dict) else []
     # Der komplette Bestand wird eingebettet, damit der Wochenverlauf auch
     # frühere Bewerbungen ohne Dokumente zeigt: die Tabelle sowie die
@@ -213,14 +261,21 @@ def build_dashboard(state: dict, output_path: Path,
     # Historie ohne „Research"-Funde. Deshalb bekommt jede Zeile ein
     # ``visible``-Flag statt den Bestand vorab zu filtern.
     visible_keys = {_app_id(a) for a in dashboard_applications(apps, commute_limit)}
-    data = [_to_data(a) for a in apps]
+    data = [_to_data(a, letzter_fund) for a in apps]
     for row in data:
-        row["visible"] = row["id"] in visible_keys
+        # Neu gefundene Stellen sind noch unbewertet und haben keine Unterlagen —
+        # ohne diese Ausnahme wäre das „neu gefunden"-Label nie zu sehen. Sie
+        # fallen automatisch wieder aus der Tabelle, sobald ein späterer Lauf
+        # andere Stellen als die neuesten markiert.
+        row["visible"] = row["id"] in visible_keys or row["neuImLauf"]
     data.sort(key=lambda r: r["fit"], reverse=True)
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2).replace("</", "<\\/")
     html_doc = (_HTML_TEMPLATE
                 .replace("__DATA__", data_json)
+                .replace("__LAST_RUN__", json.dumps(_last_run_label(letzter_fund),
+                                                    ensure_ascii=False))
+                .replace("__LAST_FUND_ANZAHL__", str(int((letzter_fund or {}).get("anzahl") or 0)))
                 .replace("__COMMUTE_LIMIT__", str(int(commute_limit)))
                 .replace("__GENERATED__", now_iso()))
 
@@ -282,6 +337,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   input[type=text]::placeholder { color:#64748b; }
   input[type=date]::-webkit-calendar-picker-indicator { filter:invert(.7); }
   .badge { padding:3px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .badge-neu { background:rgba(56,189,248,.18); color:#7dd3fc; border:1px solid rgba(56,189,248,.5); }
+  tr.ist-neu > td:first-child { box-shadow:inset 3px 0 0 #38bdf8; }
   .s-research { background:#334155; color:#cbd5e1; }
   .s-docs     { background:#1d4ed833; color:#93c5fd; border:1px solid #1d4ed855; }
   .s-sent     { background:#7c3aed33; color:#c4b5fd; border:1px solid #7c3aed55; }
@@ -352,6 +409,10 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <option value="65">Nur ≥ 65 % (gelb+)</option>
       <option value="80">Nur ≥ 80 % (grün)</option>
     </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
+      <input type="checkbox" id="neuFilter" /> Nur neu gefundene
+    </label>
+    <span id="neuInfo" class="sub" style="font-size:11px"></span>
   </div>
 
   <div class="card">
@@ -400,7 +461,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="legend">
     <strong>Status-Workflow:</strong>
     <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
-    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ __COMMUTE_LIMIT__ min). Reine Funde (<code>Research</code>, noch ohne Dokumente) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
+    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ __COMMUTE_LIMIT__ min); zusätzlich die zuletzt gefundenen Stellen, auch ohne Unterlagen. Reine frühere Funde (<code>Research</code>) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
+    <strong>„neu gefunden":</strong> Die Stelle gehört zum jüngsten Fund (blauer Balken links, Badge an der Position, Filter oben). Das bleibt stehen, bis ein Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht.<br>
     <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
     <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
     <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
@@ -411,14 +473,20 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <script>
 const STATUS = __STATUS__;
 const ORDER = __ORDER__;
-// „Research" (nur gefundene Stellen ohne Dokumente) wird im Dashboard nicht
-// dargestellt. Daher bleiben diese Einträge aus allen Auswertungen (KPIs,
-// Status-Verteilung, Wochenverlauf, Status-Schalter) ausgeschlossen.
-const SHOWN_STATUSES = ORDER.filter(s => s !== "research");
+// Alle Status sind einblendbar. „Research" war früher ausgenommen, weil solche
+// Einträge nie sichtbar waren — als „neu gefunden" erscheinen sie jetzt aber,
+// also braucht es den Schalter. Aus den Kennzahlen bleiben sie weiterhin
+// ausgenommen (siehe renderKpis).
+const SHOWN_STATUSES = ORDER;
 // Pendelzeit-Grenze aus der Konfiguration (max_pendelzeit_min) — so kann die
 // Anzeige nicht von der Ausschlusslogik abweichen. Genau das war zuvor der Fall:
 // die Grenze stand als 30 an vier Stellen im Code.
 const COMMUTE_LIMIT = __COMMUTE_LIMIT__;
+// Zeitpunkt des jüngsten Fundes (aus der meta-Tabelle der DB). Leer, wenn noch
+// kein Fund protokolliert wurde.
+const LAST_RUN = __LAST_RUN__;
+// Anzahl der beim jüngsten Fund neu erfassten Stellen (vor Pendelweg-Filter).
+const LAST_FUND_ANZAHL = __LAST_FUND_ANZAHL__;
 const EDITABLE = ["status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt"];
 const KEY = "bewerbungsagent-dashboard-v1";
 const HIDDEN_STATUSES_KEY = "bewerbungsagent-hidden-statuses";
@@ -663,7 +731,8 @@ function renderStatusChart() {
   const el = document.getElementById("statusChart");
   if (!el) return;
   // Nur die auch in der Tabelle sichtbaren Bewerbungen zählen, damit Diagramm
-  // und Tabelle dieselben Zahlen zeigen (Research ist hier bereits ausgenommen).
+  // und Tabelle dieselben Zahlen zeigen. Seit „neu gefundene" Stellen auch ohne
+  // Unterlagen sichtbar sind, können das Research-Zeilen sein.
   const rows = state.filter(r => !r.deleted && r.visible !== false);
   const total = rows.length || 1;
   el.innerHTML = SHOWN_STATUSES.map(s => {
@@ -751,11 +820,13 @@ function renderRows() {
     if (r.visible === false) return;
     if (hiddenStatuses.has(r.status)) return;
     if (minFit && (+r.fit || 0) < minFit) return;
+    if (document.getElementById("neuFilter")?.checked && !r.neuImLauf) return;
     if (q) {
       const hay = `${r.company} ${r.position} ${r.branch} ${r.location}`.toLowerCase();
       if (!hay.includes(q)) return;
     }
     const tr = document.createElement("tr");
+    if (r.neuImLauf) tr.className = "ist-neu";
     const statusOpts = ORDER.map(s =>
       `<option value="${s}" ${s === r.status ? "selected" : ""}>${STATUS[s].label}</option>`).join("");
     const docLinks = (r.docs || []).map(d =>
@@ -765,7 +836,7 @@ function renderRows() {
       : "";
     tr.innerHTML = `
       <td>${esc(r.company)}</td>
-      <td>${esc(r.position)}${r.verfuegbar === false ? ' <span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}
+      <td>${esc(r.position)}${r.verfuegbar === false ? ' <span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.neuImLauf ? ' <span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu gefunden</span>' : ''}
         ${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false">Beschreibung ▾</button>` : ""}
         ${(r.matched && r.matched.length) ? `<div class="hint">✓ ${esc(r.matched.slice(0,6).join(", "))}</div>` : ""}
       </td>
@@ -976,10 +1047,24 @@ statusTogglesEl.querySelectorAll("input[type=checkbox]").forEach(box => {
 
 document.getElementById("searchBox").addEventListener("input", renderRows);
 document.getElementById("fitFilter").addEventListener("change", renderRows);
+document.getElementById("neuFilter").addEventListener("change", renderRows);
+
+function updateNeuInfo() {
+  const el = document.getElementById("neuInfo");
+  if (!el) return;
+  const n = state.filter(r => !r.deleted && r.neuImLauf).length;
+  const gesamt = LAST_FUND_ANZAHL || n;
+  el.textContent = n
+    ? (n < gesamt
+        ? `${n} von ${gesamt} neuen Stellen sichtbar (${LAST_RUN}) — der Rest liegt ausserhalb der Pendelgrenze`
+        : `${n} Stelle(n) neu gefunden (${LAST_RUN})`)
+    : "noch keine Funde protokolliert";
+}
 
 renderRows();
 renderKpis();
 updateStatusToggleCounts();
+updateNeuInfo();
 </script>
 </body>
 </html>

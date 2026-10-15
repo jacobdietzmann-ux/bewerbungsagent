@@ -124,15 +124,17 @@ def test_dashboard_shows_only_relevant_applications_in_status_chart(
     # Das Status-Diagramm darf nur noch sichtbare Zeilen zählen, damit die im
     # Diagramm genannten Zahlen zur Tabelle passen.
     assert "state.filter(r => !r.deleted && r.visible !== false)" in html
-    # Research-Funde bleiben überall außen vor (Diagramm, KPIs, Wochenverlauf).
-    assert 'SHOWN_STATUSES = ORDER.filter(s => s !== "research")' in html
-    assert 'r.status !== "research"' in html
+    # Research-Funde bleiben aus Kennzahlen und Wochenverlauf aussen vor. In der
+    # Status-Verteilung dürfen sie erscheinen: sie folgt der Tabelle, und als
+    # „neu gefunden" ist eine Research-Zeile dort sichtbar.
+    assert html.count('r.status !== "research"') == 2
+    assert "SHOWN_STATUSES = ORDER;" in html
 
 
-def test_dashboard_does_not_offer_research_status_toggle(
+def test_dashboard_offers_research_status_toggle(
     tmp_path: Path, monkeypatch,
 ):
-    """„Research" wird im Dashboard weder angezeigt noch als Schalter angeboten."""
+    """Research braucht einen Schalter, seit solche Zeilen sichtbar sein können."""
     agent_root = tmp_path / "04_Agent"
     agent_root.mkdir()
     monkeypatch.setattr(dashboard, "AGENT_ROOT", agent_root)
@@ -147,8 +149,12 @@ def test_dashboard_does_not_offer_research_status_toggle(
     dashboard.build_dashboard(state, output)
 
     html = output.read_text(encoding="utf-8")
-    assert "Research einblenden" not in html
-    # Der Eintrag bleibt eingebettet (Datenverlust ausgeschlossen) …
+    # Die Schalter werden im Browser aus ``SHOWN_STATUSES`` erzeugt; im HTML steht
+    # deshalb nur die Liste. Sie muss „research" enthalten, sonst gäbe es keinen
+    # Schalter zum Ausblenden der als „neu gefunden" sichtbaren Research-Zeilen.
+    assert 'const SHOWN_STATUSES = ORDER;' in html
+    assert '"research"' in html.split("const ORDER = ", 1)[1].split(";", 1)[0]
+    # Der Eintrag bleibt eingebettet (Datenverlust ausgeschlossen) und ohne
+    # Fundamenten unsichtbar.
     assert "Neuer Fund" in html
-    # … ist aber nicht sichtbar.
     assert _embedded_rows(html)["Neuer Fund"]["visible"] is False

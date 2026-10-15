@@ -232,7 +232,7 @@ class TestGenerateIstIdempotent:
 class TestBeschreibungUmfang:
     """``nur_unsure`` spart Browseraufrufe, ``alle`` liefert präzise Fits.
 
-    Ohne den Schalter hätte der Wochenlauf nur unklare Titel nachgeladen — und
+    Ohne den Schalter hätte der Tageslauf nur unklare Titel nachgeladen — und
     der Fit beruhte für den Rest auf dem Titel allein (Text-Treffer zählen
     4 Punkte, Titel-Treffer 6).
     """
@@ -290,7 +290,7 @@ class TestBeschreibungUmfang:
         with pytest.raises(ValueError, match="nur_unsure"):
             graph_mod.run_abo(config, profile, beschreibung="halb")
 
-    def test_wochenlauf_laedt_nur_was_fehlt(self, tmp_path, demo_profile_data, monkeypatch):
+    def test_tageslauf_laedt_nur_was_fehlt(self, tmp_path, demo_profile_data, monkeypatch):
         """Im Modus ``alle`` wird ``only_unsure=False`` an den Fetch gereicht."""
         import sys
         import types

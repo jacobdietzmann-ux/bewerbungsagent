@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Wochenlauf des Bewerbungsagenten: Stellen suchen, Texte nachladen, bewerten,
+# Tageslauf des Bewerbungsagenten: Stellen suchen, Texte nachladen, bewerten,
 # Unterlagen erzeugen und das Dashboard aktualisieren.
 #
-# Gedacht für einen systemd-User-Timer (Montag früh), läuft aber auch von Hand:
-#   scripts/wochenlauf.sh [AGENT_DIR]
+# Gedacht für einen systemd-User-Timer (täglich 12:00), läuft aber auch von Hand:
+#   scripts/tageslauf.sh [AGENT_DIR]
 #
 # Besonderheiten:
 #  * ``flock`` verhindert, dass zwei Läufe gleichzeitig schreiben (z. B. wenn der
 #    Rechner nach einer verpassten Ausführung aufholt und der Timer feuert).
-#  * Alle Ausgaben gehen in ``data/wochenlauf.log`` (rotierend auf die letzten
+#  * Alle Ausgaben gehen in ``data/tageslauf.log`` (rotierend auf die letzten
 #    2000 Zeilen), damit ein Blick in die Vergangenheit möglich ist.
-#  * Das Ergebnis landet als JSON in ``data/wochenlauf-status.json`` — der
+#  * Das Ergebnis landet als JSON in ``data/tageslauf-status.json`` — der
 #    ``LAUFEND``-Zustand ist sofort sichtbar.
 #  * Fehler werden per ``notify-send`` gemeldet, *falls* eine Sitzung läuft.
 #    Ein Hintergrunddienst hat oft kein Display; dann bleibt es im Log/Status.
 set -euo pipefail
 
 AGENT_DIR="${1:-$HOME/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent}"
-LOG="$AGENT_DIR/data/wochenlauf.log"
-STATUS="$AGENT_DIR/data/wochenlauf-status.json"
-LOCK="$AGENT_DIR/data/wochenlauf.lock"
+LOG="$AGENT_DIR/data/tageslauf.log"
+STATUS="$AGENT_DIR/data/tageslauf-status.json"
+LOCK="$AGENT_DIR/data/tageslauf.lock"
 
 mkdir -p "$AGENT_DIR/data"
 
@@ -46,13 +46,13 @@ fi
 # Schreiben ausschließlich über den Lock.
 exec 9>"$LOCK"
 if ! flock -n 9; then
-  log "Übersprungen: ein Wochenlauf läuft bereits."
+  log "Übersprungen: ein Tageslauf läuft bereits."
   exit 0
 fi
 
 START="$(date +%s)"
-write_status "LAUFEND" "Wochenlauf gestartet" 0
-log "Wochenlauf gestartet (Interpreter: $PY)"
+write_status "LAUFEND" "Tageslauf gestartet" 0
+log "Tageslauf gestartet (Interpreter: $PY)"
 
 cd "$AGENT_DIR"
 
@@ -71,14 +71,14 @@ set -e
 DAUER=$(( $(date +%s) - START ))
 
 if [ "$CODE" -eq 0 ]; then
-  log "Wochenlauf fertig in ${DAUER}s."
-  write_status "OK" "Wochenlauf erfolgreich" "$DAUER"
+  log "Tageslauf fertig in ${DAUER}s."
+  write_status "OK" "Tageslauf erfolgreich" "$DAUER"
 else
-  log "FEHLER: Wochenlauf mit Code $CODE nach ${DAUER}s abgebrochen."
-  write_status "FEHLER" "Abbruch mit Code $CODE (siehe data/wochenlauf.log)" "$DAUER"
+  log "FEHLER: Tageslauf mit Code $CODE nach ${DAUER}s abgebrochen."
+  write_status "FEHLER" "Abbruch mit Code $CODE (siehe data/tageslauf.log)" "$DAUER"
   if command -v notify-send >/dev/null 2>&1 \
      && [ -n "${DBUS_SESSION_BUS_ADDRESS:-}${XDG_RUNTIME_DIR:-}" ]; then
-    notify-send -u critical "Bewerbungsagent: Wochenlauf fehlgeschlagen" \
+    notify-send -u critical "Bewerbungsagent: Tageslauf fehlgeschlagen" \
       "Exit-Code $CODE. Details: $LOG" 2>/dev/null || true
   fi
 fi

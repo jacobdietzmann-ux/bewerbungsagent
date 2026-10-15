@@ -1,0 +1,16 @@
+[Unit]
+Description=Täglicher Bewerbungsagent-Lauf um 12:00
+
+[Timer]
+# Täglich 12:00 Ortszeit. Der Rechner läuft mittags ohnehin, und die Stellen
+# des Tages sind bis dahin online. ``Persistent=true`` holt einen verpassten
+# Lauf nach (z. B. wenn der Rechner mittags aus war) — wichtig, damit kein Tag
+# ausfällt und die Liste nicht veraltet.
+OnCalendar=*-*-* 12:00:00
+Persistent=true
+# Streuung: verhindert, dass alle Timer exakt gleichzeitig starten.
+RandomizedDelaySec=300
+Unit=bewerbungsagent-tageslauf.service
+
+[Install]
+WantedBy=timers.target

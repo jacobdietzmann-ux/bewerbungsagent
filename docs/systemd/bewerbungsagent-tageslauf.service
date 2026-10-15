@@ -1,5 +1,5 @@
 [Unit]
-Description=Bewerbungsagent Wochenlauf (Suche, Bewertung, Unterlagen, Dashboard)
+Description=Bewerbungsagent Tageslauf (Suche, Bewertung, Unterlagen, Dashboard)
 # Ohne Netz kann weder gesucht noch geladen werden — der Lauf würde nur
 # fehlschlagen. Also auf die Verbindung warten.
 After=network-online.target
@@ -9,7 +9,7 @@ Wants=network-online.target
 Type=oneshot
 # Arbeitsverzeichnis = Agent-Ordner; darin liegt config.json und das Paket.
 WorkingDirectory=%h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
-ExecStart=%h/git/bewerbungsagent/scripts/wochenlauf.sh %h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
+ExecStart=%h/git/bewerbungsagent/scripts/tageslauf.sh %h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
 # Der Lauf dauert (Browser-Fetches) — großzügig bemessen, damit systemd nicht
 # abbricht, während noch gearbeitet wird.
 TimeoutStartSec=3600

@@ -546,7 +546,7 @@ weiterhin neu (ausdrücklicher Wunsch).
 **Status.** Umgesetzt. 17 Tests (Graphstruktur, vollständiger Lauf, Schleife
 terminiert, Review überspringbar, generate-Idempotenz).
 
-## ADR-024 – Wöchentlicher Lauf per systemd-Timer (nicht Cloud)
+## ADR-024 – Automatischer Lauf per systemd-Timer (nicht Cloud)
 
 **Kontext.** Der Ablauf soll automatisch laufen, damit die Stellen und Unterlagen
 montags vorliegen. Die naheliegende Frage war, ob das ein Cloud-Deployment
@@ -573,23 +573,23 @@ demselben Muster wie `bewerbungsagent-backup.timer`. **Kein Cloud-Dienst.**
 
 **Umsetzung.**
 
-* `scripts/wochenlauf.sh`: `agent.py ablauf --beschreibung alle --ohne-review`
-  mit `flock` (kein Doppellauf), Log in `data/wochenlauf.log` (auf 2000 Zeilen
-  begrenzt) und Statusdatei `data/wochenlauf-status.json`. Der Zustand
+* `scripts/tageslauf.sh`: `agent.py ablauf --beschreibung alle --ohne-review`
+  mit `flock` (kein Doppellauf), Log in `data/tageslauf.log` (auf 2000 Zeilen
+  begrenzt) und Statusdatei `data/tageslauf-status.json`. Der Zustand
   `LAUFEND` ist während des Laufs sichtbar; `OK`/`FEHLER` danach.
-* `bewerbungsagent-wochenlauf.timer`: `OnCalendar=Mon *-*-* 06:00:00`,
-  `Persistent=true` (verpasster Lauf wird nachgeholt — kein Montag fällt aus),
-  `RandomizedDelaySec=600`.
-* `bewerbungsagent-wochenlauf.service`: `After/Wants=network-online.target`,
+* `bewerbungsagent-tageslauf.timer`: `OnCalendar=*-*-* 12:00:00`,
+  `Persistent=true` (verpasster Lauf wird nachgeholt — kein Tag fällt aus),
+  `RandomizedDelaySec=300`.
+* `bewerbungsagent-tageslauf.service`: `After/Wants=network-online.target`,
   `TimeoutStartSec=3600` (Browser-Fetches dauern).
 * Fehler werden per `notify-send` gemeldet, **falls** eine Sitzung läuft; ein
   Hintergrunddienst hat oft kein Display, dann bleiben Log und Statusdatei.
 
 **Neuer Schalter `--beschreibung`.** Der Graph lud bisher nur `unsure`-Fälle
-nach (sparsam, für den Zwischenlauf). Für den Wochenlauf ist `alle` nötig: nur
+nach (sparsam, für den Zwischenlauf). Für den Tageslauf ist `alle` nötig: nur
 mit vollständigem Anzeigentext ist der Fit präzise (Text-Treffer zählen 4 Punkte,
 Titel-Treffer 6). Im Bestand fehlten 100 von 137 Texten (StepStone 69,
-LinkedIn 31) — ohne `alle` würde der Wochenlauf den Fit für die Mehrheit der
+LinkedIn 31) — ohne `alle` würde der Tageslauf den Fit für die Mehrheit der
 Stellen weiterhin nur aus dem Titel schätzen.
 
 **Nebenbefund.** `data/triage_rejected.json` (ADR-021) fehlte in der
@@ -606,8 +606,85 @@ einzige Hinweis, dass gearbeitet wird, fehlt. Behoben mit ``-u`` und
 18 durch Triage verworfen, **130 Anzeigentexte nachgeladen** (vorher hatten nur
 37 von 137 einen Text), 10 Unterlagen erzeugt, Dashboard 107 relevant. Die
 9 Minuten sind der Preis für vollständige Texte — akzeptabel für einen
-Wochenlauf um 06:00.
+Hintergrundlauf.
+
+**Rhythmus: wöchentlich → täglich.** Ursprünglich Montag 06:00. Der Rechner
+läuft mittags ohnehin, und ein Tagesrhythmus hält die Liste aktuell, ohne dass
+9 Minuten Rechenzeit ins Gewicht fallen. Deshalb `*-*-* 12:00:00` und der
+ehrliche Name `tageslauf` statt `wochenlauf` — ein „Wochenlauf", der täglich
+feuert, wäre eine Falle für den nächsten Blick in `systemctl --user list-timers`.
 
 **Status.** Umgesetzt und einmal vollständig durchgelaufen. Timer aktiv
-(`systemctl --user list-timers`). Nächster automatischer Lauf: Montag 06:00.
-Testabdeckung: 5 Tests für den Umfang-Schalter, 22 für den Graphen gesamt.
+(`systemctl --user list-timers`). Testabdeckung: 5 Tests für den Umfang-Schalter,
+22 für den Graphen gesamt.
+
+## ADR-025 – „Neu gefunden"-Label aus dem protokollierten jüngsten Fund
+
+**Problem.** Nach einem Lauf soll auf einen Blick erkennbar sein, welche Stellen
+er mitgebracht hat. Der Bestand wuchs auf 320 Einträge; ohne Markierung muss man
+„Gefunden am" spaltenweise vergleichen.
+
+**Entscheidung.**
+
+* Gespeichert wird der ``created``-Stempel des **jüngsten Fundes**, nicht das
+  Zeitfenster des letzten Laufs (`meta`-Schlüssel ``letzter_fund``). Grund: ein
+  Lauf ohne neue Funde hätte das Label sonst bei allen Stellen gleichzeitig
+  verschwinden lassen, obwohl die Funde die neuesten bleiben.
+* ``created`` wird in `_merge_state` einmal je Lauf für alle neuen Stellen
+  gesetzt und danach nie überschrieben (``setdefault``) — es ist damit ein
+  verlässlicher „zuerst gesehen"-Zeitstempel.
+* Vergleich über `datetime`, nicht über Zeichenketten. `2026-10-15T16:14:00+02:00`
+  und `2026-10-15T16:14:00+00:00` sortieren als Text fast gleich, sind aber zwei
+  Stunden auseinander. Nicht vergleichbare Werte (naiv vs. zeitzonenbewusst,
+  fehlend, unparsbar) ergeben **kein** Label — lieber kein Label als ein falsches.
+* Neu gefundene Stellen werden **sichtbar, auch ohne Unterlagen**. Die
+  Standardregel („nur dokumentierte Stellen") gilt weiter, aber ein Fund hat per
+  Definition noch keine Dokumente — ohne diese Ausnahme wäre das Label nie zu
+  sehen. Es sind 4 der 8 Funde vom 15.10. sichtbar; die übrigen 4 liegen
+  ausserhalb der Pendelgrenze und bleiben ausgeblendet. Der Hinweistext nennt
+  deshalb beide Zahlen.
+* `research` ist jetzt ein regulärer Einblend-Schalter. Die KPI-Karten und der
+  Wochenverlauf nehmen Research-Einträge weiterhin aus; die Status-Verteilung
+  folgt der Tabelle, damit Diagramm und Tabelle dieselben Zahlen zeigen.
+
+**Verworfene Alternative.** „Zeitfenster des letzten Laufs" (`start <= created <=
+ende`) ist einfacher, liefert aber nach einem Lauf ohne neue Funde ein leeres
+Ergebnis und ist damit für die Frage „was ist neu?" unbrauchbar.
+
+**Testabdeckung.** 22 Tests (`tests/test_dashboard_neu_label.py`): Grenzfälle des
+Zeitvergleichs, Zeitzonen, fehlende/unparsbare Werte, Sichtbarkeit neuer Funde,
+Anzeigetexte, Research-Schalter.
+
+## ADR-026 – Was ein Lauf anfassen darf (Rollen-Schutz und Nutzerfelder)
+
+Zwei Fehler mit derselben Wurzel: der Graph rief `run_generate` als Mengenlauf auf
+und schrieb anschließend den gesamten Zustand zurück.
+
+**Fehler 1: Rollen-Schutz fehlte im Mengenlauf.** `run_enrich` erzeugt Unterlagen
+nur, wenn der Titel ein Test-/Absicherungs-Signal trägt (`has_role_signal`) — ein
+hoher Fit entsteht sonst über generische Technologie-Treffer. `run_generate` hatte
+diesen Filter **nicht**. Der Lauf erzeugte dadurch für 20 Software-/Hardware-Rollen
+(Broadcast Engineer, Technischer Autor, HPC Systems Administrator, …) komplette
+Unterlagen und setzte ihren Status von `neu` auf `docs`.
+
+*Fix.* Der Mengenlauf (`job_ids is None`) prüft jetzt dasselbe Signal und meldet
+die Übersprungenen als `skipped_role`. `--ids` bleibt ausdrücklich unberührt: eine
+namentlich gewählte Stelle ist eine Entscheidung, kein Zufallstreffer.
+
+**Fehler 2: Ein laufender Prozess überschrieb Nutzerfelder.** `save_state` ersetzt
+den gesamten Zustand. Ein Lauf lädt den Zustand, arbeitet minutenlang und schreibt
+am Ende zurück — Änderungen, die der Nutzer währenddessen im Dashboard macht
+(z. B. „Versendet"), fielen dabei auf den Stand vom Beginn des Laufs zurück.
+
+*Fix.* Beim Voll-Schreibvorgang gewinnt die Datenbank für Felder, die der Lauf
+nicht besitzt (`sentAt`, `notes`, `contact`, `interviewDate`, `statusChangedAt`),
+und ein als erledigt markierter Status (`sent`, `followup`, `interview`,
+`rejected`) wird nicht auf `neu`/`docs` zurückgestuft. Das Dashboard schreibt
+weiterhin über `apply_overlay` direkt in die Nutzerspalte und darf alles ändern.
+
+**Reparatur.** Die 21 Statusänderungen des Fehllaufs wurden auf den Stand vom
+15.10.2026 09:51 zurückgesetzt; die 20 dabei entstandenen Bewerbungsordner liegen
+in `data/quarantaene/` (nichts gelöscht). Skript: `scripts/repair_fehllauf.py`.
+
+**Testabdeckung.** `tests/test_db_user_protection.py` (13) und
+`TestMengenlaufRoleGuard` in `tests/test_enrich_cleanup.py` (3).

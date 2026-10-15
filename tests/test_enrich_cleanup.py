@@ -151,6 +151,38 @@ class TestAutoGenerationRoleGuard:
         assert [a["titel"] for a in generated_calls] == ["Linux Software Engineer"]
 
 
+class TestMengenlaufRoleGuard:
+    """Der Mengenlauf braucht denselben Rollen-Schutz wie die Auto-Erzeugung.
+
+    Das war ein echter Bug: der Graph rief ``run_generate`` auf, das den Filter
+    nicht hatte. Für 20 Software-/Hardware-Rollen (Broadcast Engineer, Technischer
+    Autor, HPC Systems Administrator, …) entstanden Unterlagen und ihr Status
+    sprang von ``neu`` auf ``docs``.
+    """
+
+    def _matches(self, config, *titel):
+        save_json(config.matches_path(),
+                  [{**_job(f"m{i}", titel=t, score=80), "id": i + 1, "fit_geschaetzt": "hoch"}
+                   for i, t in enumerate(titel)])
+
+    def test_rolle_ohne_signal_wird_uebersprungen(self, config, generated_calls):
+        self._matches(config, "Broadcast Engineer / Medieningenieur (m/w/d)")
+        result = run_generate(config, None)
+        assert generated_calls == []
+        assert len(result["skipped_role"]) == 1
+
+    def test_testrolle_wird_erzeugt(self, config, generated_calls):
+        self._matches(config, "Senior Embedded Systems Test Engineer")
+        run_generate(config, None)
+        assert [a["titel"] for a in generated_calls] == ["Senior Embedded Systems Test Engineer"]
+
+    def test_gemischter_lauf_trennt_korrekt(self, config, generated_calls):
+        self._matches(config, "Softwareentwickler (gn) C++ / Rust", "Systemtest-Ingenieur")
+        result = run_generate(config, None)
+        assert [a["titel"] for a in generated_calls] == ["Systemtest-Ingenieur"]
+        assert [a["titel"] for a in result["skipped_role"]] == ["Softwareentwickler (gn) C++ / Rust"]
+
+
 class TestDeletedFlagIsReevaluated:
     """Ein Ausblende-Grund muss noch gelten — sonst bleibt die Stelle für immer weg.
 

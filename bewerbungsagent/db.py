@@ -37,6 +37,28 @@ USER_FIELDS = (
     "statusChangedAt", "sentAt", "deleted_reason", "deletedAt",
 )
 
+# Status, den ein CLI-Lauf nicht zurückstufen darf: was der Nutzer als
+# "erledigt" markiert hat, bleibt erledigt.
+_HANDLED_STATUS = ("sent", "followup", "interview", "rejected")
+
+# Nutzerfelder, die ein CLI-Lauf nicht besitzt. Ein Wochenlauf hält den Zustand
+# minutenlang im Speicher; Änderungen aus dem Dashboard währenddessen dürfen
+# nicht durch den abschließenden Voll-Schreibvorgang verloren gehen. Die DB ist
+# die frischere Quelle, deshalb gewinnt sie hier.
+_RUN_FOREIGN_FIELDS = ("sentAt", "notes", "contact", "interviewDate", "statusChangedAt")
+
+
+def _protected_user(db_user: dict | None, incoming: dict) -> dict:
+    """Bewahrt Nutzerfelder, die der laufende Prozess nicht gesetzt hat."""
+    merged = dict(incoming or {})
+    db = dict(db_user or {})
+    for k in _RUN_FOREIGN_FIELDS:
+        if db.get(k) not in (None, ""):
+            merged[k] = db[k]
+    if db.get("status") in _HANDLED_STATUS and merged.get("status") not in _HANDLED_STATUS:
+        merged["status"] = db["status"]
+    return merged
+
 
 class Application(Base):
     __tablename__ = "applications"
@@ -130,6 +152,25 @@ class Store:
             rows = session.query(Application).all()
             return {r.key: dict(r.user or {}) for r in rows if r.user}
 
+    # ---- Meta ------------------------------------------------------------
+
+    def get_meta(self, key: str, default=None):
+        """Liest einen Wert aus der ``meta``-Tabelle."""
+        with self._Session() as session:
+            row = session.get(Meta, key)
+        if row is None or row.value is None:
+            return default
+        try:
+            return json.loads(row.value)
+        except (ValueError, TypeError):
+            return row.value
+
+    def set_meta(self, key: str, value) -> None:
+        """Schreibt einen JSON-Wert in die ``meta``-Tabelle."""
+        with self._Session() as session:
+            session.merge(Meta(key=key, value=json.dumps(value, ensure_ascii=False)))
+            session.commit()
+
     # ---- Schreiben -------------------------------------------------------
 
     def save_state(self, state: dict) -> None:
@@ -157,8 +198,9 @@ class Store:
                         updated_at=now,
                     ))
                 else:
+                    provider, user = _split(app)
                     row.provider = provider
-                    row.user = user
+                    row.user = _protected_user(row.user, user)
                     row.updated_at = now
             # Nicht mehr enthaltene Einträge entfernen (Voll-Replace).
             for key, row in existing.items():

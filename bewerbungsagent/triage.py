@@ -77,13 +77,23 @@ _NON_TECH_SIGNAL = re.compile(
     r"|\bpersonalreferent\w*|\brecruit\w*|\bhuman\s+resources\b|\bhr\b"
     r"|\bjurist\w*|\blegal\b|\bsteuerberat\w*|\bsachbearbeit\w*|\bverwaltung\w*"
     r"|\bsekret\w*|\bassistenz\w*|\bempfang\w*|\bkaufm\w*"
+    # Compliance / Exportkontrolle (Recht, nicht Technik)
+    r"|\bexport\s*control\b|\bcompliance\s+manager\b"
     # Einkauf / Beschaffung
     r"|\beinkauf\w*|\bpurchas\w*|\bbeschaffung\w*|\bprocurement\b"
+    # Pharmazie / GMP-Qualifizierung (andere Domäne als Softwaretest)
+    r"|\bgmp\b|\bpharma\w*|\bpharmazeutisch\w*|\bformulierungsentwicklung\w*"
+    # IT-Betrieb / Anwendungsbetreuung (kein Engineering)
+    r"|\bit[- ]service\b|\bit[- ]support\b|\banwendungsbetreu\w*"
+    # Prüfungswesen im Bildungsbereich („Prüfung“ = Examen, nicht Test)
+    r"|\bprüfungskoordinator\w*|\bpruefungskoordinator\w*|\btelc\b"
     # Gastronomie / Hotellerie
     r"|\bkoch\w*|\bcommis\b|\bchef\s+de\b|\bpartie\b|\bservicekraft\w*"
     r"|\brestaurant\w*|\bhotel\w*|\bbarista\w*|\bcuisine\b"
     # Fahren / Transport / Zustellung
-    r"|\btaxi\w*|\bchauffeur\w*|\bkurier\w*|\bfahrer\b|\blieferant\w*"
+    # ``testfahrer`` ist ein Fahrerjob, nicht eine Testrolle — während
+    # „Fahrerassistenzsysteme" (ohne Wortgrenze davor) echte Technik ist.
+    r"|\btaxi\w*|\bchauffeur\w*|\bkurier\w*|\btestfahrer\w*|\bfahrer\b|\blieferant\w*"
     r"|\bzustell\w*|\bbusfahrer\w*|\bberufskraftfahrer\w*"
     # Pflege / Soziales / Erziehung
     # ``\w*pfleg`` statt ``\bpfleg``: deutsche Komposita kleben den Stamm an ein
@@ -101,6 +111,20 @@ _NON_TECH_SIGNAL = re.compile(
     r"|\bbauarbeiter\w*"
     # Immobilien / Versicherung / Bank
     r"|\bimmobilien\w*|\bversicherung\w*|\bfilialleiter\w*|\bbank\w*",
+    re.IGNORECASE,
+)
+
+
+# --- Rollen-Nomen, die eine *nicht-technische Tätigkeit* benennen -----------
+# Diese Begriffe enthalten oft ein technisch klingendes Wort („Test**fahrer**",
+# „**Test**fahrer"), bezeichnen aber den Job selbst — nicht das Produkt. Sie
+# werden deshalb unabhängig vom übrigen Tech-Signal abgelehnt.
+#
+# Bewusst klein gehalten: nur Komposita, die eindeutig eine andere Tätigkeit
+# benennen. „Fahrerassistenz" steht hier absichtlich NICHT — das ist Technik.
+_HARD_REJECT_ROLE = re.compile(
+    r"\btestfahrer\w*|\bprobefahrer\w*|\büberführungsfahrer\w*"
+    r"|\bberufskraftfahrer\w*|\bbusfahrer\w*|\bkraftfahrer\w*",
     re.IGNORECASE,
 )
 
@@ -145,6 +169,12 @@ def classify(title: str | None, firma: str | None = None,
 
     if is_student_role(t):
         return Verdict(REJECT, "Studenten-/Praktikumsstelle")
+
+    # Rollen-Nomen mit technisch klingendem Bestandteil („Testfahrer") müssen
+    # vor der Tech-Prüfung greifen — sonst liest die Regel das „Test" als Signal.
+    hard = _hit(_HARD_REJECT_ROLE, t)
+    if hard:
+        return Verdict(REJECT, f"Fahrertätigkeit: {hard}")
 
     tech = _hit(_TECH_SIGNAL, t)
     lead = _hit(_LEAD_SIGNAL, t)

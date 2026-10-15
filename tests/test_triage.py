@@ -58,6 +58,16 @@ class TestLaermWirdAbgelehnt:
         # Immobilien / Bank
         "Immobilienkaufmann (m/w/d)",
         "Filialleiter (m/w/d) Bank",
+        # Compliance / Exportkontrolle
+        "Export Control Specialist (m/w/d)",
+        # Pharmazie / GMP
+        "GMP Consultant (m/w/d)",
+        # IT-Betrieb
+        "IT Service & Application Consultant (m/w/d)",
+        # Prüfungswesen (Examen, nicht Softwaretest)
+        "Prüfungskoordinator:in telc",
+        # Fahrerrolle (Fahrzeug ist autonom, der Job bleibt Fahren)
+        "Testfahrer für autonome Fahrzeuge",
     ])
     def test_domaenenfremd(self, titel):
         assert classify(titel).label == REJECT
@@ -172,3 +182,28 @@ class TestSplit:
     def test_verdict_for_job(self):
         v = verdict_for({"titel": "Taxifahrer", "firma": "Taxi GmbH"})
         assert v.is_reject
+
+
+class TestFahrerassistenzIstTechnik:
+    """Abgrenzung: „Fahrerassistenz" ist Technik, „Testfahrer" ein Fahrerjob.
+
+    Beide enthalten „fahrer". Nur die Wortgrenze trennt sie — ohne sie würde
+    eine ADAS-Rolle fälschlich verworfen (das teure False Negative).
+    """
+
+    @pytest.mark.parametrize("titel", [
+        "Fahrerassistenz-Systementwickler (m/w/d)",
+        "ADAS Fahrerassistenz Test Engineer",
+        "Entwicklungsingenieur Fahrerassistenzsysteme",
+        "Testingenieur Fahrerassistenz",
+    ])
+    def test_fahrerassistenz_bleibt_relevant(self, titel):
+        assert classify(titel).label != REJECT
+
+    @pytest.mark.parametrize("titel", [
+        "Testfahrer (m/w/d)",
+        "Testfahrer für autonome Fahrzeuge",
+        "Berufskraftfahrer (m/w/d)",
+    ])
+    def test_fahrerjobs_werden_abgelehnt(self, titel):
+        assert classify(titel).label == REJECT

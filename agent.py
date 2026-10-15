@@ -176,6 +176,8 @@ def main(argv=None) -> int:
         print(f"Gelöscht (FIT < 50 %): {result['deleted_fit_under_50']} Stelle(n).")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
+        print(f"Gelöscht (Studenten-/Praktikumsstelle): "
+              f"{result.get('deleted_student', 0)} Stelle(n).")
         if result.get("restored_documented"):
             print(f"Wieder sichtbar (Unterlagen vorhanden): "
                   f"{result['restored_documented']} Stelle(n).")
@@ -211,6 +213,11 @@ def main(argv=None) -> int:
             for s in skipped:
                 print(f"      - {s.get('firma')} — {s.get('titel')} "
                       f"({s.get('pendelzeit_min')} min)")
+        skipped_student = result.get("skipped_student") or []
+        if skipped_student:
+            print(f"  Übersprungen (Studenten-/Praktikumsstelle): {len(skipped_student)} Stelle(n)")
+            for s in skipped_student:
+                print(f"      - {s.get('firma')} — {s.get('titel')}")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
 

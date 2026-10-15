@@ -23,7 +23,7 @@ from .documents import (
 from .homeoffice import detect_home_office
 from .importer import import_old_dashboard
 from .industry import classify_industry
-from .matching import fit_value, has_role_signal, match_jobs
+from .matching import fit_value, has_role_signal, is_student_role, match_jobs
 from .profile import Profile, normalize
 from .salary import enrich_salary
 from .search import run_search as _search
@@ -170,9 +170,14 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
 
     selected = []
     skipped_commute = []
+    skipped_student = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
+            continue
+        # Studenten-/Praktikumsstellen werden nie bedient.
+        if is_student_role(m.get("titel")):
+            skipped_student.append(m)
             continue
         wanted = m.get("id") in job_ids if job_ids is not None else _fit_value(m) >= threshold
         if not wanted:
@@ -188,7 +193,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         created.extend(_generate_one(config, profile, job, template=template))
 
     return {"generated": created, "jobs_processed": len(selected),
-            "skipped_commute": skipped_commute}
+            "skipped_commute": skipped_commute, "skipped_student": skipped_student}
 
 
 def run_enrich(config: Config, profile: Profile) -> dict:
@@ -239,10 +244,21 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     _ACTIVE_STATUSES = {"sent", "followup", "interview", "rejected"}
     deleted_count = 0
     deleted_commute = 0
+    deleted_student = 0
     restored_documented = 0
     restored_reason = 0
     restored_active = 0
     for a in apps:
+        # Harte Ausschlussregel (oberste Priorität): Studenten-/Praktikums-/
+        # Ausbildungsstellen sind für einen Vollzeit-Ingenieur kategorisch
+        # irrelevant — unabhängig von Status, Fit oder bereits erzeugten
+        # Unterlagen. Auch ein abgeschlossener „rejected“-Eintrag ist hier
+        # kein wertvoller Verlauf, sondern fehladressiertes Rauschen.
+        if is_student_role(a.get("titel")):
+            a["deleted"] = True
+            a["deleted_reason"] = "Studenten-/Praktikumsstelle (keine Vollzeit-Ingenieurrolle)"
+            deleted_student += 1
+            continue
         if a.get("status") in _ACTIVE_STATUSES:
             # Versendete/abgeschlossene Bewerbungen dokumentieren echte
             # Aktivität und werden hier nie ausgeblendet. Ein noch vorhandenes
@@ -338,6 +354,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "research_checked": research_checked,
         "deleted_fit_under_50": deleted_count,
         "deleted_commute": deleted_commute,
+        "deleted_student": deleted_student,
         "restored_documented": restored_documented,
         "restored_reason": restored_reason,
         "restored_active": restored_active,

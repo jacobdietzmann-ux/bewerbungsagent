@@ -42,6 +42,28 @@ def has_role_signal(title: str | None) -> bool:
     return bool(_ROLE_SIGNAL_RE.search(normalize(title or "")))
 
 
+# Studenten-/Praktikums-/Ausbildungsrollen sind für einen Vollzeit-Ingenieur
+# kategorisch irrelevant — sie werden gar nicht erst angelegt (keine Unterlagen,
+# kein Eintrag im Dashboard). ``\b`` verhindert False-Positives wie „internal"
+# (nur „intern“) oder „Systems“ (nur „student“).
+_STUDENT_ROLE_RE = re.compile(
+    r"\bwerkstudent\w*"                  # Werkstudent/-in/-en
+    r"|\bworking\s+student\w*"
+    r"|\bpraktikant\w*|\bpraktikum\b|\bpraktika\b"
+    r"|\bauszubildende\w*|\bausbildung\w*"
+    r"|\bapprentice\w*"
+    r"|\bintern\b|\binternship\w*"
+    r"|\btrainee\w*"
+    r"|\bstudent\b|\bstudents\b|\bstudentische\w*",
+    re.IGNORECASE,
+)
+
+
+def is_student_role(title: str | None) -> bool:
+    """True, wenn der Titel eine Studenten-/Praktikums-/Ausbildungsrolle ist."""
+    return bool(_STUDENT_ROLE_RE.search(title or ""))
+
+
 def _job_text(job: dict) -> tuple[str, str]:
     title = job.get("titel") or job.get("title") or ""
     desc = (

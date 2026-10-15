@@ -7,6 +7,7 @@ import pytest
 from bewerbungsagent.matching import (
     fit_value,
     has_role_signal,
+    is_student_role,
     location_bonus_for,
     match_jobs,
     score_job,
@@ -293,3 +294,39 @@ class TestFitValue:
         for job in ({"fit_pct": 0, "score": 18}, {"fit_pct": 70, "score": 42},
                     {"score": 30}, {"fit_pct": 0}, {}):
             assert _fit_value(job) == _to_data(dict(job))["fit"]
+
+
+class TestIsStudentRole:
+    """Studenten-/Praktikums-/Ausbildungsstellen werden kategorisch ausgeschlossen."""
+
+    @pytest.mark.parametrize("titel", [
+        "Werkstudent (m/w/d) Testautomatisierung und Testinfrastruktur",
+        "Werkstudent/-in Testautomatisierung (all genders)",
+        "Werkstudent (w/m/d) Projektmanagement Ladeinfrastruktur",
+        "Working Student - Software Engineering (m/f/d)",
+        "Praktikant Kommunikationsdesign & UX/UI (m/w/d)",
+        "Intern, Customer Test Coordination (KNT)",
+        "Internship UI/UX Design and App Development",
+        "Auszubildender Werkzeugmechaniker (m/w/d)",
+        "Apprentice as Industrial Mechanic (f/m/x)",
+        "Trainee Program",
+        "Studentische Hilfskraft (m/w/d)",
+        "Dualer Student Systemintegration",
+    ])
+    def test_erkennt_studentenrollen(self, titel):
+        assert is_student_role(titel) is True
+
+    @pytest.mark.parametrize("titel", [
+        "Senior Test Engineer (m/f/d)",
+        "System Test Engineer (m/f/d)",
+        "Internal Systems Engineer",          # „internal“ ≠ „intern“
+        "Systems Safety Engineer - Land",      # „Systems“ ≠ „student“
+        "Testingenieur (m/w/d)",
+        "Senior Ground Test Engineer (All Genders)",
+    ])
+    def test_keine_fehltreffer(self, titel):
+        assert is_student_role(titel) is False
+
+    def test_leerer_titel(self):
+        assert is_student_role("") is False
+        assert is_student_role(None) is False

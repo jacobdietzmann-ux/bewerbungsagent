@@ -238,3 +238,39 @@ class TestActiveApplicationsAreNeverHidden:
         apps = [_job("weit", status="neu", pendelzeit_min=200)]
         result = _run(config, apps)
         assert result["deleted_commute"] == 1
+
+
+class TestStudentRolesAlwaysHidden:
+    """Werkstudent/Praktikant/Auszubildender werden kategorisch ausgeblendet —
+    auch mit Unterlagen oder bei hohem FIT, weil die Rolle selbst falsch ist."""
+
+    def test_werkstudent_wird_auch_mit_dokumenten_ausgeblendet(self, config):
+        apps = [_job("werk", titel="Werkstudent (m/w/d) Testautomatisierung",
+                     score=60, dokumente={"de": {"anschreiben": "x.pdf"}})]
+        result = _run(config, apps)
+        assert result["deleted_student"] == 1
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app.get("deleted") is True
+        assert "Studenten-/Praktikumsstelle" in app["deleted_reason"]
+
+    def test_praktikant_bei_hohem_fit_ausgeblendet(self, config):
+        apps = [_job("prakti", titel="Praktikant Testautomatisierung (m/w/d)", score=80)]
+        result = _run(config, apps)
+        assert result["deleted_student"] == 1
+
+    def test_abgeschlossener_werkstudent_wird_auch_ausgeblendet(self, config):
+        """Ein fehladressierter Studenten-Eintrag ist kein wertvoller Verlauf."""
+        apps = [_job("alt", titel="Werkstudent Testautomatisierung",
+                     status="rejected", score=60,
+                     dokumente={"de": {"anschreiben": "x.pdf"}})]
+        result = _run(config, apps)
+        assert result["deleted_student"] == 1
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app.get("deleted") is True
+
+    def test_echte_testrolle_bleibt_unangetastet(self, config):
+        apps = [_job("test", titel="System Test Engineer (m/f/d)", score=80)]
+        result = _run(config, apps)
+        assert result["deleted_student"] == 0
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert not app.get("deleted")

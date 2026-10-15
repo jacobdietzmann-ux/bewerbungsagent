@@ -699,6 +699,30 @@ def _letter_current(profile: Profile, lang: str) -> str | None:
     )
 
 
+def _append_gaps(story: list, st: dict, profile: Profile, job: dict, lang: str) -> None:
+    """RAG-Anreicherung: bestätigte Lücken, die für diese Stelle relevant sind.
+
+    Statt eine verlangte Kompetenz (z. B. DO-178C) stillschweigend zu behaupten,
+    wird sie transparent als nicht vorhanden benannt. Das ist glaubwürdiger als
+    jede Übertreibung und gehört zum „nachvollziehbaren Umgang mit fehlendem
+    Kontext“.
+    """
+    from .rag import gap_evidence
+
+    gaps = gap_evidence(profile, job, lang)
+    if not gaps:
+        return
+    story.append(Spacer(1, 2 * mm))
+    if lang == "de":
+        story.append(Paragraph("Transparenz zu Anforderungen außerhalb meines Profils:", st["body"]))
+    else:
+        story.append(Paragraph("Transparency on requirements outside my profile:", st["body"]))
+    story.append(Spacer(1, 2 * mm))
+    for gap in gaps:
+        story.append(Paragraph(f"•  {esc(gap)}", st["meta"]))
+    story.append(Spacer(1, 3 * mm))
+
+
 def _letter_story(profile: Profile, job: dict, match: dict, config: dict, lang: str,
                   max_bullets: int = 4) -> list:
     st = _styles()
@@ -755,16 +779,40 @@ def _letter_story(profile: Profile, job: dict, match: dict, config: dict, lang: 
         story.append(Paragraph(current, st["body"]))
         story.append(Spacer(1, 3 * mm))
 
-    bullets = _tailored_bullets(profile, match, lang, max_bullets=max_bullets)
-    if bullets:
-        if lang == "de":
-            story.append(Paragraph("Ihre Anforderungen decke ich wie folgt ab:", st["body"]))
-        else:
-            story.append(Paragraph("I cover your requirements as follows:", st["body"]))
-        story.append(Spacer(1, 2 * mm))
-        for label, claim in bullets:
-            story.append(Paragraph(f"•  <b>{esc(label)}:</b> {esc(claim)}", st["bullet"]))
-        story.append(Spacer(1, 3 * mm))
+    # RAG-Anreicherung (opt-in): belegte Skills mit Quellenangabe statt der
+    # pauschalen Bullets. Der Beleg ist *dieselbe* Liste — zusätzlich mit
+    # Station und Zeitraum, damit der Leser nachvollziehen kann, woher ein
+    # Anspruch stammt. Bleibt abschaltbar (bestehende Briefe unverändert).
+    if config["documents"].get("anschreiben_quellen"):
+        from .rag import citation, retrieve_evidence
+        evidence = retrieve_evidence(profile, match, lang, max_claims=max_bullets)
+        if evidence:
+            if lang == "de":
+                story.append(Paragraph("Ihre Anforderungen decke ich wie folgt ab:", st["body"]))
+            else:
+                story.append(Paragraph("I cover your requirements as follows:", st["body"]))
+            story.append(Spacer(1, 2 * mm))
+            for ev in evidence:
+                story.append(Paragraph(f"•  <b>{esc(ev.label)}:</b> {esc(ev.claim)}", st["bullet"]))
+                src = citation(ev, lang)
+                if src:
+                    story.append(Paragraph(
+                        f'<font color="#64748b" size="7">&nbsp;&nbsp;{esc(src)}</font>', st["meta"]))
+            story.append(Spacer(1, 3 * mm))
+    else:
+        bullets = _tailored_bullets(profile, match, lang, max_bullets=max_bullets)
+        if bullets:
+            if lang == "de":
+                story.append(Paragraph("Ihre Anforderungen decke ich wie folgt ab:", st["body"]))
+            else:
+                story.append(Paragraph("I cover your requirements as follows:", st["body"]))
+            story.append(Spacer(1, 2 * mm))
+            for label, claim in bullets:
+                story.append(Paragraph(f"•  <b>{esc(label)}:</b> {esc(claim)}", st["bullet"]))
+            story.append(Spacer(1, 3 * mm))
+
+    if config["documents"].get("anschreiben_luecken"):
+        _append_gaps(story, st, profile, job, lang)
 
     closing_de = (
         "Über die Gelegenheit, Ihnen meine Erfahrung in einem persönlichen Gespräch "

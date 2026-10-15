@@ -5,7 +5,12 @@
   "dashboard_file": "dashboard.html",
   "search": {
     "enabled": true,
-    "providers": ["manual", "stepstone", "duckduckgo", "jobspy"],
+    "providers": [
+      "manual",
+      "stepstone",
+      "duckduckgo",
+      "jobspy"
+    ],
     "jobspy_max_terms": 4,
     "location": "München",
     "query_terms": [
@@ -38,13 +43,18 @@
     "contact_email": "vorname.nachname@example.com"
   },
   "documents": {
-    "languages": ["de", "en"],
+    "languages": [
+      "de",
+      "en"
+    ],
     "accent_color": "#0B3D5C",
     "min_fit_for_generation": "mittel",
     "lebenslauf_template": "classic",
     "lebenslauf_vorlage": {
       "de": "../02_Profil-und-Assets/Vorlage-Aktuell/Lebenslauf_Jacob_Dietzmann.docx",
       "en": "../02_Profil-und-Assets/Vorlage-Aktuell/CV_Jacob_Dietzmann_EN.docx"
-    }
+    },
+    "anschreiben_quellen": true,
+    "anschreiben_luecken": true
   }
 }

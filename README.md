@@ -44,6 +44,10 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
    Kategorie *hoch/mittel/niedrig*, passende Skills, Begründung).
 4. **Dokumentenerstellung** – erzeugt für jede passende Stelle ein auf dich zugeschnittenes
    **Anschreiben** und einen **Lebenslauf** (PDF, wahlweise Deutsch und/oder Englisch).
+   Mit `documents.anschreiben_quellen` wird jeder Anspruch im Anschreiben mit **Quelle und
+   Zeitraum belegt** (Retrieval-Schicht `bewerbungsagent/rag.py`); mit
+   `documents.anschreiben_luecken` werden bestätigte Lücken transparent benannt statt
+   verschwiegen.
 5. **Dashboard** – interaktives HTML-Dashboard (angelehnt an das alte `00_Dashboard`):
    Suche, Profil-Fit-Filter, Status-Sichtfilter, KPI-Karten, Status- und Wochen-Diagramme,
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
@@ -269,13 +273,15 @@ python agent.py dashboard
 
 Das Fit-Scoring (`bewerbungsagent/matching.py`) ist transparent und deterministisch:
 
-- **Phrasen-Treffer im Titel** zählen am stärksten (7 Punkte je Treffer),
-- **Phrasen-Treffer im Anzeigentext** (3 Punkte),
-- **Inhaltswort-Überschneidung** (1 Punkt),
+- **Phrasen-Treffer im Titel** zählen am stärksten (6 Punkte je Treffer),
+- **Phrasen-Treffer im Anzeigentext** (4 Punkte),
+- **Inhaltswort-Überschneidung** (2 Punkte),
 - **Standort-Bonus** (+10, wenn der Ort zum Suchort passt).
 
-Kategorien: `hoch` ≥ 65, `mittel` ≥ 40, sonst `niedrig`. Die Schwelle für die automatische
-Dokumentenerstellung (`min_fit_for_generation`) lässt sich in `config.json` anpassen.
+Deutsch/englische Varianten werden über eine Synonym-Brücke zusammengeführt („Testautomatisierung“
+matcht auch „test automation“/„testautomation“). Kategorien: `hoch` ≥ 65, `mittel` ≥ 40, sonst
+`niedrig`. Die Schwelle für die automatische Dokumentenerstellung (`min_fit_for_generation`)
+lässt sich in `config.json` anpassen.
 
 ## Konfiguration
 
@@ -286,7 +292,7 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   (verfügbar: `manual`, `stepstone`, `duckduckgo`, `bing`, `jobspy`).
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
   (Standard 4).
-- `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 90). Zu weit
+- `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 30). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
 - `commute.home_address` – Ausgangspunkt für die Pendelweg-Berechnung. Bewusst **nicht** im
@@ -296,6 +302,11 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung.
+- `documents.anschreiben_quellen` – `true`: belegt jeden Anspruch im Anschreiben mit
+  Quelle und Zeitraum (siehe `bewerbungsagent/rag.py`). Standard `false`.
+- `documents.anschreiben_luecken` – `true`: benennt im Anschreiben transparent die
+  bestätigten Lücken, die für *diese* Stelle relevant sind (z. B. DO-178C bei einer
+  Verteidigungs-Stelle). Standard `false`.
 - `documents.lebenslauf_vorlage` – eigene DOCX-Vorlage (`{"de": …, "en": …}`); nur der
   Profil-Absatz wird pro Stelle ersetzt.
 

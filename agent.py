@@ -90,6 +90,10 @@ def main(argv=None) -> int:
     ablauf = sub.add_parser("ablauf", help="Ablauf als Graph ausführen (LangGraph)")
     ablauf.add_argument("--ohne-review", action="store_true",
                         help="Freigabe-Knoten überspringen (Bewertung erfolgt im Dashboard)")
+    ablauf.add_argument("--beschreibung", choices=["nur_unsure", "alle"],
+                        default="nur_unsure",
+                        help="Anzeigentexte nachladen: nur für unklare Titel (Standard) "
+                             "oder für alle Stellen ohne Text")
 
     gen = sub.add_parser("generate", help="Bewerbungsunterlagen erzeugen")
     gen.add_argument("--all", action="store_true", help="alle passenden Stellen (gem. min_fit)")
@@ -264,8 +268,9 @@ def main(argv=None) -> int:
         from bewerbungsagent.orchestrator import run_abo
         review = not args.ohne_review
         try:
-            result = run_abo(config, profile, review=review)
-        except RuntimeError as exc:
+            result = run_abo(config, profile, review=review,
+                             beschreibung=args.beschreibung)
+        except (RuntimeError, ValueError) as exc:
             print(str(exc))
             return 1
         print(f"Ablauf durchlaufen: {' → '.join(result.get('weg', []))}")
@@ -273,8 +278,9 @@ def main(argv=None) -> int:
         print(f"  Suche          : {s.get('count', 0)} Stelle(n)")
         if s.get("triage_rejected"):
             print(f"  Triage verworfen: {s['triage_rejected']} (Protokoll: data/triage_rejected.json)")
-        print(f"  Triage unsicher : {result.get('triage_unsure_verbleibend', 0)} "
-              f"(nachgeladen: {result.get('beschreibung_versuche', 0)}×)")
+        print(f"  Text nachladen  : Umfang {result.get('beschreibung_umfang', '?')}, "
+              f"offen {result.get('triage_unsure_verbleibend', 0)}, "
+              f"{result.get('beschreibung_versuche', 0)}× gelaufen")
         print(f"  Matching        : {(result.get('match') or {}).get('matched', 0)} Stelle(n)")
         print(f"  Dokumente       : {len((result.get('generate') or {}).get('generated', []))} Datei(en)")
         if review:

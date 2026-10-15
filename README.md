@@ -193,6 +193,37 @@ funktioniert die Anzeige, aber Statusänderungen werden nur lokal im Browser geh
 Über „Ordner ↗“ in der Links-Spalte öffnet der Server den jeweiligen Bewerbungsordner im
 Dateimanager.
 
+## Wöchentlicher Lauf (automatisch)
+
+Damit die Stellen und Unterlagen montags vorliegen, läuft der Ablauf automatisch —
+per **systemd-User-Timer**, ohne Cloud (Begründung: [ADR-024](docs/DECISIONS.md)).
+
+```bash
+# Einmalig einrichten (Units liegen im Repo unter docs/systemd/)
+cp docs/systemd/bewerbungsagent-wochenlauf.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now bewerbungsagent-wochenlauf.timer
+
+# Prüfen
+systemctl --user list-timers bewerbungsagent-wochenlauf.timer
+```
+
+Der Timer feuert **Montag 06:00** (plus Streuung) und holt einen verpassten Lauf
+nach, wenn der Rechner aus war (`Persistent=true`) — so fällt kein Montag aus.
+
+Der Lauf macht dasselbe wie `agent.py ablauf`, aber mit `--beschreibung alle`:
+vollständige Anzeigentexte für einen präzisen Fit, nicht nur für unklare Titel.
+
+**Ergebnis prüfen:**
+
+```bash
+cat data/wochenlauf-status.json     # { "zustand": "OK" | "FEHLER" | "LAUFEND", ... }
+tail -40 data/wochenlauf.log        # Verlauf des Laufs
+```
+
+Von Hand auslösen: `systemctl --user start bewerbungsagent-wochenlauf.service`
+oder direkt `scripts/wochenlauf.sh`.
+
 ## Agenten-Map (was der Agent tut)
 
 Eine eigenständige Übersichtsseite zeigt in einer einzigen HTML-Datei, **was der Agent

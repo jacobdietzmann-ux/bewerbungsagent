@@ -62,6 +62,7 @@ class Ablauf(TypedDict, total=False):
     triage_rejected: int
     triage_unsure_verbleibend: int
     beschreibung_versuche: int
+    beschreibung_umfang: str      # "nur_unsure" | "alle"
 
     # Protokoll aller besuchten Knoten (für Tests und Nachvollziehbarkeit)
     weg: list[str]
@@ -87,17 +88,29 @@ def knoten_suche(state: Ablauf) -> Ablauf:
 
 
 def knoten_triage(state: Ablauf) -> Ablauf:
-    """Zählt verbleibende ``unsure``-Fälle im Bestand.
+    """Zählt offene Nachlade-Kandidaten im Bestand.
 
     ``run_search`` hat domänenfremde Treffer bereits verworfen. Was bleibt, sind
     ``relevant`` (der Fit entscheidet) und ``unsure`` (der Titel reichte nicht).
-    Für die ``unsure``-Fälle lohnt das Nachladen der Beschreibung.
+
+    Welche Stellen nachgeladen werden, steuert ``beschreibung_umfang``:
+
+    * ``nur_unsure`` (Standard) — nur die unklaren Fälle. Spart Browseraufrufe,
+      weil der Titel für die meisten Stellen schon entscheidet.
+    * ``alle`` — jede Stelle ohne Text. Nötig für den Wochenlauf: nur mit
+      vollständigem Anzeigentext ist der Fit präzise (er zählt Text-Treffer
+      mit 4 statt 2 Punkten pro Begriff).
     """
     config = state["config"]
-    jobs = json.loads(config.jobs_path().read_text(encoding="utf-8")) if config.jobs_path().exists() else []
-    offen = [j for j in jobs
-             if triage.verdict_for(j, config).label == triage.UNSURE
-             and not (j.get("beschreibung") or "").strip()]
+    umfang = state.get("beschreibung_umfang", "nur_unsure")
+    jobs_path = config.jobs_path()
+    jobs = json.loads(jobs_path.read_text(encoding="utf-8")) if jobs_path.exists() else []
+    ohne_text = [j for j in jobs if not (j.get("beschreibung") or "").strip()]
+    if umfang == "alle":
+        offen = ohne_text
+    else:
+        offen = [j for j in ohne_text
+                 if triage.verdict_for(j, config).label == triage.UNSURE]
     return {
         "triage_unsure_verbleibend": len(offen),
         "weg": _notiere(state, "triage"),
@@ -105,19 +118,22 @@ def knoten_triage(state: Ablauf) -> Ablauf:
 
 
 def knoten_beschreibung(state: Ablauf) -> Ablauf:
-    """Lädt Beschreibungen für die ``unsure``-Fälle nach (begrenzter Versuch).
+    """Lädt fehlende Anzeigentexte per Browser nach (begrenzt wiederholt).
 
     Nur hier wird der teure Browser-Fetch ausgelöst — und nur für die Stellen,
-    deren Titel allein nicht reichte. Das ist der Kern der Verzweigung: das
+    die ``beschreibung_umfang`` vorgibt. Das ist der Kern der Verzweigung: das
     Fließband lädt entweder alles oder nichts.
     """
     from fetch_descriptions import fetch_descriptions
 
-    try:
-        fetch_descriptions(state["config"], only_unsure=True)
-    except TypeError:
-        # Ältere Signatur ohne ``only_unsure``: dann eben für alle offenen.
-        fetch_descriptions(state["config"])
+    nur_unsure = state.get("beschreibung_umfang", "nur_unsure") != "alle"
+    for kwargs in ({"only_unsure": nur_unsure}, {}):
+        try:
+            fetch_descriptions(state["config"], **kwargs)
+            break
+        except TypeError:
+            # Ältere Signatur ohne ``only_unsure``: dann ohne den Parameter.
+            continue
     return {
         "beschreibung_versuche": state.get("beschreibung_versuche", 0) + 1,
         "weg": _notiere(state, "beschreibung"),
@@ -175,7 +191,11 @@ def knoten_dashboard(state: Ablauf) -> Ablauf:
 # --------------------------------------------------------------------------
 
 def _braucht_beschreibung(state: Ablauf) -> Literal["beschreibung", "match"]:
-    """Schleife: nachladen, solange ``unsure`` offen ist und Versuche bleiben."""
+    """Schleife: nachladen, solange Kandidaten offen sind und Versuche bleiben.
+
+    Die Obergrenze ist Pflicht: ohne sie könnte die Schleife nicht terminieren,
+    wenn ein Browseraufruf dauerhaft fehlschlägt (z. B. kein Netz).
+    """
     offen = state.get("triage_unsure_verbleibend", 0)
     versuche = state.get("beschreibung_versuche", 0)
     if offen and versuche < MAX_BESCHREIBUNG_VERSUCHE:
@@ -232,12 +252,22 @@ def build_graph(*, review: bool = True):
 
 
 def run_abo(config: Config, profile: Profile, *, review: bool = True,
-            graph=None) -> Ablauf:
+            beschreibung: str = "nur_unsure", graph=None) -> Ablauf:
     """Führt den Graphen aus.
 
     ``review=False`` überspringt den Freigabe-Knoten. Sinnvoll, wenn die
     Bewertung ohnehin im Dashboard passiert: dort werden die Stellen geprüft und
     entweder verwendet oder manuell gelöscht.
+
+    ``beschreibung`` steuert den Umfang des Nachladens:
+
+    * ``"nur_unsure"`` (Standard) — nur Stellen, deren Titel für die Triage
+      nicht reicht. Sparsam, für den schnellen Zwischenlauf.
+    * ``"alle"`` — jede Stelle ohne Anzeigentext. Nötig für den Wochenlauf,
+      damit der Fit auf dem vollständigen Text beruht.
     """
+    if beschreibung not in ("nur_unsure", "alle"):
+        raise ValueError("beschreibung muss 'nur_unsure' oder 'alle' sein")
     app = graph if graph is not None else build_graph(review=review)
-    return app.invoke({"config": config, "profile": profile, "weg": []})
+    return app.invoke({"config": config, "profile": profile, "weg": [],
+                       "beschreibung_umfang": beschreibung})

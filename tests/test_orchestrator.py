@@ -227,3 +227,80 @@ class TestGenerateIstIdempotent:
         aufgerufen = self._vorbereiten(config, monkeypatch)
         run_generate(config, None, job_ids=[1])
         assert aufgerufen == ["k1"]
+
+
+class TestBeschreibungUmfang:
+    """``nur_unsure`` spart Browseraufrufe, ``alle`` liefert präzise Fits.
+
+    Ohne den Schalter hätte der Wochenlauf nur unklare Titel nachgeladen — und
+    der Fit beruhte für den Rest auf dem Titel allein (Text-Treffer zählen
+    4 Punkte, Titel-Treffer 6).
+    """
+
+    def _config(self, tmp_path, demo_profile_data, jobs):
+        import json
+
+        from bewerbungsagent.config import Config
+        from bewerbungsagent.storage import save_json
+        (tmp_path / "data").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "profil.json").write_text(
+            json.dumps(demo_profile_data, ensure_ascii=False), encoding="utf-8")
+        cfg = {
+            "profile_json": str(tmp_path / "profil.json"),
+            "data_dir": str(tmp_path / "data"),
+            "output_dir": str(tmp_path / "out"),
+            "search": {"enabled": False, "providers": [], "query_terms": [], "location": "München"},
+        }
+        (tmp_path / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        config = Config(tmp_path / "config.json")
+        save_json(config.jobs_path(), jobs)
+        return config
+
+    # Zwei klare Tech-Titel ohne Text + ein unklarer Titel ohne Text.
+    @staticmethod
+    def _jobs():
+        return [
+            {"id": 1, "titel": "Senior Test Engineer", "firma": "A", "url": "https://a/1"},
+            {"id": 2, "titel": "HiL Test Engineer", "firma": "B", "url": "https://a/2"},
+            {"id": 3, "titel": "Teamleitung", "firma": "C", "url": "https://a/3"},
+            {"id": 4, "titel": "System Test Engineer", "firma": "D", "url": "https://a/4",
+             "beschreibung": "schon da"},
+        ]
+
+    def test_nur_unsure_zaehlt_nur_unklare(self, tmp_path, demo_profile_data):
+        config = self._config(tmp_path, demo_profile_data, self._jobs())
+        state = {"config": config, "beschreibung_umfang": "nur_unsure"}
+        out = O.knoten_triage(state)
+        assert out["triage_unsure_verbleibend"] == 1   # nur "Teamleitung"
+
+    def test_alle_zaehlt_jede_ohne_text(self, tmp_path, demo_profile_data):
+        config = self._config(tmp_path, demo_profile_data, self._jobs())
+        state = {"config": config, "beschreibung_umfang": "alle"}
+        out = O.knoten_triage(state)
+        assert out["triage_unsure_verbleibend"] == 3   # Job 4 hat Text
+
+    def test_standard_ist_sparsam(self, tmp_path, demo_profile_data):
+        config = self._config(tmp_path, demo_profile_data, self._jobs())
+        # Ohne Feld im Zustand → nur_unsure
+        out = O.knoten_triage({"config": config})
+        assert out["triage_unsure_verbleibend"] == 1
+
+    def test_ungueltiger_umfang_wird_abgelehnt(self, graph_mod, setup):
+        config, profile = setup
+        with pytest.raises(ValueError, match="nur_unsure"):
+            graph_mod.run_abo(config, profile, beschreibung="halb")
+
+    def test_wochenlauf_laedt_nur_was_fehlt(self, tmp_path, demo_profile_data, monkeypatch):
+        """Im Modus ``alle`` wird ``only_unsure=False`` an den Fetch gereicht."""
+        import sys
+        import types
+        config = self._config(tmp_path, demo_profile_data, self._jobs())
+        gerufen = []
+        fake = types.ModuleType("fetch_descriptions")
+        fake.fetch_descriptions = lambda cfg, **kw: gerufen.append(kw) or {}
+        monkeypatch.setitem(sys.modules, "fetch_descriptions", fake)
+        O.knoten_beschreibung({"config": config, "beschreibung_umfang": "alle", "weg": []})
+        assert gerufen == [{"only_unsure": False}]
+        gerufen.clear()
+        O.knoten_beschreibung({"config": config, "beschreibung_umfang": "nur_unsure", "weg": []})
+        assert gerufen == [{"only_unsure": True}]

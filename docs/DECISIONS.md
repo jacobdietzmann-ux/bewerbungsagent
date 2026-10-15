@@ -545,3 +545,69 @@ weiterhin neu (ausdrücklicher Wunsch).
 
 **Status.** Umgesetzt. 17 Tests (Graphstruktur, vollständiger Lauf, Schleife
 terminiert, Review überspringbar, generate-Idempotenz).
+
+## ADR-024 – Wöchentlicher Lauf per systemd-Timer (nicht Cloud)
+
+**Kontext.** Der Ablauf soll automatisch laufen, damit die Stellen und Unterlagen
+montags vorliegen. Die naheliegende Frage war, ob das ein Cloud-Deployment
+braucht (Advisor-Punkt #5).
+
+**Entscheidung.** Ein **systemd-User-Timer** auf dem lokalen Rechner, gebaut nach
+demselben Muster wie `bewerbungsagent-backup.timer`. **Kein Cloud-Dienst.**
+
+**Begründung.**
+
+* **Datenlage.** Der Lauf braucht das Profil (Adresse, Telefon, Bewerbungen) und
+  schreibt Bewerbungsunterlagen. Das gehört nicht zu einem Cloud-Anbieter, nur
+  damit ein Timer feuert.
+* **Technik.** Schritt 2 (`fetch`) braucht einen echten Chromium — lokal
+  vorhanden und erprobt; in Lambda/Containern ist das zusätzlicher Aufwand ohne
+  Gegenwert.
+* **Verhältnismäßigkeit.** Zwei Unit-Dateien und ein Shell-Skript gegen
+  Container, Secrets-Management, IaC und Monitoring. Das Muster existiert im
+  Projekt bereits und ist damit wartbar.
+* Cloud wäre erst sinnvoll bei **anderem** Bedarf: Rechner montags regelmäßig
+  aus, oder Zugriff auf das Dashboard von unterwegs. Beides trifft nicht zu.
+  Für das Berufsprofil bleibt #5 eine sinnvolle *Übung* — aber als bewusste
+  Übung, nicht als Betriebsnotwendigkeit.
+
+**Umsetzung.**
+
+* `scripts/wochenlauf.sh`: `agent.py ablauf --beschreibung alle --ohne-review`
+  mit `flock` (kein Doppellauf), Log in `data/wochenlauf.log` (auf 2000 Zeilen
+  begrenzt) und Statusdatei `data/wochenlauf-status.json`. Der Zustand
+  `LAUFEND` ist während des Laufs sichtbar; `OK`/`FEHLER` danach.
+* `bewerbungsagent-wochenlauf.timer`: `OnCalendar=Mon *-*-* 06:00:00`,
+  `Persistent=true` (verpasster Lauf wird nachgeholt — kein Montag fällt aus),
+  `RandomizedDelaySec=600`.
+* `bewerbungsagent-wochenlauf.service`: `After/Wants=network-online.target`,
+  `TimeoutStartSec=3600` (Browser-Fetches dauern).
+* Fehler werden per `notify-send` gemeldet, **falls** eine Sitzung läuft; ein
+  Hintergrunddienst hat oft kein Display, dann bleiben Log und Statusdatei.
+
+**Neuer Schalter `--beschreibung`.** Der Graph lud bisher nur `unsure`-Fälle
+nach (sparsam, für den Zwischenlauf). Für den Wochenlauf ist `alle` nötig: nur
+mit vollständigem Anzeigentext ist der Fit präzise (Text-Treffer zählen 4 Punkte,
+Titel-Treffer 6). Im Bestand fehlten 100 von 137 Texten (StepStone 69,
+LinkedIn 31) — ohne `alle` würde der Wochenlauf den Fit für die Mehrheit der
+Stellen weiterhin nur aus dem Titel schätzen.
+
+**Nebenbefund.** `data/triage_rejected.json` (ADR-021) fehlte in der
+rclone-Ausschlussliste. Die Datei wird bei jedem Suchlauf neu geschrieben und
+wäre damit ein Sync-Konfliktkandidat — wie `jobs.json`/`matches.json`. Ergänzt.
+
+**Nebenbefund 2 (Log-Diagnose).** Python puffert stdout, wenn es nicht am
+Terminal läuft — der Lauf arbeitete bereits mit Chromium, das Log zeigte aber
+10 Minuten lang keine neue Zeile. Für einen Hintergrundlauf ist das fatal: der
+einzige Hinweis, dass gearbeitet wird, fehlt. Behoben mit ``-u`` und
+``PYTHONUNBUFFERED=1``.
+
+**Erster echter Lauf (gemessen).** 561 s (9,4 min). 130 Stellen gefunden,
+18 durch Triage verworfen, **130 Anzeigentexte nachgeladen** (vorher hatten nur
+37 von 137 einen Text), 10 Unterlagen erzeugt, Dashboard 107 relevant. Die
+9 Minuten sind der Preis für vollständige Texte — akzeptabel für einen
+Wochenlauf um 06:00.
+
+**Status.** Umgesetzt und einmal vollständig durchgelaufen. Timer aktiv
+(`systemctl --user list-timers`). Nächster automatischer Lauf: Montag 06:00.
+Testabdeckung: 5 Tests für den Umfang-Schalter, 22 für den Graphen gesamt.

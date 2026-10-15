@@ -51,7 +51,7 @@
       "en"
     ],
     "accent_color": "#0B3D5C",
-    "min_fit_for_generation": "mittel",
+    "min_fit_for_generation": "hoch",
     "lebenslauf_template": "classic",
     "lebenslauf_vorlage": {
       "de": "../02_Profil-und-Assets/Vorlage-Aktuell/Lebenslauf_Jacob_Dietzmann.docx",

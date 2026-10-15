@@ -22,7 +22,7 @@ def _config(tmp_path: Path, profile_json: str) -> Path:
         "search": {"enabled": False, "providers": [], "location": "München",
                    "query_terms": []},
         "documents": {"languages": ["de"], "accent_color": "#000000",
-                      "min_fit_for_generation": "mittel"},
+                      "min_fit_for_generation": "hoch"},
     }), encoding="utf-8")
     return cfg
 

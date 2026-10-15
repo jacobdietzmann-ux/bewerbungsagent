@@ -306,3 +306,95 @@ class TestStudentRolesAlwaysHidden:
         assert result["deleted_student"] == 0
         app = Store(config.db_path()).load_state()["applications"][0]
         assert not app.get("deleted")
+
+
+class TestFitBaender:
+    """50–64 % → ``research``, ab 65 % → ``docs``.
+
+    Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch.
+    Zuvor lag die Unterlagen-Schwelle bei 50 %, und ``run_enrich`` hatte die 50
+    fest verdrahtet — die Konfiguration war dort wirkungslos.
+    """
+
+    def test_mittleres_band_bekommt_keine_unterlagen(self, config, generated_calls):
+        _run(config, [_job("mittel", score=60)])
+        assert generated_calls == []
+
+    def test_ab_65_prozent_werden_unterlagen_erzeugt(self, config, generated_calls):
+        _run(config, [_job("hoch", score=65)])
+        assert [a["titel"] for a in generated_calls] == ["Testingenieur"]
+
+    def test_grenze_bei_64_keine_unterlagen(self, config, generated_calls):
+        _run(config, [_job("knapp", score=64)])
+        assert generated_calls == []
+
+    def test_bereits_erzeugte_unterlagen_im_mittelband_werden_zurueckgenommen(self, config):
+        apps = [_job("alt", score=60, status="docs",
+                     dokumente={"anschreiben_de": "x/Anschreiben.pdf"})]
+        result = _run(config, apps)
+        assert [z["titel"] for z in result["zurueckgenommen"]] == ["Testingenieur"]
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app["status"] == "research"
+        # Die Dateien bleiben referenziert — es wird nichts gelöscht.
+        assert app["dokumente"]
+
+    def test_versendete_stelle_im_mittelband_bleibt_docs(self, config):
+        """Echte Aktivität wird nicht nachträglich kleingerechnet."""
+        apps = [_job("gesendet", score=60, status="docs", sentAt="2026-10-14T18:30:00",
+                     dokumente={"anschreiben_de": "x/Anschreiben.pdf"})]
+        result = _run(config, apps)
+        assert result["zurueckgenommen"] == []
+        assert Store(config.db_path()).load_state()["applications"][0]["status"] == "docs"
+
+    def test_interview_im_mittelband_bleibt(self, config):
+        apps = [_job("iv", score=55, status="docs", interviewDate="2026-11-03",
+                     dokumente={"anschreiben_de": "x/Anschreiben.pdf"})]
+        result = _run(config, apps)
+        assert result["zurueckgenommen"] == []
+
+    def test_hoeherer_fit_bleibt_docs(self, config):
+        apps = [_job("hoch", score=72, status="docs",
+                     dokumente={"anschreiben_de": "x/Anschreiben.pdf"})]
+        result = _run(config, apps)
+        assert result["zurueckgenommen"] == []
+        assert Store(config.db_path()).load_state()["applications"][0]["status"] == "docs"
+
+    def test_konfiguration_steuert_die_schwelle(self, config, generated_calls, monkeypatch):
+        """``min_fit_for_generation: mittel`` senkt sie wieder auf 50 %."""
+        config.data["documents"]["min_fit_for_generation"] = "mittel"
+        _run(config, [_job("mittel", score=55)])
+        assert [a["titel"] for a in generated_calls] == ["Testingenieur"]
+
+    def test_unter_50_wird_ausgeblendet_nicht_research(self, config):
+        """Unter 50 % bleibt es beim Ausblenden — das ist kein Research-Fall."""
+        result = _run(config, [_job("zu wenig", score=45)])
+        assert result["deleted_fit_under_50"] == 1
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app.get("deleted") is True
+        assert app["deleted_reason"] == "FIT < 50 %"
+
+
+class TestMengenlaufFitBand:
+    """``run_generate`` muss dieselbe Schwelle nutzen wie ``run_enrich``."""
+
+    def _matches(self, config, *jobs):
+        save_json(config.matches_path(),
+                  [{**j, "id": i + 1, "fit_geschaetzt": "mittel"}
+                   for i, j in enumerate(jobs)])
+
+    def test_mittelband_wird_uebersprungen(self, config, generated_calls):
+        self._matches(config, _job("mittel", score=60))
+        run_generate(config, None)
+        assert generated_calls == []
+
+    def test_ab_65_wird_erzeugt(self, config, generated_calls):
+        self._matches(config, _job("hoch", score=66))
+        result = run_generate(config, None)
+        assert [a["titel"] for a in generated_calls] == ["Testingenieur"]
+        assert result["jobs_processed"] == 1
+
+    def test_ohne_score_zaehlt_fit_pct(self, config, generated_calls):
+        """Legacy-Importe haben ``fit_pct`` statt ``score``."""
+        self._matches(config, _job("legacy", score=0, fit_pct=70))
+        run_generate(config, None)
+        assert len(generated_calls) == 1

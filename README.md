@@ -332,8 +332,24 @@ Das Fit-Scoring (`bewerbungsagent/matching.py`) ist transparent und deterministi
 
 Deutsch/englische Varianten werden über eine Synonym-Brücke zusammengeführt („Testautomatisierung“
 matcht auch „test automation“/„testautomation“). Kategorien: `hoch` ≥ 65, `mittel` ≥ 40, sonst
-`niedrig`. Die Schwelle für die automatische Dokumentenerstellung (`min_fit_for_generation`)
-lässt sich in `config.json` anpassen.
+`niedrig`.
+
+Aus dem Fit folgt der Status — die Grenzen stehen in `bewerbungsagent/pipeline.py`:
+
+| Fit | Status | Dokumente |
+|---|---|---|
+| < 50 % | ausgeblendet | – |
+| 50–64 % | `Research` | keine |
+| ≥ 65 % | `Dokumente erstellt` | ja |
+
+Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch — deshalb
+bekommt das mittlere Band nur den Status `Research`. Bereits erzeugte Unterlagen in
+diesem Band setzt der nächste `enrich`-Lauf auf `Research` zurück; die Dateien bleiben
+liegen. Versendete und abgeschlossene Bewerbungen bleiben unangetastet.
+
+Die Schwelle (`documents.min_fit_for_generation`: `hoch` = 65 %, `mittel` = 50 %,
+`niedrig` = 0 %) lässt sich in `config.json` anpassen und gilt für beide Wege —
+`generate` und die automatische Erzeugung in `enrich`.
 
 ## Konfiguration
 
@@ -366,7 +382,8 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   (dann nennt der User-Agent nur die Projekt-URL).
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
-- `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung.
+- `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung
+  (`hoch` = 65 %, Standard; `mittel` = 50 %; `niedrig` = 0 %).
 - `documents.anschreiben_quellen` – `true`: belegt jeden Anspruch im Anschreiben mit
   Quelle und Zeitraum (siehe `bewerbungsagent/rag.py`). Standard `false`.
 - `documents.anschreiben_luecken` – `true`: benennt im Anschreiben transparent die

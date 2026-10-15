@@ -29,10 +29,28 @@ from .salary import enrich_salary
 from .search import run_search as _search
 from .storage import load_json, now_iso, save_json
 
-# Unterlagen-Schwellen als konkreter Score. „mittel" = 50 heißt: Stellen ab
-# 50 % Fit werden gebaut (bewusst unter der Kategorie „hoch" ≥ 65), damit auch
-# solide mittlere Treffer Unterlagen bekommen. „niedrig" = 0 baut alles.
-FIT_RANK = {"hoch": 65, "mittel": 50, "niedrig": 0}
+# Fit-Bänder. Ein Wert liegt in genau einem Band, und aus dem Band folgen Status
+# und Dokumenterzeugung — die Grenzen stehen deshalb nur hier:
+#   < 50 %  → ausgeblendet (kein tragfähiger Treffer)
+#   50–64 % → ``research``: beobachten, aber keine Unterlagen bauen
+#   ≥ 65 %  → ``docs``: Unterlagen erzeugen
+# Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch.
+FIT_BAND_AUSBLENDEN = 50
+FIT_BAND_UNTERLAGEN = 65
+
+# Namen für ``documents.min_fit_for_generation`` in der config.json.
+FIT_RANK = {"hoch": FIT_BAND_UNTERLAGEN, "mittel": FIT_BAND_AUSBLENDEN, "niedrig": 0}
+
+
+def _fit_fuer_unterlagen(config: Config) -> int:
+    """Fit-Schwelle für die automatische Dokumenterzeugung.
+
+    Einzige Quelle ist ``documents.min_fit_for_generation``. ``run_enrich`` hatte
+    die 50 zuvor fest verdrahtet und damit die Konfiguration ignoriert — eine
+    Änderung dort wäre wirkungslos geblieben.
+    """
+    name = config.data["documents"].get("min_fit_for_generation", "hoch")
+    return FIT_RANK.get(name, FIT_BAND_UNTERLAGEN)
 
 # Dateinamen analog zu den bestehenden Bewerbungsordnern in 01_Bewerbungen/.
 _DOC_NAMES = {
@@ -181,8 +199,13 @@ def _commute_blocked(config: Config, job: dict) -> bool:
 def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
                  template: str | None = None) -> dict:
     matches = load_json(config.matches_path(), [])
-    min_fit = min_fit or config.data["documents"].get("min_fit_for_generation", "mittel")
-    threshold = FIT_RANK.get(min_fit, FIT_RANK["mittel"])
+    # ``min_fit`` als Name ("hoch"/"mittel"/"niedrig") oder Zahl.
+    if isinstance(min_fit, (int, float)):
+        threshold = int(min_fit)
+    elif min_fit:
+        threshold = FIT_RANK.get(min_fit, FIT_BAND_UNTERLAGEN)
+    else:
+        threshold = _fit_fuer_unterlagen(config)
 
     # Welche Stellen haben schon Unterlagen? Die Information steht in der DB
     # (``state.json``/``jobs.db``), *nicht* in ``matches.json`` — die beiden
@@ -245,9 +268,13 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     1. Pendelweg (Auto) von Garching für alle Stellen berechnen.
     2. Gehaltsschätzung für alle Stellen ohne eigene Zahlenangabe.
     3. Stellen in ``research`` prüfen (Fit-Wert auffrischen/anzeigen).
-    4. Stellen mit FIT < 50 % löschen — nur für noch nicht versendete Stellen
-       (``research``/``docs``); versendete/abgeschlossene bleiben sichtbar.
-    5. Für Stellen mit FIT ≥ 50 % automatisch Bewerbungsunterlagen erzeugen.
+    4. Stellen mit FIT < der Ausblende-Grenze (50 %) ausblenden — nur für noch
+       nicht versendete Stellen (``research``/``docs``); versendete/abgeschlossene
+       bleiben sichtbar.
+    5. Für Stellen mit FIT ≥ der Unterlagen-Grenze (65 %) automatisch
+       Bewerbungsunterlagen erzeugen.
+    6. Bereits erzeugte Unterlagen im Band 50–64 % zurück auf ``research``
+       setzen: diese Stellen erfüllen die Regel aus 5 nicht mehr.
     """
     store = _store(config)
     state = store.load_state()
@@ -338,7 +365,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             if not reason or "nutzerkriterium" in low or "neubewertung" in low:
                 continue
             if low.startswith("fit"):
-                if _fit_value(a) < 50:
+                if _fit_value(a) < FIT_BAND_AUSBLENDEN:
                     continue                 # Grund gilt weiter
             elif low.startswith("pendel"):
                 pass                         # Pendelweg ist oben schon geprüft
@@ -353,12 +380,28 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             a["deleted_reason"] = f"Pendelweg > {_commute_limit_minutes(config)} min"
             deleted_commute += 1
             continue
-        if _fit_value(a) < 50 and not a.get("dokumente"):
+        if _fit_value(a) < FIT_BAND_AUSBLENDEN and not a.get("dokumente"):
             a["deleted"] = True
-            a["deleted_reason"] = "FIT < 50 %"
+            a["deleted_reason"] = f"FIT < {FIT_BAND_AUSBLENDEN} %"
             deleted_count += 1
 
-    # 5) FIT ≥ 50 % automatisch bewerben (nur wenn noch keine Unterlagen vorliegen)
+    # 6) Unterlagen im Mittelband zurücknehmen: ein 55-%-Treffer bekommt keine
+    #    Bewerbung. Die Dateien bleiben liegen (nichts wird gelöscht), nur der
+    #    Status wird ehrlich — ``docs`` heißt „hier liegt eine Bewerbung".
+    schwellenwert = _fit_fuer_unterlagen(config)
+    zurueckgenommen = []
+    for a in apps:
+        if a.get("deleted") or a.get("status") != "docs" or not a.get("dokumente"):
+            continue
+        if a.get("sentAt") or a.get("interviewDate"):
+            continue                     # echte Aktivität, nicht anfassen
+        if _fit_value(a) >= schwellenwert:
+            continue
+        a["status"] = "research"
+        zurueckgenommen.append({"firma": a.get("firma"), "titel": a.get("titel"),
+                                "fit": _fit_value(a)})
+
+    # 5) Ab der Unterlagen-Schwelle automatisch bewerben (nur ohne Unterlagen)
     generated = []
     skipped_role = []
     for a in apps:
@@ -366,7 +409,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             continue
         if a.get("verfuegbar") is False:
             continue
-        if _fit_value(a) < FIT_RANK["mittel"]:
+        if _fit_value(a) < schwellenwert:
             continue
         if a.get("dokumente"):
             continue
@@ -404,6 +447,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "generated": generated,
         "generated_count": len(generated),
         "skipped_role": skipped_role,
+        "zurueckgenommen": zurueckgenommen,
         "total": len(apps),
     }
 

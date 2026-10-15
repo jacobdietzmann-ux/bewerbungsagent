@@ -57,7 +57,7 @@ DEFAULT_CONFIG: dict = {
     "documents": {
         "languages": ["de", "en"],
         "accent_color": "#0B3D5C",
-        "min_fit_for_generation": "mittel",  # hoch | mittel | niedrig
+        "min_fit_for_generation": "hoch",  # hoch (65 %) | mittel (50 %) | niedrig (0 %)
         "lebenslauf_template": "classic",  # classic | modern | functional
         # Eigene aktuelle Lebenslauf-Vorlage (DOCX) statt ReportLab-Generierung.
         # Wenn gesetzt, wird das DOCX 1:1 übernommen und nur der Profil-Absatz

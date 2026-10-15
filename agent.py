@@ -22,6 +22,8 @@ from bewerbungsagent.commute import MAX_COMMUTE_MINUTES
 from bewerbungsagent.config import Config
 from bewerbungsagent.documents import CV_TEMPLATES, DEFAULT_CV_TEMPLATE
 from bewerbungsagent.pipeline import (
+    FIT_BAND_AUSBLENDEN,
+    FIT_BAND_UNTERLAGEN,
     load_config_and_profile,
     run_dashboard,
     run_enrich,
@@ -184,7 +186,8 @@ def main(argv=None) -> int:
             for r in result["research_checked"]:
                 flag = " (abgelaufen)" if r.get("verfuegbar") is False else ""
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
-        print(f"Gelöscht (FIT < 50 %): {result['deleted_fit_under_50']} Stelle(n).")
+        print(f"Ausgeblendet (FIT < {FIT_BAND_AUSBLENDEN} %): "
+              f"{result['deleted_fit_under_50']} Stelle(n).")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         print(f"Gelöscht (Studenten-/Praktikumsstelle): "
@@ -198,10 +201,11 @@ def main(argv=None) -> int:
         if result.get("restored_active"):
             print(f"Wieder sichtbar (versendet/abgeschlossen, Flag war veraltet): "
                   f"{result['restored_active']} Stelle(n).")
-        for s in result.get("skipped_role", []):
-            print(f"Übersprungen (kein Test-/Absicherungs-Titel): "
+        for s in result.get("zurueckgenommen", []):
+            print(f"Zurück auf Research (FIT < {FIT_BAND_UNTERLAGEN} %): "
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")
-        print(f"Automatisch bewerbt (FIT ≥ 50 %): {result['generated_count']} Stelle(n).")
+        print(f"Automatisch beworben (FIT ≥ {FIT_BAND_UNTERLAGEN} %): "
+              f"{result['generated_count']} Stelle(n).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
 

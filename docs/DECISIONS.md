@@ -688,3 +688,42 @@ in `data/quarantaene/` (nichts gelöscht). Skript: `scripts/repair_fehllauf.py`.
 
 **Testabdeckung.** `tests/test_db_user_protection.py` (13) und
 `TestMengenlaufRoleGuard` in `tests/test_enrich_cleanup.py` (3).
+
+## ADR-027 – Fit-Bänder: 50–64 % bleibt Research, erst ab 65 % entstehen Unterlagen
+
+**Problem.** Die Unterlagen-Schwelle lag bei 50 % (`min_fit_for_generation: "mittel"`).
+Damit bekamen Stellen im Band 50–64 % denselben Status `Dokumente erstellt` wie ein
+80-%-Treffer. Der Nutzer sah im Dashboard 10 Bewerbungen, die er so nie verschickt
+hätte — ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch.
+
+**Nebenbefund (der eigentliche Fallstrick).** `run_generate` las die Schwelle aus der
+Konfiguration, `run_enrich` hatte sie mit `FIT_RANK["mittel"]` fest verdrahtet. Beide
+standen zufällig auf 50, sodass es nicht auffiel — eine Änderung an
+`min_fit_for_generation` wäre für die automatische Erzeugung aber wirkungslos
+geblieben. Beide Wege nutzen jetzt `_fit_fuer_unterlagen(config)`.
+
+**Entscheidung.** Die Grenzen stehen genau einmal, als benannte Konstanten:
+
+| Fit | Status | Dokumente |
+|---|---|---|
+| < 50 % (`FIT_BAND_AUSBLENDEN`) | ausgeblendet | – |
+| 50–64 % | `research` | keine |
+| ≥ 65 % (`FIT_BAND_UNTERLAGEN`) | `docs` | ja |
+
+* Konfiguration: `documents.min_fit_for_generation` = `hoch` (65 %, neuer Standard) |
+  `mittel` (50 %) | `niedrig` (0 %). `FIT_RANK` übersetzt die Namen.
+* **Rücknahme statt Löschen:** Bereits erzeugte Unterlagen im mittleren Band setzt
+  `run_enrich` auf `research` zurück. Die Dokumente bleiben referenziert und auf der
+  Platte; der Eintrag bleibt damit sichtbar und die Entscheidung umkehrbar. Nur der
+  Status wird ehrlich — `docs` heißt „hier liegt eine Bewerbung".
+* Versendete und abgeschlossene Bewerbungen (`sentAt`, `interviewDate`) werden nicht
+  zurückgestuft: echte Aktivität wird nicht nachträglich kleingerechnet.
+* Die Rücknahme orientiert sich am aktuellen Fit. Steigt ein Text nach dem Nachladen
+  über 65 %, greift sie nicht mehr — der Lauf ist idempotent.
+
+**Verworfene Alternative.** Unterlagen im mittleren Band löschen. Das vernichtet
+bezahlte Rechenzeit und die Ordner sind der einzige Beleg, was der Agent gebaut hat.
+
+**Testabdeckung.** `TestFitBaender` und `TestMengenlaufFitBand` in
+`tests/test_enrich_cleanup.py` (12). Die Fixtures stehen auf dem neuen Standard
+`hoch`, damit Tests und Auslieferung nicht auseinanderlaufen.

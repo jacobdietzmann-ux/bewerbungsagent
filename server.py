@@ -55,8 +55,19 @@ PORT = 8766
 DASHBOARD_PATH = "/04_Agent/dashboard.html"
 STATE_FILE = os.path.join(SCRIPT_DIR, "data", "state.json")
 # SQLite-Datenbank = Single Source of Truth (ADR-018). ``state.json`` bleibt nur
-# als abgeleiteter Snapshot für bisync/Backup bestehen.
-DB_FILE = os.path.join(SCRIPT_DIR, "data", "jobs.db")
+# als abgeleiteter Snapshot für bisync/Backup bestehen. Der Pfad kommt aus der
+# Config, damit ``BEWERBUNGSAGENT_DB`` (nicht synchronisierte Ablage unter
+# Windows) greift; ohne Config/Env-Variable bleibt der Standard unter data/.
+def _resolve_db_file() -> str:
+    if Config is not None:
+        try:
+            return str(Config().db_path())
+        except Exception:
+            pass
+    return os.path.join(SCRIPT_DIR, "data", "jobs.db")
+
+
+DB_FILE = _resolve_db_file()
 # Dashboard-Template/Quellcode, dessen Änderung einen Neubau auslösen soll.
 DASHBOARD_SRC = os.path.join(SCRIPT_DIR, "bewerbungsagent", "dashboard.py")
 # Das erzeugte Dashboard. Änderungen daran (z. B. durch ``agent.py dashboard``)

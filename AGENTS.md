@@ -50,7 +50,10 @@ damit `bewerbungsagent` importierbar ist.
    `data/jobs.db*` ist von bisync **ausgeschlossen** (Binärdatei!). Nach jedem
    Schreiben wird `state.json` als abgeleiteter Snapshot exportiert — der ist
    bisync-sicher und dient als Backup. DB-Veränderungen nur über `db.Store`,
-   nie durch direktes JSON-Editing von `state.json`.
+   nie durch direktes JSON-Editing von `state.json`. Unter Windows (Google
+   Drive Desktop, keine Datei-Ausschlüsse) liegt die DB stattdessen unter
+   `%LOCALAPPDATA%\bewerbungsagent\jobs.db` (Env-Variable
+   `BEWERBUNGSAGENT_DB`, siehe docs/BACKUP.md).
 
 8. **`uv.lock` nach Dependency-Änderungen aktualisieren.** Nach jeder Änderung an
    `pyproject.toml` (Dependencies/Extras) `uv lock` ausführen und `uv.lock`

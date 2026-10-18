@@ -7,6 +7,7 @@ Alle relativen Pfade werden relativ zum Agent-Root (dem Ordner, in dem
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 # Agent-Root = Ordner, der dieses Package (bewerbungsagent/) enthält.
@@ -127,6 +128,18 @@ class Config:
         return self.data_dir / "state.json"
 
     def db_path(self) -> Path:
+        """Pfad zur SQLite-Quelle der Wahrheit (``data/jobs.db``).
+
+        Über die Umgebungsvariable ``BEWERBUNGSAGENT_DB`` lässt sich die
+        Datenbank in eine lokale, nicht synchronisierte Ablage verschieben.
+        Nötig unter Windows, wo Google Drive Desktop einzelne Dateien nicht vom
+        Sync ausschließen kann und die WAL-Dateien von SQLite beim Sync
+        korrumpieren (siehe docs/BACKUP.md). Ohne die Variable bleibt der
+        bisherige Standard unverändert.
+        """
+        override = os.environ.get("BEWERBUNGSAGENT_DB", "").strip()
+        if override:
+            return Path(override).expanduser()
         return self.data_dir / "jobs.db"
 
     def import_path(self) -> Path:

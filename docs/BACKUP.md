@@ -110,6 +110,35 @@ liegen im HDD-Backup (`rclone-backup.timer`), nicht in der Cloud.
 > sie propagieren. `--resync-mode newer` (statt Default `path1`) verhindert,
 > dass ältere Cloud-Versionen neuere lokale Dateien überschreiben.
 
+## Windows: SQLite-DB aus dem Google-Drive-Sync herausnehmen
+
+Die `bisync-exclude.txt` oben greift nur beim Linux-`rclone`-Sync. **Google
+Drive Desktop unter Windows kennt keine Datei-Ausschlüsse** und synchronisiert
+`data/jobs.db`, `data/jobs.db-wal` und `data/jobs.db-shm` einzeln. Weil SQLite
+im WAL-Modus diese drei Dateien separat schreibt, lädt Drive Desktop einen
+inkonsistenten Stand hoch und die Datenbank wird korrupt
+(„database disk image is malformed“ → leeres Dashboard).
+
+Deshalb liegt die Quelle der Wahrheit unter Windows in einer **nicht
+synchronisierten lokalen Ablage**. Der Pfad wird über die Umgebungsvariable
+`BEWERBUNGSAGENT_DB` gesteuert; ohne sie bleibt der Standard (`data/jobs.db`)
+unverändert (Linux und Tests).
+
+```powershell
+# Einmalig (Server vorher beenden):
+$src = "$env:USERPROFILE\GoogleDrive\DOKUMENTE\Job\Bewerbung\2026\04_Agent\data\jobs.db"
+$dst = "$env:LOCALAPPDATA\bewerbungsagent\jobs.db"
+New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+Move-Item $src $dst
+# WAL/SHM-Reste im Sync-Ordner entfernen
+Remove-Item "$src-wal","$src-shm" -ErrorAction SilentlyContinue
+# Umgebungsvariable dauerhaft setzen (gilt für neue Prozesse)
+setx BEWERBUNGSAGENT_DB "$dst"
+```
+
+`state.json` bleibt weiterhin der synchronisierte Snapshot in `data/` — das
+Backup-Verhalten (`backup_state.sh`, rclone) ändert sich nicht.
+
 ## Restore-Test (das Wichtigste!)
 
 Ein Backup ohne Restore-Probe ist kein Backup. Regelmäßig prüfen:

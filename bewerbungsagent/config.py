@@ -54,6 +54,10 @@ DEFAULT_CONFIG: dict = {
         "home_address": "",
         # Kontakt für Nominatim/OSRM. Leer lassen genügt (Projekt-URL).
         "contact_email": "",
+        # Firmensitz je Arbeitgeber, wenn die Anzeige nur die Zentrale nennt.
+        # Schlüssel = Firmenname (normalisiert verglichen), Wert = Ort/Adresse.
+        # Beispiel: {"STARK Defence": "Maisach"}
+        "office_overrides": {},
     },
     "documents": {
         "languages": ["de", "en"],

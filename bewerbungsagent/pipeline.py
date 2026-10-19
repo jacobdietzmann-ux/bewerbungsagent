@@ -81,14 +81,16 @@ def _store(config: Config) -> Store:
     return Store(config.db_path())
 
 
-def _commute_settings(config: Config) -> tuple[str, str]:
-    """Wohnadresse und Kontaktadresse aus ``commute``.
+def _commute_settings(config: Config) -> tuple[str, str, dict]:
+    """Wohnadresse, Kontaktadresse und Firmensitz-Überschreibungen aus ``commute``.
 
-    Beide sind persönliche Angaben und stehen deshalb in der privaten
-    ``config.json`` (im Google-Drive-Ordner) — nicht im Quelltext.
+    Alle drei sind persönliche/projektbezogene Angaben und stehen deshalb in der
+    privaten ``config.json`` (im Google-Drive-Ordner) — nicht im Quelltext.
     """
     commute = config.data.get("commute") or {}
-    return commute.get("home_address") or "", commute.get("contact_email") or ""
+    return (commute.get("home_address") or "",
+            commute.get("contact_email") or "",
+            commute.get("office_overrides") or {})
 
 
 def _persist_state(config: Config, store: Store, state: dict) -> None:

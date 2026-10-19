@@ -49,7 +49,8 @@ def _kein_netzwerk(monkeypatch):
     Pendelzeit überschreiben (ohne ``ort`` sogar auf ``None``).
     """
     monkeypatch.setattr("bewerbungsagent.pipeline.enrich_commute",
-                        lambda apps, data_dir, home_address=None, contact_email=None: {"total": len(apps)})
+                        lambda apps, data_dir, home_address=None, contact_email=None,
+                               office_overrides=None: {"total": len(apps)})
     monkeypatch.setattr("bewerbungsagent.pipeline.enrich_salary",
                         lambda apps: {"kept": 0, "estimated": 0})
 

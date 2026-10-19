@@ -128,6 +128,23 @@ def is_remote(ort: str) -> bool:
     return any(m in normalize(ort or "") for m in _REMOTE_MARKERS)
 
 
+def office_override(firma: str, overrides: dict | None) -> str:
+    """Konfigurierter Firmensitz, der die Ortsangabe der Anzeige ersetzt.
+
+    Viele Anzeigen nennen nur die Zentrale („München"), während das Büro
+    tatsächlich woanders liegt (z. B. STARK Defence in Maisach). Der Pendelweg
+    muss zum echten Arbeitsort berechnet werden — sonst liegt er zu niedrig und
+    eine zu weit entfernte Stelle rutscht durch die ``max_pendelzeit_min``-Grenze.
+    """
+    if not overrides or not firma:
+        return ""
+    key = normalize(firma)
+    for name, office in overrides.items():
+        if normalize(name) == key:
+            return str(office or "").strip()
+    return ""
+
+
 def _is_metro(token: str) -> bool:
     return any(c in token for c in _METRO)
 
@@ -267,12 +284,16 @@ def _route_driving(home: dict, dest: dict,
 
 def enrich_commute(apps: list[dict], data_dir: Path,
                    home_address: str | None = None,
-                   contact_email: str | None = None) -> dict:
+                   contact_email: str | None = None,
+                   office_overrides: dict | None = None) -> dict:
     """Berechnet Pendelzeit/-distanz für alle Stellen und schreibt sie zurück.
 
     ``home_address`` kommt aus ``commute.home_address`` der Konfiguration.
     Fehlt sie, wird ein klarer Hinweis geworfen statt still eine falsche
     Adresse zu verwenden.
+
+    ``office_overrides`` (aus ``commute.office_overrides``) ersetzt die
+    Ortsangabe der Anzeige durch den tatsächlichen Firmensitz.
 
     Felder pro Stelle: ``pendel_modus`` (Auto|Remote), ``pendelzeit_min``,
     ``pendeldistanz_km``.
@@ -301,6 +322,11 @@ def enrich_commute(apps: list[dict], data_dir: Path,
     stats = {"total": len(apps), "remote": 0, "routed": 0, "cached": 0, "failed": 0}
 
     for a in apps:
+        # Firmensitz-Überschreibung: die Anzeige nennt oft nur die Zentrale.
+        override = office_override(a.get("firma"), office_overrides)
+        if override:
+            a["ort"] = override
+
         ort = a.get("ort") or ""
         if is_remote(ort):
             a["pendel_modus"] = "Remote"

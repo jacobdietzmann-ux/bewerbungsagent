@@ -387,6 +387,11 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   Quelltext, sondern hier (bzw. in der privaten `config.json`).
 - `commute.contact_email` – Kontakt für die Nominatim-/OSRM-Anfragen; leer lassen genügt
   (dann nennt der User-Agent nur die Projekt-URL).
+- `commute.office_overrides` – Firmensitz je Arbeitgeber, wenn die Anzeige nur die
+  Zentrale nennt: `{"STARK Defence": "Maisach"}`. Der Wert ersetzt die Ortsangabe der
+  Stelle, und der Pendelweg wird zum echten Büro berechnet. Ohne Überschreibung wird
+  der Weg zu kurz geschätzt (München-Zentrale statt Maisach) und eine zu weit entfernte
+  Stelle kann die `max_pendelzeit_min`-Grenze umgehen.
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung

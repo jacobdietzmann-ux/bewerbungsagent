@@ -2,7 +2,7 @@
 
 Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
 - Suche (Firma/Position/Branche), Profil-Fit-Filter, Status-Sichtfilter (Checkboxen)
-- KPI-Karten (Versand-Quote, Interview-Rate, Interviews von Gesamt, Ø Fit, Aktiv)
+- KPI-Karten (Versand-Quote, Interview-Rate, Ø Fit, Aktiv)
 - Status-Verteilungs-Balkendiagramm + gestapeltes Wochen-Balkendiagramm
 - sortierbare Tabelle mit editierbarem Status-Dropdown, Interview-Termin,
   Versand-Datum (auto), Löschen, Ordner öffnen, Dokument-Links
@@ -722,14 +722,12 @@ function renderKpis() {
   const versandBasis = total - rejectedCount;
   const versandQuote = pct(sentPlus, versandBasis);
   const interviewRate = pct(interviews, sentPlus);
-  const funnel = pct(interviews, total);
   const ivRows = rows.filter(r => r.status === "interview");
   const fitAvg = ivRows.length ? (ivRows.reduce((a,r)=>a+(+r.fit||0),0)/ivRows.length) : 0;
 
   const cards = [
     { label:"Versand-Quote", value:versandQuote+"%", target:"Ziel ≥ 90%", c:cls(versandQuote,90,60) },
     { label:"Interview-Rate", value:interviewRate+"%", target:"von versendeten", c:cls(interviewRate,15,8) },
-    { label:"Interviews von Gesamt", value:funnel+"%", target:"Ziel ≥ 10%", c:cls(funnel,10,5) },
     { label:"Ø Profil-Fit (Interviews)", value:(fitAvg?Math.round(fitAvg):"–")+" <small>%</small>", target:"Ziel ≥ 70%", c:fitAvg>=80?"good":(fitAvg>=65?"warn":(fitAvg?"bad":"")) },
     { label:"Aktiv im Prozess", value:sentPlus+" <small>/ "+total+"</small>", target:"Versendet o. weiter", c:"" },
   ];

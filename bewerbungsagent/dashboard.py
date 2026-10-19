@@ -32,6 +32,7 @@ from pathlib import Path
 
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
+from .db import USER_DELETE_REASON
 from .matching import fit_value
 from .statuses import ORDER, STATUS, normalize_status
 from .storage import now_iso
@@ -602,7 +603,7 @@ const LAST_FUND_ANZAHL = __LAST_FUND_ANZAHL__;
 const EDITABLE = ["status", "contact", "deleted", "deleted_reason", "notes", "interviewDate", "statusChangedAt", "sentAt"];
 // Marker für eine Löschung durch den Nutzer. Der Pipeline-Lauf erkennt daran,
 // dass er den Eintrag nicht wieder einblenden darf.
-const USER_DELETE_REASON = "nutzerkriterium: im Dashboard entfernt";
+const USER_DELETE_REASON = __USER_DELETE_REASON__;
 const KEY = "bewerbungsagent-dashboard-v1";
 const HIDDEN_STATUSES_KEY = "bewerbungsagent-hidden-statuses";
 const TAB_KEY = "bewerbungsagent-active-tab";
@@ -1386,4 +1387,7 @@ document.addEventListener("visibilitychange", () => {
 # STATUS/ORDER-Platzhalter im JS ersetzen (modulweit, einmalig).
 _HTML_TEMPLATE = (_HTML_TEMPLATE
                   .replace("__STATUS__", _status_json())
-                  .replace("__ORDER__", _order_json()))
+                  .replace("__ORDER__", _order_json())
+                  # Marker für Dashboard-Löschungen: eine Quelle im Backend,
+                  # damit Frontend und Pipeline denselben Wert prüfen.
+                  .replace("__USER_DELETE_REASON__", json.dumps(USER_DELETE_REASON, ensure_ascii=False)))

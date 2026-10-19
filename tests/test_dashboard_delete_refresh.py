@@ -45,10 +45,24 @@ def test_refresh_deckt_alle_ansichten_ab(tmp_path):
 def test_onDelete_nutzt_die_zentrale_aktualisierung(tmp_path):
     html = _html(tmp_path)
     start = html.index("function onDelete(e)")
-    body = html[start:start + 400]
+    body = html[start:start + 500]
     assert "refreshAllViews()" in body
     # Kein vergessenes Einzel-Rendering mehr.
     assert "renderKpis();" not in body
+
+
+def test_onDelete_markiert_die_loeschung_dauerhaft(tmp_path):
+    """Ohne Marker würde ein Pipeline-Lauf die Löschung wieder aufheben."""
+    html = _html(tmp_path)
+    start = html.index("function onDelete(e)")
+    body = html[start:start + 500]
+    assert "row.deleted = true;" in body
+    assert "row.deleted_reason = USER_DELETE_REASON;" in body
+    # Der Marker ist im Frontend und im Backend identisch.
+    from bewerbungsagent.dashboard import USER_DELETE_REASON as JS_REASON
+    from bewerbungsagent.db import USER_DELETE_REASON as PY_REASON
+    assert JS_REASON == PY_REASON
+    assert f'const USER_DELETE_REASON = "{PY_REASON}";' in html
 
 
 def test_onEdit_nutzt_die_zentrale_aktualisierung(tmp_path):

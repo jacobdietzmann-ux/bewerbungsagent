@@ -2,7 +2,7 @@
 
 Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
 - Suche (Firma/Position/Branche), Profil-Fit-Filter, Status-Sichtfilter (Checkboxen)
-- KPI-Karten (Versand-Quote, Antwortrate, Interview-Rate, Funnel, Ø Fit, Aktiv)
+- KPI-Karten (Versand-Quote, Interview-Rate, Interviews von Gesamt, Ø Fit, Aktiv)
 - Status-Verteilungs-Balkendiagramm + gestapeltes Wochen-Balkendiagramm
 - sortierbare Tabelle mit editierbarem Status-Dropdown, Interview-Termin,
   Versand-Datum (auto), Löschen, Ordner öffnen, Dokument-Links
@@ -717,12 +717,10 @@ function renderKpis() {
   const total = rows.length;
   const rejectedCount = rows.filter(r => r.status === "rejected").length;
   const sentPlus = rows.filter(r => ["sent","followup","interview"].includes(r.status)).length;
-  const responded = rows.filter(r => ["followup","interview"].includes(r.status)).length;
   const interviews = rows.filter(r => r.status === "interview").length;
 
   const versandBasis = total - rejectedCount;
   const versandQuote = pct(sentPlus, versandBasis);
-  const antwortRate = pct(responded, sentPlus);
   const interviewRate = pct(interviews, sentPlus);
   const funnel = pct(interviews, total);
   const ivRows = rows.filter(r => r.status === "interview");
@@ -730,9 +728,8 @@ function renderKpis() {
 
   const cards = [
     { label:"Versand-Quote", value:versandQuote+"%", target:"Ziel ≥ 90%", c:cls(versandQuote,90,60) },
-    { label:"Antwortrate", value:antwortRate+"%", target:"Ziel ≥ 40%", c:cls(antwortRate,40,20) },
-    { label:"Interview-Rate", value:interviewRate+"%", target:"Ziel ≥ 15%", c:cls(interviewRate,15,8) },
-    { label:"Funnel (IV/Gesamt)", value:funnel+"%", target:"Ziel ≥ 10%", c:cls(funnel,10,5) },
+    { label:"Interview-Rate", value:interviewRate+"%", target:"von versendeten", c:cls(interviewRate,15,8) },
+    { label:"Interviews von Gesamt", value:funnel+"%", target:"Ziel ≥ 10%", c:cls(funnel,10,5) },
     { label:"Ø Profil-Fit (Interviews)", value:(fitAvg?Math.round(fitAvg):"–")+" <small>%</small>", target:"Ziel ≥ 70%", c:fitAvg>=80?"good":(fitAvg>=65?"warn":(fitAvg?"bad":"")) },
     { label:"Aktiv im Prozess", value:sentPlus+" <small>/ "+total+"</small>", target:"Versendet o. weiter", c:"" },
   ];

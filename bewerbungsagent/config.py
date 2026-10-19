@@ -136,9 +136,15 @@ class Config:
         Sync ausschließen kann und die WAL-Dateien von SQLite beim Sync
         korrumpieren (siehe docs/BACKUP.md). Ohne die Variable bleibt der
         bisherige Standard unverändert.
+
+        Der Override gilt **nur für die produktive ``config.json``** im
+        Agent-Root. Tests und Skripte übergeben eine eigene Config mit eigenem
+        ``data_dir``; dort würde der Override sonst die echte Datenbank treffen
+        — ein Testlauf hat sie damit auf einen einzigen Testeintrag
+        zurückgesetzt (``save_state`` ersetzt den Bestand vollständig).
         """
         override = os.environ.get("BEWERBUNGSAGENT_DB", "").strip()
-        if override:
+        if override and self.path.resolve() == (AGENT_ROOT / "config.json").resolve():
             return Path(override).expanduser()
         return self.data_dir / "jobs.db"
 

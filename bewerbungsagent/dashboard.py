@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
@@ -154,19 +154,18 @@ def zuletzt_gefunden(app: dict, letzter_fund: dict | None) -> bool:
 
 
 def _fmt_date(app: dict) -> str:
-    """Liefert das „Gefunden am"-Datum eines Eintrags (DD.MM.YYYY).
+    """Liefert das „Gefunden am"-Datum eines Eintrags (DD.MM.YYYY) oder ``""``.
 
     Priorität:
     1. ``datum``            – explizites Fund-Datum aus dem alten Dashboard.
     2. ``created``          – Erfassungszeitpunkt des Agenten (ISO-Zeitstempel).
     3. ``sentAt``           – Versanddatum (nur als Rückfallebene).
-    4. heutiges Datum       – letzter Ausweg für unvollständige Alt-Einträge.
 
-    Ohne ``created`` würden alle neu erfassten Stellen auf „heute" fallen und die
-    Wochenstatistik künstlich in die aktuelle Woche verzerren.
+    Ist kein Wert vorhanden, wird **kein** Datum erfunden: früher fiel die
+    Funktion auf „heute" zurück. Dadurch landeten Alt-Einträge ohne
+    Zeitstempel im Wochenverlauf in der aktuellen Woche und täuschten neue
+    Funde vor (z. B. 9 Einträge am 19.10.2026, obwohl nichts gefunden wurde).
     """
-    today = date.today()
-    today_de = f"{today.day:02d}.{today.month:02d}.{today.year}"
     datum = (app.get("datum") or "").strip()
     if datum:
         return datum
@@ -179,7 +178,7 @@ def _fmt_date(app: dict) -> str:
     if sent and len(sent) >= 10:
         y, m, d = sent[:10].split("-")
         return f"{d}.{m}.{y}"
-    return today_de
+    return ""
 
 
 def _availability(app: dict) -> bool | None:
@@ -864,7 +863,7 @@ function renderRows() {
       <td>${r.location || '<span style="color:#64748b">k. A.</span>'}</td>
       <td class="center">${homeofficeBadge(r.homeoffice)}</td>
       <td class="center">${commuteBadge(r)}</td>
-      <td class="center">${r.date}</td>
+      <td class="center">${r.date || '<span style="color:#64748b">k. A.</span>'}</td>
       <td class="center">
         <span class="badge ${STATUS[r.status].cls}">${STATUS[r.status].label}</span>
         <div style="margin-top:6px"><select autocomplete="off" data-i="${i}" data-k="status">${statusOpts}</select></div>

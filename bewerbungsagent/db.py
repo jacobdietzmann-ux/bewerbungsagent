@@ -20,6 +20,7 @@ Pipeline, Server und Dashboard unverändert mit Dicts arbeiten können.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,7 @@ class Store:
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self._guard_production_db()
         url = f"sqlite:///{self.path}"
         self.engine = create_engine(
             url,
@@ -114,6 +116,27 @@ class Store:
         self._configure_sqlite()
         self._ensure_schema(url)
         self._Session = sessionmaker(bind=self.engine, future=True)
+
+    def _guard_production_db(self) -> None:
+        """Verhindert, dass ein Testlauf die produktive Datenbank beschreibt.
+
+        ``save_state`` ersetzt den gesamten Bestand. Griff ein Test versehentlich
+        auf die echte DB zu, wurde sie auf die Testdaten reduziert (342
+        Bewerbungen → 1 Testeintrag). Die Pfad-Auflösung in ``Config`` schließt
+        das schon aus; diese Sperre ist die zweite Verteidigungslinie.
+        """
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        prod = os.environ.get("BEWERBUNGSAGENT_DB", "").strip()
+        if not prod:
+            return
+        try:
+            if self.path.expanduser().resolve() == Path(prod).expanduser().resolve():
+                raise RuntimeError(
+                    "Testlauf darf nicht die produktive Datenbank verwenden: " + str(self.path)
+                )
+        except OSError:  # pragma: no cover - Pfad nicht auflösbar
+            return
 
     def _configure_sqlite(self) -> None:
         @event.listens_for(self.engine, "connect")

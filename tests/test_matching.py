@@ -162,6 +162,32 @@ class TestRoleSignal:
     def test_erkennt_keine_testrollen(self, titel):
         assert has_role_signal(titel) is False
 
+    @pytest.mark.parametrize("titel", [
+        # Berufsbezeichnungen, deren Wortstamm ein Domänenwort ist:
+        # „elektronik" steckt in „elektroniker". Eine Hilti-Stelle „Elektroniker"
+        # bekam so bei 76 % Unterlagen, obwohl es ein Fertigungsberuf ist.
+        "Elektroniker",
+        "Elektroniker (m/w/d)",
+        "Elektronikerin für Betriebstechnik",
+        "Elektriker / Elektroniker (m/w/d) für Elektromobilität",
+        "Kfz-Mechatroniker m/w/d in VZ/TZ",
+        "Elektrotechniker (m/w/d)",
+    ])
+    def test_berufsbezeichnung_ist_keine_testrolle(self, titel):
+        assert has_role_signal(titel) is False
+
+    @pytest.mark.parametrize("titel", [
+        # Die Domänenwörter bleiben als Signal erhalten, wenn sie nicht die
+        # Berufsbezeichnung auf -er bilden.
+        "Systems Engineer (m/w/d) - Schwerpunkt Mechatronik",
+        "Mechatronik-Ingenieur (m/w/d)",
+        "Entwickler - Elektroniktests (m/w/d)",
+        "Elektrotechnik Ingenieur (m/w/d)",
+        "Testingenieur Elektrik/Elektronik",
+    ])
+    def test_domaenenwort_bleibt_signal(self, titel):
+        assert has_role_signal(titel) is True
+
     def test_leerer_titel_ist_kein_signal(self):
         assert has_role_signal("") is False
         assert has_role_signal(None) is False

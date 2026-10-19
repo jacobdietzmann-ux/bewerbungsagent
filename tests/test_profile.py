@@ -29,6 +29,34 @@ class TestNormalize:
         assert "mu" in normalize("München")
         assert "ß" not in normalize("Straße")
 
+    @pytest.mark.parametrize("zeichen", [
+        "\u2010",  # HYPHEN — StepStone liefert genau diesen in Titeln
+        "\u2011",  # NON-BREAKING HYPHEN
+        "\u2012", "\u2013", "\u2014", "\u2015", "\u2212", "\ufe63", "\uff0d",
+    ])
+    def test_strichvarianten_werden_gefaltet(self, zeichen):
+        """Der Schlüssel darf nicht von der Unicode-Variante des Strichs abhängen.
+
+        StepStone liefert dieselbe Anzeige einmal mit ``c-uas`` und einmal mit
+        ``c‐uas`` (U+2010). Daraus wurden zwei Schlüssel und zwei Einträge für
+        dieselbe Stelle — der zweite erschien als neuer Fund, obwohl die
+        Bewerbung längst versendet war.
+        """
+        assert normalize(f"c{zeichen}uas") == normalize("c-uas")
+
+    def test_weiches_trennzeichen_verschwindet(self):
+        assert normalize("Test\u00adEngineer") == "testengineer"
+
+    def test_url_varianten_ergeben_denselben_schluessel(self):
+        a = "https://www.stepstone.de/stellenangebote--Flight-Test-C-UAS-Gilching--14315467-inline.html"
+        b = "https://www.stepstone.de/stellenangebote--Flight-Test-C\u2010UAS-Gilching--14315467-inline.html"
+        assert normalize(a) == normalize(b)
+
+    def test_echte_unterschiede_bleiben(self):
+        """Falten darf keine verschiedenen Stellen gleich machen."""
+        assert normalize("c-uas") != normalize("cuas")
+        assert normalize("Test-Engineer") != normalize("Test Engineer")
+
 
 class TestSplitPhrases:
     def test_parenthesized_term_splits_into_both_parts(self):

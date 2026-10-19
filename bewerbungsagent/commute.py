@@ -112,6 +112,17 @@ _REMOTE_MARKERS = ("remote", "homeoffice", "home office", "deutschlandweit",
 _NOISE_PAREN = ("ermittelbar", "einsatzort", "nicht munchen", "nicht münchen",
                 "werk", "kein festes", "kein buro", "kein büro", "bei munchen")
 
+# Zusatz hinter dem Ortsnamen, der nur die Region nennt („Poing bei München",
+# „Kaufering nahe München"). Wird entfernt, damit geokodiert werden kann.
+# Vorher war nur „bei" abgedeckt — „Kaufering nahe München" blieb stehen und
+# war bei Nominatim nicht auflösbar, die Stelle hatte dann gar keinen Pendelweg
+# und umging damit die harte Grenze.
+_NOISE_SUFFIX = re.compile(
+    r"\s+(?:nahe(?:\s+bei)?|nähe|bei|raum|umgebung|großraum|grossraum)\s+"
+    r"(?:m[uü]nchen|munich)\s*$",
+    re.IGNORECASE,
+)
+
 
 def is_remote(ort: str) -> bool:
     return any(m in normalize(ort or "") for m in _REMOTE_MARKERS)
@@ -127,8 +138,7 @@ def _strip_noise(part: str) -> str:
         inner = normalize(m.group(1))
         return "" if any(p in inner for p in _NOISE_PAREN) else m.group(0)
     cleaned = re.sub(r"\(([^)]*)\)", repl, part)
-    cleaned = re.sub(r"\s+bei\s+(?:m[uü]nchen|munich)$", "", cleaned,
-                     flags=re.IGNORECASE)
+    cleaned = _NOISE_SUFFIX.sub("", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip(" ,-")
 
 
@@ -217,9 +227,20 @@ class _Geocoder:
         return result
 
     def save(self) -> None:
+        """Schreibt den Cache — ohne erfolglose Abfragen.
+
+        Ein ``None`` heißt „hat nicht geklappt", nicht „gibt es nicht". Wurde es
+        mitgeschrieben, blieb der Ort für immer unauflösbar: ``geocode`` liefert
+        den gespeicherten Fehlschlag zurück, ohne erneut zu fragen. So standen
+        Gilching, Poing und Erding dauerhaft auf „Nicht ermittelt", obwohl sie
+        auflösbar sind. Innerhalb eines Laufs bleibt der Fehlschlag im
+        Speicher-Cache (kein zweiter Aufruf für denselben Ort), über Läufe
+        hinweg wird er erneut versucht.
+        """
         try:
             tmp = self.cache_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.cache, ensure_ascii=False), encoding="utf-8")
+            tmp.write_text(json.dumps({k: v for k, v in self.cache.items() if v},
+                                      ensure_ascii=False), encoding="utf-8")
             tmp.replace(self.cache_path)
         except OSError:
             # Cache ist best-effort: ein Schreibfehler darf den Lauf nicht stoppen.

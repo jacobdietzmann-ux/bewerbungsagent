@@ -32,7 +32,13 @@ _ROLE_SIGNAL_RE = re.compile(
     r"|\babsicherung\w*|\berprobung\w*|\bversuchsingenieur\w*"
     r"|\bqualifikation\w*|\bqualifizierung\w*|\bqa\b|\bqualitaetssicherung\w*"
     r"|\bpruef\w*|\bpruf\w*"          # Prüfstands-, Prüffeld-, Prüfingenieur
-    r"|\bmechatronik\w*|\belektronik\w*|\belektrotechnik\w*"
+    # Domänenwörter, die eine technische Rolle belegen. Das ``(?!er)`` schließt
+    # die Berufsbezeichnungen aus: „Elektroniker" ist ein Fertigungsberuf, keine
+    # Testrolle. Vorher matchte ``\belektronik\w*`` das Wort, weil „elektronik"
+    # ein Präfix von „elektroniker" ist — eine Hilti-Stelle „Elektroniker" bekam
+    # dadurch bei 76 % Unterlagen. „Elektroniktests", „Elektrotechnik" und
+    # „Mechatronik-Ingenieur" bleiben erlaubt; „Kfz-Mechatroniker" nicht.
+    r"|\bmechatronik(?!er)\w*|\belektronik(?!er)\w*|\belektrotechnik(?!er)\w*"
     r"|\bintegration\w*"
 )
 

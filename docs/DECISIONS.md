@@ -727,3 +727,99 @@ bezahlte Rechenzeit und die Ordner sind der einzige Beleg, was der Agent gebaut 
 **Testabdeckung.** `TestFitBaender` und `TestMengenlaufFitBand` in
 `tests/test_enrich_cleanup.py` (12). Die Fixtures stehen auf dem neuen Standard
 `hoch`, damit Tests und Auslieferung nicht auseinanderlaufen.
+
+## ADR-028 – Pendelweg: „nahe München" entfernen, Fehlschläge nicht zwischenspeichern
+
+Zwei Fehler, die zusammen dazu führten, dass die harte 30-Minuten-Grenze
+unbemerkt umgangen wurde.
+
+**Fehler 1: Ortszusatz nur teilweise entfernt.** `_strip_noise` kannte
+„Poing bei München", aber nicht „Kaufering nahe München". Der Zusatz blieb
+stehen, Nominatim fand nichts, und die Stelle hatte danach **gar keinen
+Pendelweg**. `exceeds_commute_limit` liefert für unbekannte Werte bewusst
+`False` („eine fehlende Angabe ist kein Ausschlussgrund") — die Folge: eine
+Hilti-Stelle in Kaufering (75,5 km) bekam bei 76 % Fit komplette Unterlagen.
+
+*Fix.* Ein gemeinsames Muster entfernt den Regionszusatz nach `nahe`, `nähe`,
+`bei`, `raum`, `umgebung`, `großraum` vor „München". Hilti wird jetzt mit
+**53 min** geroutet und ausgeblendet.
+
+**Fehler 2: Fehlschläge wurden dauerhaft gespeichert.** `geocode` schreibt bei
+leerem Ergebnis `None` in den Cache und gab das beim nächsten Aufruf zurück,
+ohne erneut zu fragen. Ein einmaliger Fehlschlag — etwa wegen eines störenden
+Zusatzes — blieb damit **für immer** bestehen. 15 Orte standen so dauerhaft auf
+„Nicht ermittelt", darunter Gilching, Poing, Gräfelfing und Erding, obwohl die
+reine Stadtangabe problemlos auflösbar ist.
+
+*Fix.* `save()` schreibt keine `None`-Einträge mehr. Innerhalb eines Laufs bleibt
+der Fehlschlag im Speicher-Cache (kein zweiter Aufruf für denselben Ort), über
+Läufe hinweg wird er erneut versucht. Der Altbestand wird beim nächsten
+Speichern bereinigt. Kosten: ein Request je unauflösbarem Ort und Lauf,
+gedrosselt auf 1,1 s.
+
+**Offen bleibende Fälle.** 23 Einträge haben gar keinen Ort, einer „Bavaria,
+Germany" (kein Arbeitsort). Dort bleibt der Pendelweg unbekannt und die
+Grenze greift nicht — bewusst, weil eine fehlende Angabe nichts ausschließt.
+Für die Dokumenterzeugung ist das ein Restrisiko; sichtbar ist es im Dashboard
+als „k. A.".
+
+**Testabdeckung.** `tests/test_commute_locations.py` (2) und
+`tests/test_geocode_cache.py` (4).
+
+## ADR-029 – Schlüssel: Unicode-Striche falten, Dubletten zusammenführen
+
+**Problem.** Der Schlüssel einer Bewerbung ist `normalize(url)`. `normalize`
+löste Umlaute auf, faltete aber keine Strichvarianten. StepStone liefert
+dieselbe Anzeige (Job-ID 14315467) einmal mit `c-uas` (U+002D) und einmal mit
+`c‐uas` (U+2010) — daraus wurden **zwei Schlüssel und zwei Einträge** für
+dieselbe Stelle.
+
+Die Folge war genau das Muster, das der Nutzer zuvor gemeldet hatte: Der erste
+Eintrag war `sent` mit Unterlagen, der zweite `neu` ohne Unterlagen. Bei einer
+erneuten Erzeugung hätte die längst versendete Bewerbung als frischer Fall
+erschienen.
+
+**Entscheidung.** `normalize` faltet U+2010, U+2011, U+2012, U+2013, U+2014,
+U+2015, U+2212, U+FE63 und U+FF0D auf `-`; U+00AD (weiches Trennzeichen) wird
+entfernt. Anders als zunächst geschrieben braucht `str.translate` ein
+`str.maketrans`-Objekt mit Ordinalzahlen — ein Dict mit Zeichen als Schlüssel
+wirkt stillschweigend gar nicht.
+
+**Wirkung auf das Matching: null.** Auf dem Bestand (135 Anzeigen) ändert die
+Faltung keinen einzigen Score — sie betrifft nur den Schlüssel, nicht die
+Trefferbewertung.
+
+**Bereinigung.** `scripts/dedupe_schluessel.py` findet Zeilen, deren Schlüssel
+nicht mehr zur heutigen Regel passt, während der kanonische Schlüssel bereits
+von einer anderen Zeile belegt ist. Vor dem Entfernen werden Nutzerfelder
+(`sentAt`, `notes`, `contact`, `interviewDate`, `statusChangedAt`) übernommen,
+Dokumentverweise zusammengeführt und ein weiter fortgeschrittener Status
+gewinnt. Ein Lauf entfernte genau eine Waise; der versendete Eintrag blieb
+unverändert (0 Feldverluste).
+
+**Bewusst nicht angefasst.** 83 Zeilen tragen einen `firma|titel`-Schlüssel,
+obwohl inzwischen eine URL bekannt ist. Sie umzuschlüsseln hieße, Primärschlüssel
+zu verschieben — bei Nutzerdaten zu riskant für den Nutzen. Sie bleiben stabil.
+
+**Testabdeckung.** `TestNormalize` in `tests/test_profile.py` (11 Fälle:
+Strichvarianten, weiches Trennzeichen, URL-Gleichheit, echte Unterschiede).
+
+## ADR-030 – Rollen-Signal: Berufsbezeichnungen auf -er sind keine Testrollen
+
+`has_role_signal` prüft den Titel auf Test-/Absicherungswörter, darunter die
+Domänenwörter `mechatronik`, `elektronik`, `elektrotechnik`. Mit `\w*` am Ende
+matchte `\belektronik\w*` auch **„Elektroniker"**, weil „elektronik" ein Präfix
+des Berufsnamens ist. Dasselbe galt für „Elektrotechniker" und
+„Kfz-Mechatroniker".
+
+Folge: Die Hilti-Anzeige **„Elektroniker"** galt als Testrolle und bekam bei
+76 % Fit (erreicht über generische Wörter wie „prüfstände", „messtechnik",
+„dokumentation") komplette Unterlagen. Es ist ein Fertigungsberuf.
+
+*Fix.* Negatives Lookahead `(?!er)` an den drei Domänenwörtern. Damit bleiben
+„Elektroniktests", „Elektrotechnik Ingenieur", „Mechatronik-Ingenieur" und
+„Schwerpunkt Mechatronik" erlaubt (die beiden letzteren sind ausdrücklich
+gewollte Treffer), während die Berufsbezeichnungen ausscheiden.
+
+**Testabdeckung.** `test_matching.py`: 6 Berufsbezeichnungen ohne Signal,
+5 Domänenwort-Titel mit Signal.

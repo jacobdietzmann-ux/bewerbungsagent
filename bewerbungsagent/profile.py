@@ -73,11 +73,24 @@ _SYNONYMS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Unicode-Varianten des Bindestrichs. StepStone liefert denselben Job einmal mit
+# U+002D und einmal mit U+2010 („c-uas" vs. „c‐uas") — daraus wurden zwei
+# Schlüssel und damit zwei Einträge für dieselbe Stelle. Der zweite Eintrag war
+# „neu", ohne Unterlagen; bei einer erneuten Erzeugung hätte die bereits
+# versendete Bewerbung als frischer Fall erschienen.
+_DASH_FOLD = str.maketrans({
+    "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-",
+    "\u2015": "-", "\u2212": "-", "\ufe63": "-", "\uff0d": "-",
+    "\u00ad": "",          # weiches Trennzeichen: unsichtbar, gehört entfernt
+})
+
+
 def normalize(text: str) -> str:
-    """Kleinbuchstaben, Umlaute/ß auflösen, Diakritika entfernen."""
+    """Kleinbuchstaben, Umlaute/ß auflösen, Diakritika und Strichvarianten."""
     if not text:
         return ""
     text = text.lower()
+    text = text.translate(_DASH_FOLD)
     text = text.replace("ß", "ss")
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))

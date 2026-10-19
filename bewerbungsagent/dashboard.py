@@ -1054,11 +1054,17 @@ function updateNeuInfo() {
   if (!el) return;
   const n = state.filter(r => !r.deleted && r.neuImLauf).length;
   const gesamt = LAST_FUND_ANZAHL || n;
-  el.textContent = n
-    ? (n < gesamt
-        ? `${n} von ${gesamt} neuen Stellen sichtbar (${LAST_RUN}) — der Rest liegt ausserhalb der Pendelgrenze`
-        : `${n} Stelle(n) neu gefunden (${LAST_RUN})`)
-    : "noch keine Funde protokolliert";
+  if (!n) {
+    // Ein Fund unter der Fit-Schwelle ist unsichtbar — „keine Funde" wäre dann
+    // schlicht falsch (der Lauf vom 19.10. fand eine Stelle mit 32 %).
+    el.textContent = gesamt
+      ? `${gesamt} neue Stelle(n), alle ausgeblendet (Fit < 50 % oder Pendelweg > ${COMMUTE_LIMIT} min)`
+      : "noch keine Funde protokolliert";
+    return;
+  }
+  el.textContent = n < gesamt
+    ? `${n} von ${gesamt} neuen Stellen sichtbar (${LAST_RUN}) — der Rest liegt unter der Fit-Schwelle oder ausserhalb der Pendelgrenze`
+    : `${n} Stelle(n) neu gefunden (${LAST_RUN})`;
 }
 
 renderRows();

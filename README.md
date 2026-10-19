@@ -223,6 +223,13 @@ cat data/tageslauf-status.json     # { "zustand": "OK" | "FEHLER" | "LAUFEND", .
 tail -40 data/tageslauf.log        # Verlauf des Laufs
 ```
 
+Läuft der Lauf, während der Google-Drive-Sync (bisync, alle 15 min) dazwischen
+greift, darf er nicht das offene Log verlieren. Die Laufzeitdateien
+(`tageslauf.log`, `-status.json`, `.lock`) sind deshalb in
+`~/.config/rclone/bisync-exclude.txt` ausgenommen — am 19.10. löschte bisync das
+offene Log, der Prozess schrieb danach in eine verschwundene Datei
+(`/proc/<pid>/fd/1 → tageslauf.log (deleted)`).
+
 Die Stellen, die der Lauf neu gefunden hat, tragen im Dashboard das Badge
 **„neu gefunden"** (Filter: „Nur neu gefundene"). Sie bleiben markiert, bis ein
 Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht. Sie

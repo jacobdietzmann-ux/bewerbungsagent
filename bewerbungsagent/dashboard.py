@@ -2,7 +2,7 @@
 
 Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
 - Suche (Firma/Position/Branche), Profil-Fit-Filter, Status-Sichtfilter (Checkboxen)
-- KPI-Karten (Versand-Quote, Interview-Rate, Ø Fit, Aktiv)
+- KPI-Karten (Versand-Quote, Interview-Rate, Absagen-Quote, Ø Fit, Aktiv)
 - Status-Verteilungs-Balkendiagramm + gestapeltes Wochen-Balkendiagramm
 - sortierbare Tabelle mit editierbarem Status-Dropdown, Interview-Termin,
   Versand-Datum (auto), Löschen, Ordner öffnen, Dokument-Links
@@ -45,6 +45,31 @@ _APPLICATION_DOCUMENT_KEYS = {
     "cover_letter_en", "cv_en",
 }
 
+# Das Alt-Dashboard speicherte die Dokumente unter ihren *Anzeige*-Labels statt
+# unter technischen Keys. Solche Einträge galten als „ohne Bewerbungsunterlagen"
+# und fielen aus Tabelle und Status-Verteilung (53 Einträge, u. a. 6 von 7
+# Interviews). Beim Lesen werden die Labels auf die kanonischen Keys abgebildet.
+_LEGACY_DOC_KEYS = {
+    "Anschreiben": "anschreiben_de",
+    "Lebenslauf": "lebenslauf_de",
+    "Anschreiben (EN)": "anschreiben_en",
+    "Cover Letter (EN)": "cover_letter_en",
+    "CV (EN)": "cv_en",
+    "Lebenslauf (EN)": "lebenslauf_en",
+    "Stellenanzeige": "stellenanzeige",
+    "Referenzschreiben": "referenzschreiben",
+    "Referenzschreiben (BMW)": "referenzschreiben",
+    "Briefing (PDF)": "briefing",
+    "Briefing (PDF, EN)": "briefing_en",
+    "Briefing (Interview)": "briefing",
+    "Briefing (Markdown)": "briefing_md",
+}
+
+
+def _canonical_doc_key(key: str) -> str:
+    """Bildet Legacy-Anzeige-Labels auf die technischen Dokument-Keys ab."""
+    return _LEGACY_DOC_KEYS.get(key, key)
+
 GERMAN_MONTHS = [
     "Januar", "Februar", "März", "April", "Mai", "Juni",
     "Juli", "August", "September", "Oktober", "November", "Dezember",
@@ -74,6 +99,7 @@ def _root_rel(stored_rel: str) -> str:
 
 def _existing_documents(app: dict) -> list[tuple[str, str]]:
     documents = []
+    seen: set[str] = set()
     for key, stored in (app.get("dokumente") or {}).items():
         if not isinstance(stored, str) or not stored.strip():
             continue
@@ -85,7 +111,12 @@ def _existing_documents(app: dict) -> list[tuple[str, str]]:
         except FileNotFoundError:
             continue
         if path.is_file() and stat.st_size > 0:
-            documents.append((key, stored))
+            canonical = _canonical_doc_key(key)
+            # Kanonischer Key gewinnt gegen ein Legacy-Label desselben Dokuments.
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            documents.append((canonical, stored))
     return documents
 
 
@@ -102,18 +133,42 @@ def _exceeds_dashboard_commute_limit(app: dict, limit: int = MAX_COMMUTE_MINUTES
     return exceeds_commute_limit(app, limit=limit)
 
 
+# Status, ab denen die Bewerbung tatsächlich rausgegangen ist. Ab hier ist der
+# Eintrag ein Faktum im Prozess: fehlende Unterlagen im Ordner oder ein zu
+# weiter Pendelweg dürfen ihn nicht aus Tabelle und Statistik entfernen.
+# Vorher verschwanden 56 abgeschlossene Bewerbungen (7× sent, 49× rejected) —
+# die Absagen-Quote rechnete dadurch nur auf einer Teilmenge.
+_PROGRESSED_STATUSES = {"sent", "followup", "interview", "rejected"}
+
+
 def dashboard_applications(applications: list[dict],
                            limit: int = MAX_COMMUTE_MINUTES) -> list[dict]:
-    """Dokumentierte Bewerbungen innerhalb der Pendelzeit-Grenze.
+    """Für Tabelle und Statistik relevante Bewerbungen.
+
+    Zwei Regeln:
+
+    1. **Bereits beworben** (``sent`` und weiter): immer sichtbar. Der Eintrag
+       dokumentiert einen Vorgang, nicht eine Option.
+    2. **Noch nicht beworben** (``research``/``docs``): nur mit vorhandenem
+       Anschreiben/Lebenslauf und innerhalb der Pendelzeit-Grenze. Das ist die
+       Entscheidungsgrundlage, ob sich eine Bewerbung lohnt.
 
     ``limit`` kommt aus ``max_pendelzeit_min`` der Konfiguration; der Standard
     ist die Modulkonstante, damit Aufrufe ohne Konfiguration (Tests, Skripte)
     dasselbe Verhalten zeigen.
     """
-    return [
-        app for app in documented_applications(applications)
-        if not _exceeds_dashboard_commute_limit(app, limit)
-    ]
+    result = []
+    for app in applications:
+        if normalize_status(app.get("status")) in _PROGRESSED_STATUSES:
+            result.append(app)
+            continue
+        if not any(key in _APPLICATION_DOCUMENT_KEYS
+                   for key, _ in _existing_documents(app)):
+            continue
+        if _exceeds_dashboard_commute_limit(app, limit):
+            continue
+        result.append(app)
+    return result
 
 
 def _app_id(app: dict) -> str:
@@ -323,6 +378,15 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .kpi .target { font-size:11px; margin-top:4px; }
   .good { color:var(--green); } .warn { color:var(--amber); } .bad { color:var(--red); }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .dist-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:22px; }
+  .dist-title { font-size:12px; font-weight:600; color:var(--text); margin-bottom:2px; }
+  .dist-sub { font-size:11px; color:var(--muted); margin-bottom:8px; }
+  .dist-row { display:flex; align-items:center; gap:8px; font-size:11px; margin-bottom:4px; }
+  .dist-label { width:132px; color:var(--muted); flex:none; overflow:hidden;
+                text-overflow:ellipsis; white-space:nowrap; }
+  .dist-track { flex:1; background:var(--panel-2); border-radius:5px; overflow:hidden; height:14px; }
+  .dist-fill { height:100%; border-radius:5px; }
+  .dist-num { width:52px; text-align:right; flex:none; color:var(--text); }
   .table-scroll { overflow-x:auto; }
   table { width:100%; min-width:1080px; border-collapse:collapse; font-size:13px; table-layout:fixed; }
   th, td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle;
@@ -377,6 +441,12 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     box-shadow:0 8px 30px #000a; opacity:0; pointer-events:none; transition:opacity .25s,transform .25s; z-index:999; }
   #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   #toast code { background:var(--panel); padding:2px 6px; border-radius:5px; word-break:break-all; }
+  .tabs { display:flex; gap:4px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+  .tab { background:transparent; border:none; border-bottom:2px solid transparent; border-radius:0;
+         padding:11px 18px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .tab:hover { color:var(--text); }
+  .tab.active { color:var(--text); border-bottom-color:var(--accent); }
+  .pane[hidden] { display:none; }
 </style>
 </head>
 <body>
@@ -388,88 +458,126 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="sub" id="stamp">Stand: __GENERATED__</div>
   </header>
 
-  <section class="kpis" id="kpis"></section>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" id="tabBtn-table" data-tab="table" role="tab"
+            aria-controls="tab-table" aria-selected="true">Tabelle</button>
+    <button class="tab" id="tabBtn-stats" data-tab="stats" role="tab"
+            aria-controls="tab-stats" aria-selected="false">Statistik &amp; Diagramme</button>
+  </nav>
 
-  <section class="card" style="padding:14px 16px;margin-bottom:16px">
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Status-Verteilung</div>
-    <div id="statusChart" style="display:flex;flex-direction:column;gap:6px"></div>
-  </section>
-
-  <section class="card" style="padding:14px 16px;margin-bottom:16px">
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Bewerbungsaktivität im Wochenverlauf</div>
-    <div id="timeChart" style="display:flex;align-items:flex-end;gap:12px;overflow-x:auto;padding:4px 2px 6px"></div>
-    <div id="timeChartLegend" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:11px;color:var(--muted)"></div>
-  </section>
-
-  <div class="toolbar" style="margin-top:0" id="statusToggles"></div>
-  <div class="toolbar">
-    <input type="text" id="searchBox" placeholder="Suche: Firma, Position, Branche …" style="max-width:260px" />
-    <select id="fitFilter" style="max-width:200px">
-      <option value="0">Alle Profil-Fits</option>
-      <option value="50">Nur ≥ 50 % (mittel+)</option>
-      <option value="65">Nur ≥ 65 % (gelb+)</option>
-      <option value="80">Nur ≥ 80 % (grün)</option>
-    </select>
-    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
-      <input type="checkbox" id="neuFilter" /> Nur neu gefundene
-    </label>
-    <span id="neuInfo" class="sub" style="font-size:11px"></span>
-  </div>
-
-  <div class="card">
-    <div class="table-scroll">
-    <table id="table-main">
-      <colgroup>
-        <col style="width:12%">
-        <col style="width:17%">
-        <col style="width:9%">
-        <col style="width:11%">
-        <col style="width:5%">
-        <col style="width:5%">
-        <col style="width:6%">
-        <col style="width:12%">
-        <col style="width:5%">
-        <col style="width:6%">
-        <col style="width:8%">
-        <col style="width:4%">
-      </colgroup>
-      <thead>
-        <tr>
-          <th data-col="0" onclick="sortTable(0)">Unternehmen <span class="arw">↕</span></th>
-          <th data-col="1" onclick="sortTable(1)">Position <span class="arw">↕</span></th>
-          <th data-col="2" onclick="sortTable(2)">Branche <span class="arw">↕</span></th>
-          <th class="center" data-col="3" onclick="sortTable(3)">Arbeitsort <span class="arw">↕</span></th>
-          <th class="center" data-col="4" onclick="sortTable(4)">Homeoffice <span class="arw">↕</span></th>
-          <th class="center" data-col="5" onclick="sortTable(5)">Pendelweg <span class="arw">↕</span></th>
-          <th class="center" data-col="6" onclick="sortTable(6)">Gefunden am <span class="arw">↕</span></th>
-          <th class="center" data-col="7" onclick="sortTable(7)">Status <span class="arw">↕</span></th>
-          <th class="center" data-col="8" onclick="sortTable(8)">Profil-Fit <span class="arw">↕</span></th>
-          <th class="center" data-col="9" onclick="sortTable(9)">Gehalt (ca.) <span class="arw">↕</span></th>
-          <th class="center" data-col="10" onclick="sortTable(10)">Links <span class="arw">↕</span></th>
-          <th class="center">Aktion</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
+  <section class="pane" id="tab-table" role="tabpanel" aria-labelledby="tabBtn-table">
+    <div class="toolbar" style="margin-top:0" id="statusToggles"></div>
+    <div class="toolbar">
+      <input type="text" id="searchBox" placeholder="Suche: Firma, Position, Branche …" style="max-width:260px" />
+      <select id="fitFilter" style="max-width:200px">
+        <option value="0">Alle Profil-Fits</option>
+        <option value="50">Nur ≥ 50 % (mittel+)</option>
+        <option value="65">Nur ≥ 65 % (gelb+)</option>
+        <option value="80">Nur ≥ 80 % (grün)</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
+        <input type="checkbox" id="neuFilter" /> Nur neu gefundene
+      </label>
+      <span id="neuInfo" class="sub" style="font-size:11px"></span>
     </div>
-  </div>
 
-  <div class="toolbar">
-    <button id="reset">Auf Standard zurücksetzen</button>
-    <button id="export">Als JSON exportieren</button>
-  </div>
+    <div class="card">
+      <div class="table-scroll">
+      <table id="table-main">
+        <colgroup>
+          <col style="width:12%">
+          <col style="width:17%">
+          <col style="width:9%">
+          <col style="width:11%">
+          <col style="width:5%">
+          <col style="width:5%">
+          <col style="width:6%">
+          <col style="width:12%">
+          <col style="width:5%">
+          <col style="width:6%">
+          <col style="width:8%">
+          <col style="width:4%">
+        </colgroup>
+        <thead>
+          <tr>
+            <th data-col="0" onclick="sortTable(0)">Unternehmen <span class="arw">↕</span></th>
+            <th data-col="1" onclick="sortTable(1)">Position <span class="arw">↕</span></th>
+            <th data-col="2" onclick="sortTable(2)">Branche <span class="arw">↕</span></th>
+            <th class="center" data-col="3" onclick="sortTable(3)">Arbeitsort <span class="arw">↕</span></th>
+            <th class="center" data-col="4" onclick="sortTable(4)">Homeoffice <span class="arw">↕</span></th>
+            <th class="center" data-col="5" onclick="sortTable(5)">Pendelweg <span class="arw">↕</span></th>
+            <th class="center" data-col="6" onclick="sortTable(6)">Gefunden am <span class="arw">↕</span></th>
+            <th class="center" data-col="7" onclick="sortTable(7)">Status <span class="arw">↕</span></th>
+            <th class="center" data-col="8" onclick="sortTable(8)">Profil-Fit <span class="arw">↕</span></th>
+            <th class="center" data-col="9" onclick="sortTable(9)">Gehalt (ca.) <span class="arw">↕</span></th>
+            <th class="center" data-col="10" onclick="sortTable(10)">Links <span class="arw">↕</span></th>
+            <th class="center">Aktion</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      </div>
+    </div>
 
-  <div class="legend">
-    <strong>Status-Workflow:</strong>
-    <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
-    <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ __COMMUTE_LIMIT__ min); zusätzlich die zuletzt gefundenen Stellen, auch ohne Unterlagen. Reine frühere Funde (<code>Research</code>) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
-    <strong>„neu gefunden":</strong> Die Stelle gehört zum jüngsten Fund (blauer Balken links, Badge an der Position, Filter oben). Das bleibt stehen, bis ein Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht.<br>
-    <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
-    <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
-    <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
-    <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
-    <strong>Aktion (🗑):</strong> Entfernt den Eintrag aus dem Dashboard (nach Bestätigung); rückgängig nur über „Auf Standard zurücksetzen".
-  </div>
+    <div class="toolbar">
+      <button id="reset">Auf Standard zurücksetzen</button>
+      <button id="export">Als JSON exportieren</button>
+    </div>
+
+    <div class="legend">
+      <strong>Status-Workflow:</strong>
+      <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
+      <strong>Angezeigt werden nur Stellen mit Bewerbungsdokumenten</strong> (Pendelweg ≤ __COMMUTE_LIMIT__ min); zusätzlich die zuletzt gefundenen Stellen, auch ohne Unterlagen. Reine frühere Funde (<code>Research</code>) bleiben ausgeblendet und zählen nicht in den Kennzahlen mit.<br>
+      <strong>„neu gefunden":</strong> Die Stelle gehört zum jüngsten Fund (blauer Balken links, Badge an der Position, Filter oben). Das bleibt stehen, bis ein Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht.<br>
+      <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
+      <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
+      <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
+      <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
+      <strong>Aktion (🗑):</strong> Entfernt den Eintrag aus dem Dashboard (nach Bestätigung); rückgängig nur über „Auf Standard zurücksetzen".
+    </div>
+  </section>
+
+  <section class="pane" id="tab-stats" role="tabpanel" aria-labelledby="tabBtn-stats" hidden>
+    <section class="kpis" id="kpis"></section>
+
+    <section class="card" style="padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Status-Verteilung</div>
+      <div id="statusChart" style="display:flex;flex-direction:column;gap:6px"></div>
+    </section>
+
+    <section class="card" style="padding:14px 16px;margin-bottom:16px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Bewerbungsaktivität im Wochenverlauf</div>
+      <div id="timeChart" style="display:flex;align-items:flex-end;gap:12px;overflow-x:auto;padding:4px 2px 6px"></div>
+      <div id="timeChartLegend" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:11px;color:var(--muted)"></div>
+    </section>
+
+    <section class="card" style="padding:14px 16px">
+      <div style="font-size:12px;color:var(--text);font-weight:600;margin-bottom:2px">Häufigkeitsverteilungen</div>
+      <div class="dist-sub" id="distBasis"></div>
+      <div class="dist-grid">
+        <div>
+          <div class="dist-title">Homeoffice</div>
+          <div class="dist-sub">Wie präsent ist die Stelle?</div>
+          <div id="distHomeoffice"></div>
+        </div>
+        <div>
+          <div class="dist-title">Fahrzeit (einfach, Auto)</div>
+          <div class="dist-sub">Pendelweg zur Grenze von __COMMUTE_LIMIT__ min</div>
+          <div id="distCommute"></div>
+        </div>
+        <div>
+          <div class="dist-title">Profil-Fit</div>
+          <div class="dist-sub">Matching gegen dein Skill-Profil</div>
+          <div id="distFit"></div>
+        </div>
+        <div>
+          <div class="dist-title">Unternehmen</div>
+          <div class="dist-sub" id="distCompanySub">Top-Arbeitgeber im Bestand</div>
+          <div id="distCompany"></div>
+        </div>
+      </div>
+    </section>
+  </section>
 
 <script>
 const STATUS = __STATUS__;
@@ -491,6 +599,7 @@ const LAST_FUND_ANZAHL = __LAST_FUND_ANZAHL__;
 const EDITABLE = ["status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt"];
 const KEY = "bewerbungsagent-dashboard-v1";
 const HIDDEN_STATUSES_KEY = "bewerbungsagent-hidden-statuses";
+const TAB_KEY = "bewerbungsagent-active-tab";
 
 let sortCol = -1, sortAsc = true;
 
@@ -637,6 +746,10 @@ function pct(part, whole) {
 function cls(v, good, warn) {
   return v >= good ? "good" : (v >= warn ? "warn" : "bad");
 }
+// Für Kennzahlen, bei denen *niedrig* gut ist (z. B. Absagen-Quote).
+function clsInv(v, good, warn) {
+  return v <= good ? "good" : (v <= warn ? "warn" : "bad");
+}
 
 function fitBadge(fit) {
   const f = +fit || 0;
@@ -719,15 +832,24 @@ function renderKpis() {
   const sentPlus = rows.filter(r => ["sent","followup","interview"].includes(r.status)).length;
   const interviews = rows.filter(r => r.status === "interview").length;
 
+  // „Versendet" im Sinne der Erfolgsquoten: alles, was tatsächlich rausging.
+  // Eine Absage setzt einen Versand voraus und gehört deshalb in den Nenner —
+  // sonst rechnet die Absagen-Quote gegen eine Grundmenge, die sie selbst
+  // ausschließt, und Interview-Rate + Absagen-Quote ergeben zusammen > 100 %.
+  const everSent = sentPlus + rejectedCount;
+
   const versandBasis = total - rejectedCount;
   const versandQuote = pct(sentPlus, versandBasis);
-  const interviewRate = pct(interviews, sentPlus);
+  const interviewRate = pct(interviews, everSent);
+  const absagenQuote = pct(rejectedCount, everSent);
+
   const ivRows = rows.filter(r => r.status === "interview");
   const fitAvg = ivRows.length ? (ivRows.reduce((a,r)=>a+(+r.fit||0),0)/ivRows.length) : 0;
 
   const cards = [
     { label:"Versand-Quote", value:versandQuote+"%", target:"Ziel ≥ 90%", c:cls(versandQuote,90,60) },
     { label:"Interview-Rate", value:interviewRate+"%", target:"von versendeten", c:cls(interviewRate,15,8) },
+    { label:"Absagen-Quote", value:absagenQuote+"%", target:"von versendeten", c:clsInv(absagenQuote,30,50) },
     { label:"Ø Profil-Fit (Interviews)", value:(fitAvg?Math.round(fitAvg):"–")+" <small>%</small>", target:"Ziel ≥ 70%", c:fitAvg>=80?"good":(fitAvg>=65?"warn":(fitAvg?"bad":"")) },
     { label:"Aktiv im Prozess", value:sentPlus+" <small>/ "+total+"</small>", target:"Versendet o. weiter", c:"" },
   ];
@@ -739,6 +861,114 @@ function renderKpis() {
     </div>`).join("");
   renderStatusChart();
   renderTimeChart();
+  renderDistributions();
+}
+
+// Ordnet die sehr uneinheitlichen Homeoffice-Angaben fünf Kategorien zu.
+// Reihenfolge ist wichtig: „Vor Ort" vor „Homeoffice möglich", weil
+// „k. A. (Vor Ort)" sonst als unbekannt gezählt würde.
+function homeofficeCategory(v) {
+  const s = (v == null ? "" : String(v)).toLowerCase().trim();
+  if (!s || s === "unbekannt" || s === "k. a." || s === "keine angabe") return "Unbekannt";
+  if (/voll.?remote|remote.?first|100\s*%\s*(remote|home|mobil)|^remote\b/.test(s)) return "Voll-Remote";
+  if (/hybrid/.test(s)) return "Hybrid";
+  if (/vor ort|präsenz|praesenz|vor-ort/.test(s)) return "Vor Ort";
+  if (/home.?office|mobiles arbeiten|remote|nach vereinbarung|flex|mobil/.test(s)) return "Homeoffice möglich";
+  return "Unbekannt";
+}
+
+const HOME_ORDER = ["Voll-Remote", "Hybrid", "Homeoffice möglich", "Vor Ort", "Unbekannt"];
+const HOME_COLORS = {
+  "Voll-Remote": "#22c55e", "Hybrid": "#84cc16", "Homeoffice möglich": "#38bdf8",
+  "Vor Ort": "#f59e0b", "Unbekannt": "#64748b",
+};
+
+// Baut eine Balkenliste. ``items`` = [{label, n, color}], sortiert wie übergeben.
+function renderDistBars(elId, items) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const max = Math.max(1, ...items.map(i => i.n));
+  const total = items.reduce((a, i) => a + i.n, 0) || 1;
+  el.innerHTML = items.map(i => {
+    const w = Math.round((i.n / max) * 100);
+    const share = Math.round((i.n / total) * 100);
+    return `
+      <div class="dist-row" title="${esc(i.label)}: ${i.n} (${share}%)">
+        <div class="dist-label" title="${esc(i.label)}">${esc(i.label)}</div>
+        <div class="dist-track"><div class="dist-fill" style="width:${w}%;background:${i.color}"></div></div>
+        <div class="dist-num">${i.n} <span style="color:#64748b">· ${share}%</span></div>
+      </div>`;
+  }).join("") || '<div class="dist-sub">Keine Daten.</div>';
+}
+
+function renderDistributions() {
+  // Gleiche Grundmenge wie die Status-Verteilung: sichtbare Zeilen, damit die
+  // Zahlen untereinander konsistent sind.
+  const rows = state.filter(r => !r.deleted && r.visible !== false);
+  const basisEl = document.getElementById("distBasis");
+  if (basisEl) basisEl.textContent = `Grundmenge: ${rows.length} Stellen (wie Status-Verteilung)`;
+
+  // 1) Homeoffice
+  const homeCounts = {};
+  rows.forEach(r => {
+    const c = homeofficeCategory(r.homeoffice);
+    homeCounts[c] = (homeCounts[c] || 0) + 1;
+  });
+  renderDistBars("distHomeoffice", HOME_ORDER.map(k => ({
+    label: k, n: homeCounts[k] || 0, color: HOME_COLORS[k],
+  })));
+
+  // 2) Fahrzeit — Bins um die konfigurierte Grenze herum
+  const limit = COMMUTE_LIMIT;
+  const bins = [
+    { label: "≤ 15 min", n: 0, color: "#22c55e" },
+    { label: "16–24 min", n: 0, color: "#84cc16" },
+    { label: `25–${limit} min`, n: 0, color: "#f59e0b" },
+    { label: `> ${limit} min`, n: 0, color: "#f97316" },
+    { label: "unbekannt", n: 0, color: "#64748b" },
+  ];
+  rows.forEach(r => {
+    const v = r.commute;
+    if (v == null || v === "" || isNaN(+v)) { bins[4].n++; return; }
+    const m = +v;
+    if (m <= 15) bins[0].n++;
+    else if (m <= 24) bins[1].n++;
+    else if (m <= limit) bins[2].n++;
+    else bins[3].n++;
+  });
+  renderDistBars("distCommute", bins);
+
+  // 3) Profil-Fit
+  const fitBins = [
+    { label: "80–100 %", n: 0, color: "#22c55e" },
+    { label: "65–79 %", n: 0, color: "#f59e0b" },
+    { label: "50–64 %", n: 0, color: "#f97316" },
+    { label: "< 50 %", n: 0, color: "#ef4444" },
+    { label: "unbekannt", n: 0, color: "#64748b" },
+  ];
+  rows.forEach(r => {
+    if (r.fit == null || r.fit === "" || isNaN(+r.fit)) { fitBins[4].n++; return; }
+    const f = +r.fit;
+    if (f >= 80) fitBins[0].n++;
+    else if (f >= 65) fitBins[1].n++;
+    else if (f >= 50) fitBins[2].n++;
+    else fitBins[3].n++;
+  });
+  renderDistBars("distFit", fitBins);
+
+  // 4) Unternehmen — Top 10, Rest zusammengefasst
+  const companyCounts = {};
+  rows.forEach(r => {
+    const c = (r.company || "").trim() || "(ohne Firma)";
+    companyCounts[c] = (companyCounts[c] || 0) + 1;
+  });
+  const sorted = Object.entries(companyCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const top = sorted.slice(0, 10).map(([label, n]) => ({ label, n, color: "#38bdf8" }));
+  const restN = sorted.slice(10).reduce((a, [, n]) => a + n, 0);
+  if (restN) top.push({ label: `weitere (${sorted.length - 10})`, n: restN, color: "#475569" });
+  renderDistBars("distCompany", top);
+  const sub = document.getElementById("distCompanySub");
+  if (sub) sub.textContent = `${sorted.length} Unternehmen im Bestand, Top 10 gezeigt`;
 }
 
 function renderStatusChart() {
@@ -1095,6 +1325,34 @@ function updateNeuInfo() {
     ? `${n} von ${gesamt} neuen Stellen sichtbar (${LAST_RUN}) — der Rest liegt unter der Fit-Schwelle oder ausserhalb der Pendelgrenze`
     : `${n} Stelle(n) neu gefunden (${LAST_RUN})`;
 }
+
+// ---- Tabs ---------------------------------------------------------------
+// Zwei Arbeitsflächen: Tabelle (tägliches Arbeiten) und Statistik (Auswertung).
+// Der aktive Tab wird lokal gemerkt, damit ein Neuladen nicht zurückspringt.
+function activateTab(name) {
+  if (name !== "table" && name !== "stats") name = "table";
+  document.querySelectorAll(".tab").forEach(btn => {
+    const on = btn.dataset.tab === name;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".pane").forEach(pane => {
+    pane.hidden = pane.id !== "tab-" + name;
+  });
+  try { localStorage.setItem(TAB_KEY, name); } catch (e) {}
+  // Diagramme neu zeichnen: versteckte Container haben keine Breite.
+  if (name === "stats") {
+    renderKpis();
+  }
+}
+
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+});
+
+let startTab = "table";
+try { startTab = localStorage.getItem(TAB_KEY) || "table"; } catch (e) {}
+activateTab(startTab);
 
 renderRows();
 renderKpis();

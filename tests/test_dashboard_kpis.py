@@ -45,3 +45,19 @@ def test_kernkennzahlen_bleiben(tmp_path):
     for label in ("Versand-Quote", "Interview-Rate", "Aktiv im Prozess",
                   "Ø Profil-Fit (Interviews)"):
         assert label in html
+
+
+def test_absagen_quote_vorhanden(tmp_path):
+    """Absagen-Quote = rejected ÷ versendet (inkl. der Absagen selbst)."""
+    html = _build(tmp_path)
+    assert "Absagen-Quote" in html
+    # Der Nenner muss die Absagen einschließen, sonst rechnet die Quote gegen
+    # eine Grundmenge, die sie selbst ausschließt.
+    assert "const everSent = sentPlus + rejectedCount;" in html
+    assert "const absagenQuote = pct(rejectedCount, everSent);" in html
+
+
+def test_absagen_quote_ist_niedrig_gut(tmp_path):
+    """Bei einer Absagen-Quote ist ein kleiner Wert gut — nicht umgekehrt."""
+    html = _build(tmp_path)
+    assert "function clsInv" in html

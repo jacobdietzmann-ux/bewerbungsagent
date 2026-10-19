@@ -61,8 +61,8 @@ def _doc_label(key: str) -> str:
         "cv_en": "CV (EN)",
         "stellenanzeige": "Stellenanzeige",
         "referenzschreiben": "Referenzschreiben (BMW)",
-        "briefing": "Briefing (Interview)",
-        "briefing_md": "Briefing (Markdown)",
+        "briefing": "Briefing (PDF)",
+        "briefing_en": "Briefing (PDF, EN)",
     }
     return mapping.get(key, key)
 

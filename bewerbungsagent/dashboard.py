@@ -607,6 +607,24 @@ function formatISOToDE(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((iso || "").trim());
   return m ? m[3] + "." + m[2] + "." + m[1] : "";
 }
+// Interview-Datum: als TT.MM.JJJJ anzeigen (Fallback: Rohwert), damit ein
+// bereits gespeicherter Freitext nicht unsichtbar wird.
+function interviewDateDisplay(v) {
+  const s = (v === undefined || v === null) ? "" : String(v);
+  return formatISOToDE(s) || s;
+}
+// TT.MM.JJJJ -> ISO (YYYY-MM-DD). "" = leer, null = ungültig.
+// Vierstelliges Jahr ist Pflicht — das native Datumsfeld hatte im
+// deutschen Locale das Jahr zu "0022" verstümmelt.
+function parseDEToISO(text) {
+  const t = (text || "").trim();
+  if (!t) return "";
+  const m = /^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec(t);
+  if (!m) return null;
+  const d = +m[1], mo = +m[2], y = +m[3];
+  if (d < 1 || d > 31 || mo < 1 || mo > 12 || y < 1900 || y > 2200) return null;
+  return y + "-" + String(mo).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+}
 function todayISO() {
   const d = new Date();
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
@@ -852,7 +870,7 @@ function renderRows() {
         <div style="margin-top:6px"><select autocomplete="off" data-i="${i}" data-k="status">${statusOpts}</select></div>
         ${statusAgeHint(r)}
         ${sentAtHint(r)}
-        ${(r.status === "interview" || r.status === "followup") ? `<div style="margin-top:6px"><input type="date" autocomplete="off" data-i="${i}" data-k="interviewDate" value="${r.interviewDate||""}" title="Interview-Termin" style="width:128px"></div>` : ""}
+        ${(r.status === "interview" || r.status === "followup") ? `<div style="margin-top:6px"><input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)" style="width:118px"></div>` : ""}
       </td>
       <td class="center">${fitBadge(r.fit)}</td>
       <td class="center">${salaryBadge(r.salary, r.salarySource)}</td>
@@ -878,15 +896,17 @@ function renderRows() {
       const i = +el.dataset.i, k = el.dataset.k;
       if (!state[i]) return;
       const v = state[i][k];
-      el.value = (v === undefined || v === null) ? "" : String(v);
+      const s = (v === undefined || v === null) ? "" : String(v);
+      el.value = (k === "interviewDate") ? interviewDateDisplay(s) : s;
     });
   }
   applyValues();
   requestAnimationFrame(applyValues);
 
   tb.querySelectorAll("select, input").forEach(el => {
-    if (el.type === "date") {
-      el.addEventListener("input", onEdit);
+    if (el.dataset.k === "interviewDate") {
+      // Erst beim Verlassen auswerten: kein "input"-Listener, damit keine
+      // halb getippten Jahre gespeichert werden.
       el.addEventListener("change", onEdit);
       el.addEventListener("blur", onEdit);
     } else {
@@ -918,6 +938,19 @@ function onEdit(e) {
   if (!row) return;
   let v = el.value;
   if (k === "deleted") v = el.checked;
+  if (k === "interviewDate") {
+    const iso = parseDEToISO(v);
+    if (iso === null) {
+      toast("⚠️ Bitte das Datum als TT.MM.JJJJ eingeben, z. B. 19.10.2026.");
+      el.value = interviewDateDisplay(row.interviewDate);
+      return;
+    }
+    if (iso === (row.interviewDate || "")) {
+      el.value = interviewDateDisplay(iso);
+      return;
+    }
+    v = iso;
+  }
   if (k === "status" && v !== row.status) {
     row.status = v;
     if (v === "sent" && !row.sentAt) row.sentAt = todayISO();

@@ -159,7 +159,16 @@ def dashboard_applications(applications: list[dict],
     """
     result = []
     for app in applications:
-        if normalize_status(app.get("status")) in _PROGRESSED_STATUSES:
+        status = normalize_status(app.get("status"))
+        if status in _PROGRESSED_STATUSES:
+            result.append(app)
+            continue
+        if status == "research":
+            # Der Research-Bestand ist durch ``research_filter`` in der Pipeline
+            # bereits kuratiert (Fit-Fenster, hoher Fit oder Pendel-Gnadenfrist).
+            # Was dort übrig bleibt, ist eine Entscheidung wert und muss sichtbar
+            # sein — sonst zählt der Status-Schalter 11 „Research", während die
+            # Tabelle leer bleibt.
             result.append(app)
             continue
         if not any(key in _APPLICATION_DOCUMENT_KEYS
@@ -1300,8 +1309,10 @@ statusTogglesEl.innerHTML = SHOWN_STATUSES.map(s => `
   </label>`).join("");
 
 function updateStatusToggleCounts() {
+  // Gleiche Grundmenge wie Tabelle und Status-Verteilung: sonst zeigt der
+  // Schalter „Research (11)", während die Tabelle 0 Zeilen hat.
   SHOWN_STATUSES.forEach(s => {
-    const n = state.filter(r => !r.deleted && r.status === s).length;
+    const n = state.filter(r => !r.deleted && r.visible !== false && r.status === s).length;
     const el = document.getElementById("hideCount-" + s);
     if (el) el.textContent = n ? "(" + n + ")" : "";
   });

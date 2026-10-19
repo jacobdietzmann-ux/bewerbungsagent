@@ -43,6 +43,7 @@ def test_dashboard_marks_only_relevant_applications_as_visible(
             {
                 "firma": "Nur Anzeige",
                 "titel": "Test",
+                "status": "docs",
                 "dokumente": {
                     "stellenanzeige": "../01_Bewerbungen/Beispiel GmbH - Testingenieur/Stellenanzeige.txt",
                 },
@@ -50,6 +51,7 @@ def test_dashboard_marks_only_relevant_applications_as_visible(
             {
                 "firma": "Zu weit",
                 "titel": "Test",
+                "status": "docs",
                 "pendelzeit_min": 91,
                 "dokumente": {
                     "anschreiben_de": "../01_Bewerbungen/Beispiel GmbH - Testingenieur/Anschreiben.pdf",
@@ -58,12 +60,15 @@ def test_dashboard_marks_only_relevant_applications_as_visible(
             {
                 "firma": "Pendelzeit unbekannt",
                 "titel": "Test",
+                "status": "docs",
                 "pendelzeit_min": None,
                 "dokumente": {
                     "anschreiben_de": "../01_Bewerbungen/Beispiel GmbH - Testingenieur/Anschreiben.pdf",
                 },
             },
-            {"firma": "Ohne Dokument", "titel": "Test", "dokumente": {}},
+            {"firma": "Ohne Dokument", "titel": "Test", "status": "docs", "dokumente": {}},
+            {"firma": "Research ohne Unterlagen", "titel": "Test", "status": "research",
+             "dokumente": {}},
         ],
     }
     output = tmp_path / "dashboard.html"
@@ -74,14 +79,20 @@ def test_dashboard_marks_only_relevant_applications_as_visible(
     # Der komplette Bestand bleibt eingebettet (Historie für Charts/KPIs) …
     assert set(rows) == {
         "Mit Dokument", "Nur Anzeige", "Zu weit", "Pendelzeit unbekannt",
-        "Ohne Dokument",
+        "Ohne Dokument", "Research ohne Unterlagen",
     }
     # … aber nur relevante Stellen sind in der Tabelle sichtbar.
+    # ``docs`` ohne Dateien bleibt unsichtbar: der Status behauptet eine
+    # Bewerbung, die es nicht gibt.
     assert rows["Mit Dokument"]["visible"] is True
     assert rows["Nur Anzeige"]["visible"] is False
     assert rows["Zu weit"]["visible"] is False
     assert rows["Pendelzeit unbekannt"]["visible"] is True
     assert rows["Ohne Dokument"]["visible"] is False
+    # ``research`` ist dagegen durch ``research_filter`` in der Pipeline bereits
+    # kuratiert und deshalb immer sichtbar — sonst zählt der Status-Schalter
+    # Einträge, die in der Tabelle fehlen.
+    assert rows["Research ohne Unterlagen"]["visible"] is True
     # Nicht vorhandene Dokumente werden nicht verlinkt.
     assert "Fehlt.pdf" not in output.read_text(encoding="utf-8")
 
@@ -154,7 +165,8 @@ def test_dashboard_offers_research_status_toggle(
     # Schalter zum Ausblenden der als „neu gefunden" sichtbaren Research-Zeilen.
     assert 'const SHOWN_STATUSES = ORDER;' in html
     assert '"research"' in html.split("const ORDER = ", 1)[1].split(";", 1)[0]
-    # Der Eintrag bleibt eingebettet (Datenverlust ausgeschlossen) und ohne
-    # Fundamenten unsichtbar.
+    # Der Eintrag bleibt eingebettet (Datenverlust ausgeschlossen).
     assert "Neuer Fund" in html
-    assert _embedded_rows(html)["Neuer Fund"]["visible"] is False
+    # ``research`` ist sichtbar, weil ``research_filter`` den Bestand bereits
+    # kuratiert — und damit zählt der Schalter dieselbe Menge wie die Tabelle.
+    assert _embedded_rows(html)["Neuer Fund"]["visible"] is True

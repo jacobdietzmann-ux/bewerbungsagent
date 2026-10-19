@@ -27,6 +27,7 @@ from .matching import fit_value, has_role_signal, is_student_role, match_jobs
 from .profile import Profile, normalize
 from .salary import enrich_salary
 from .search import run_search as _search
+from .statuses import normalize_status
 from .storage import load_json, now_iso, save_json
 
 # Fit-Bänder. Ein Wert liegt in genau einem Band, und aus dem Band folgen Status
@@ -196,6 +197,87 @@ def _commute_limit_minutes(config: Config) -> int:
 def _commute_blocked(config: Config, job: dict) -> bool:
     """True, wenn die Stelle wegen zu weitem Pendelweg nicht angelegt werden darf."""
     return exceeds_commute_limit(job, limit=_commute_limit_minutes(config))
+
+
+# Kennung am ``deleted_reason``: erkennbar und bei jedem Lauf neu bewertbar.
+RESEARCH_REASON_PREFIX = "research-kriterium"
+
+
+def _research_filter_settings(config: Config) -> dict | None:
+    """Einstellungen des Research-Filters oder ``None`` bei ``enabled: false``."""
+    raw = config.data.get("research_filter") or {}
+    if raw.get("enabled") is False:
+        return None
+    return {
+        "fit_min": int(raw.get("fit_min", 60)),
+        "fit_max": int(raw.get("fit_max", 70)),
+        "keep_high_fit": int(raw.get("keep_high_fit", 80)),
+        "commute_grace_min": int(raw.get("commute_grace_min", 10)),
+    }
+
+
+def research_keep_reason(app: dict, limit: int, settings: dict) -> str:
+    """Warum eine Research-Stelle bleibt — ``""`` bedeutet: entfernen.
+
+    Drei Gründe, einen Fund zu behalten:
+    1. Fit im Fenster ``fit_min``–``fit_max`` (knapp unter der Unterlagen-Schwelle).
+    2. Fit ≥ ``keep_high_fit``: ein sehr guter Treffer ist kein Rauschen, auch
+       wenn (noch) keine Unterlagen entstanden sind.
+    3. Pendelweg knapp über der Grenze (bis ``limit + commute_grace_min``): eine
+       zweite Chance, falls sich Wohnung oder Grenze ändern.
+    """
+    fit = _fit_value(app)
+    if settings["fit_min"] <= fit <= settings["fit_max"]:
+        return f"Fit {fit} % im Fenster"
+    if settings["keep_high_fit"] and fit >= settings["keep_high_fit"]:
+        return f"Fit {fit} % über {settings['keep_high_fit']} %"
+    commute = app.get("pendelzeit_min")
+    if commute is not None and commute != "":
+        try:
+            minutes = float(commute)
+        except (TypeError, ValueError):
+            return ""
+        if limit < minutes <= limit + settings["commute_grace_min"]:
+            return f"Pendelweg {minutes:g} min knapp über {limit} min"
+    return ""
+
+
+def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
+    """Begrenzt den ``research``-Bestand auf die behaltenswerten Funde.
+
+    Markiert nur ``deleted`` — nichts wird gelöscht. Stellen mit Unterlagen
+    bleiben unangetastet (dort wurde bewusst gearbeitet).
+    """
+    settings = _research_filter_settings(config)
+    if settings is None:
+        return {"enabled": False, "kept": 0, "removed": 0, "restored": 0}
+
+    limit = _commute_limit_minutes(config)
+    kept = removed = restored = 0
+    for a in apps:
+        if normalize_status(a.get("status")) != "research":
+            continue
+        if a.get("dokumente"):
+            continue
+        keep = research_keep_reason(a, limit, settings)
+        reason = (a.get("deleted_reason") or "")
+        is_filtered = reason.lower().startswith(RESEARCH_REASON_PREFIX)
+
+        if keep:
+            kept += 1
+            if a.get("deleted") and is_filtered:
+                # Grund gilt nicht mehr (Fit/Pendelweg haben sich geändert).
+                a.pop("deleted", None)
+                a.pop("deleted_reason", None)
+                restored += 1
+        elif not a.get("deleted"):
+            a["deleted"] = True
+            a["deleted_reason"] = (
+                f"{RESEARCH_REASON_PREFIX}: Fit {settings['fit_min']}–{settings['fit_max']} % "
+                f"oder Pendelweg ≤ {limit + settings['commute_grace_min']} min nötig"
+            )
+            removed += 1
+    return {"enabled": True, "kept": kept, "removed": removed, "restored": restored}
 
 
 def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
@@ -387,6 +469,11 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             a["deleted_reason"] = f"FIT < {FIT_BAND_AUSBLENDEN} %"
             deleted_count += 1
 
+    # 4b) Research-Pool begrenzen: nur Funde im Fit-Fenster, mit sehr hohem Fit
+    #     oder knapp über der Pendelgrenze bleiben. Hält den Bestand
+    #     entscheidbar, statt jede Suchspur zu sammeln.
+    research_stats = _apply_research_filter(config, apps)
+
     # 6) Unterlagen im Mittelband zurücknehmen: ein 55-%-Treffer bekommt keine
     #    Bewerbung. Die Dateien bleiben liegen (nichts wird gelöscht), nur der
     #    Status wird ehrlich — ``docs`` heißt „hier liegt eine Bewerbung".
@@ -446,6 +533,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "restored_documented": restored_documented,
         "restored_reason": restored_reason,
         "restored_active": restored_active,
+        "research_filter": research_stats,
         "generated": generated,
         "generated_count": len(generated),
         "skipped_role": skipped_role,

@@ -383,6 +383,13 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 30). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
+- `research_filter` – begrenzt den `research`-Bestand. Behalten werden nur Funde mit
+  Fit zwischen `fit_min` und `fit_max` (Standard 60–70 %), mit Fit ≥ `keep_high_fit`
+  (Standard 80 %) oder mit Pendelweg bis `max_pendelzeit_min + commute_grace_min`
+  (Standard 40 min). Alles andere wird nur als `deleted` markiert (nichts wird
+  gelöscht) und bei jeder Neubewertung erneut geprüft — verbessert sich der Fit,
+  kommt die Stelle zurück. Stellen mit Unterlagen bleiben immer erhalten.
+  `"enabled": false` schaltet den Filter ab.
 - `commute.home_address` – Ausgangspunkt für die Pendelweg-Berechnung. Bewusst **nicht** im
   Quelltext, sondern hier (bzw. in der privaten `config.json`).
 - `commute.contact_email` – Kontakt für die Nominatim-/OSRM-Anfragen; leer lassen genügt

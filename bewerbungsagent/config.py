@@ -47,6 +47,18 @@ DEFAULT_CONFIG: dict = {
     # angelegt: keine Unterlagen, keine Anzeige im Dashboard. Unbekannte
     # Pendelzeiten (z. B. Remote) gelten nicht als zu weit.
     "max_pendelzeit_min": 30,
+    # Wie viele ``research``-Funde bleiben? Alles außerhalb dieses Fensters wird
+    # als gelöscht markiert (die Daten bleiben in der DB, nur ``deleted``).
+    # Begründung: der Research-Bestand war mit 165 Einträgen unübersichtlich;
+    # interessant sind nur Treffer knapp unter der Unterlagen-Schwelle sowie
+    # Stellen, die knapp über der Pendelgrenze liegen (zweite Chance).
+    "research_filter": {
+        "enabled": True,
+        "fit_min": 60,          # Fenster „knapp unter 65 %"
+        "fit_max": 70,
+        "keep_high_fit": 80,    # Ausreißer nach oben nicht wegwerfen
+        "commute_grace_min": 10,  # „leicht über der Pendelgrenze" = Grenze + 10
+    },
     # Persönliche Angaben gehören nicht in den Quelltext: Die Wohnadresse steht
     # hier (bzw. in der lokalen config.json) und wird für Pendelweg-Geocoding
     # benötigt. Beispiel: "Musterstraße 1, 12345 Musterstadt".

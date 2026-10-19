@@ -14,7 +14,7 @@ from .commute import (
 )
 from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard, dashboard_applications, documented_applications
-from .db import Store
+from .db import USER_DELETE_REASON, Store
 from .documents import (
     DEFAULT_CV_TEMPLATE,
     generate_anschreiben,
@@ -403,6 +403,10 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     restored_reason = 0
     restored_active = 0
     for a in apps:
+        # Im Dashboard gelöscht: das ist eine Entscheidung des Nutzers, keine
+        # ableitbare Bewertung. Der Lauf darf sie nicht wieder einblenden.
+        if str(a.get("deleted_reason") or "").lower().startswith(USER_DELETE_REASON):
+            continue
         # Harte Ausschlussregel (oberste Priorität): Studenten-/Praktikums-/
         # Ausbildungsstellen sind für einen Vollzeit-Ingenieur kategorisch
         # irrelevant — unabhängig von Status, Fit oder bereits erzeugten

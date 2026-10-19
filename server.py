@@ -74,7 +74,8 @@ DASHBOARD_SRC = os.path.join(SCRIPT_DIR, "bewerbungsagent", "dashboard.py")
 # müssen der laufende Server ebenfalls bemerken.
 DASHBOARD_OUT = os.path.join(SCRIPT_DIR, "dashboard.html")
 
-EDITABLE = ("status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt")
+EDITABLE = ("status", "contact", "deleted", "deleted_reason", "notes", "interviewDate",
+            "statusChangedAt", "sentAt")
 
 
 def open_in_file_manager(path):
@@ -109,6 +110,7 @@ def _overlay_from_state(state: dict) -> dict:
             "status": normalize_status(app.get("status")),
             "contact": app.get("contact") or "",
             "deleted": bool(app.get("deleted")),
+            "deleted_reason": app.get("deleted_reason") or "",
             "notes": app.get("notes") or "",
             "interviewDate": app.get("interviewDate") or "",
             "statusChangedAt": app.get("statusChangedAt") or "",

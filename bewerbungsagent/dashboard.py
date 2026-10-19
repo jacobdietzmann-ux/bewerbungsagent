@@ -596,7 +596,10 @@ const COMMUTE_LIMIT = __COMMUTE_LIMIT__;
 const LAST_RUN = __LAST_RUN__;
 // Anzahl der beim jüngsten Fund neu erfassten Stellen (vor Pendelweg-Filter).
 const LAST_FUND_ANZAHL = __LAST_FUND_ANZAHL__;
-const EDITABLE = ["status", "contact", "deleted", "notes", "interviewDate", "statusChangedAt", "sentAt"];
+const EDITABLE = ["status", "contact", "deleted", "deleted_reason", "notes", "interviewDate", "statusChangedAt", "sentAt"];
+// Marker für eine Löschung durch den Nutzer. Der Pipeline-Lauf erkennt daran,
+// dass er den Eintrag nicht wieder einblenden darf.
+const USER_DELETE_REASON = "nutzerkriterium: im Dashboard entfernt";
 const KEY = "bewerbungsagent-dashboard-v1";
 const HIDDEN_STATUSES_KEY = "bewerbungsagent-hidden-statuses";
 const TAB_KEY = "bewerbungsagent-active-tab";
@@ -634,7 +637,8 @@ const SERVER = (location.protocol === "http:" || location.protocol === "https:")
   ? location.origin : "http://127.0.0.1:8766";
 
 function overlayEntry(r) {
-  return { status:r.status, contact:r.contact, deleted:!!r.deleted, notes:r.notes||"",
+  return { status:r.status, contact:r.contact, deleted:!!r.deleted,
+           deleted_reason:r.deleted_reason||"", notes:r.notes||"",
            interviewDate:r.interviewDate||"", statusChangedAt:r.statusChangedAt||"", sentAt:r.sentAt||"" };
 }
 function currentOverlay() {
@@ -688,7 +692,7 @@ saveLocal();
           if (o[k] !== undefined && o[k] !== null && r[k] !== o[k]) { r[k] = o[k]; changed = true; }
         });
       });
-      if (changed) { saveLocal(); renderRows(); renderKpis(); updateStatusToggleCounts(); }
+      if (changed) { saveLocal(); refreshAllViews(); }
     })
     .catch(() => {});
 })();
@@ -821,6 +825,16 @@ function sentAtHint(r) {
   const ts = parseISO(r.sentAt);
   if (!ts) return "";
   return `<div class="hint">Versendet: ${formatISOToDE(r.sentAt)} (vor ${daysSince(ts)} Tagen)</div>`;
+}
+
+// Zentrale Aktualisierung aller Ansichten. Tabellen- und Statistik-Ansicht
+// dürfen nie auseinanderlaufen — jede Änderung (Status, Löschen, Datum) muss
+// beide aktualisieren. Einzelne render*-Aufrufe an den Editierstellen hatten
+// genau das vergessen.
+function refreshAllViews() {
+  renderRows();
+  renderKpis();            // KPIs + Status-Verteilung + Wochenverlauf + Verteilungen
+  updateStatusToggleCounts();
 }
 
 function renderKpis() {
@@ -1183,9 +1197,7 @@ function onEdit(e) {
     row[k] = v;
   }
   save(row.id);
-  renderRows();
-  renderKpis();
-  updateStatusToggleCounts();
+  refreshAllViews();
 }
 
 function onDelete(e) {
@@ -1194,10 +1206,9 @@ function onDelete(e) {
   if (!row) return;
   if (!confirm(`"${row.company} – ${row.position}" endgültig aus dem Dashboard entfernen?`)) return;
   row.deleted = true;
+  row.deleted_reason = USER_DELETE_REASON;
   save(row.id);
-  renderRows();
-  renderKpis();
-  updateStatusToggleCounts();
+  refreshAllViews();
 }
 
 function openFolder(e) {
@@ -1270,7 +1281,7 @@ document.getElementById("reset").addEventListener("click", () => {
   if (confirm("Alle Änderungen verwerfen und auf Standard zurücksetzen?")) {
     state = JSON.parse(JSON.stringify(DATA));
     save();
-    renderRows(); renderKpis(); updateStatusToggleCounts();
+    refreshAllViews();
   }
 });
 document.getElementById("export").addEventListener("click", () => {
@@ -1354,10 +1365,14 @@ let startTab = "table";
 try { startTab = localStorage.getItem(TAB_KEY) || "table"; } catch (e) {}
 activateTab(startTab);
 
-renderRows();
-renderKpis();
-updateStatusToggleCounts();
+refreshAllViews();
 updateNeuInfo();
+
+// Kommt der Tab aus dem Hintergrund zurück, können sich Daten geändert haben
+// (z. B. Löschen in einem zweiten Fenster). Ein Neuzeichnen kostet nichts.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshAllViews();
+});
 </script>
 </body>
 </html>

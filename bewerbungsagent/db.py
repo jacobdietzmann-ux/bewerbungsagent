@@ -42,11 +42,17 @@ USER_FIELDS = (
 # "erledigt" markiert hat, bleibt erledigt.
 _HANDLED_STATUS = ("sent", "followup", "interview", "rejected")
 
+# Marker für eine Löschung durch den Nutzer im Dashboard. Solche Einträge darf
+# kein Pipeline-Lauf wieder einblenden; Löschungen des Agenten selbst (Fit-,
+# Pendel-, Rollen-Filter) tragen andere Begründungen und bleiben neu bewertbar.
+USER_DELETE_REASON = "nutzerkriterium: im dashboard entfernt"
+
 # Nutzerfelder, die ein CLI-Lauf nicht besitzt. Ein Wochenlauf hält den Zustand
 # minutenlang im Speicher; Änderungen aus dem Dashboard währenddessen dürfen
 # nicht durch den abschließenden Voll-Schreibvorgang verloren gehen. Die DB ist
 # die frischere Quelle, deshalb gewinnt sie hier.
-_RUN_FOREIGN_FIELDS = ("sentAt", "notes", "contact", "interviewDate", "statusChangedAt")
+_RUN_FOREIGN_FIELDS = ("sentAt", "notes", "contact", "interviewDate", "statusChangedAt",
+                       "deletedAt")
 
 
 def _protected_user(db_user: dict | None, incoming: dict) -> dict:
@@ -56,6 +62,15 @@ def _protected_user(db_user: dict | None, incoming: dict) -> dict:
     for k in _RUN_FOREIGN_FIELDS:
         if db.get(k) not in (None, ""):
             merged[k] = db[k]
+    # Im Dashboard gelöschte Stellen bleiben gelöscht: der Lauf kennt das Flag
+    # nicht und hätte es sonst stillschweigend zurückgesetzt — die Zahlen in der
+    # Statistik sprangen dadurch nach dem nächsten Lauf zurück. Die Löschung ist
+    # an ``deleted_reason`` erkennbar; Filter-Löschungen der Pipeline (ohne
+    # diesen Marker) bleiben weiterhin neu bewertbar.
+    reason = str(db.get("deleted_reason") or "").lower()
+    if db.get("deleted") is True and reason.startswith(USER_DELETE_REASON):
+        merged["deleted"] = True
+        merged["deleted_reason"] = db["deleted_reason"]
     if db.get("status") in _HANDLED_STATUS and merged.get("status") not in _HANDLED_STATUS:
         merged["status"] = db["status"]
     return merged

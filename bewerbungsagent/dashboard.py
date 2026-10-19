@@ -159,18 +159,12 @@ def dashboard_applications(applications: list[dict],
     """
     result = []
     for app in applications:
-        status = normalize_status(app.get("status"))
-        if status in _PROGRESSED_STATUSES:
+        if normalize_status(app.get("status")) in _PROGRESSED_STATUSES:
             result.append(app)
             continue
-        if status == "research":
-            # Der Research-Bestand ist durch ``research_filter`` in der Pipeline
-            # bereits kuratiert (Fit-Fenster, hoher Fit oder Pendel-Gnadenfrist).
-            # Was dort übrig bleibt, ist eine Entscheidung wert und muss sichtbar
-            # sein — sonst zählt der Status-Schalter 11 „Research", während die
-            # Tabelle leer bleibt.
-            result.append(app)
-            continue
+        # ``research``/``docs``: nur mit vorhandenem Anschreiben/Lebenslauf und
+        # innerhalb der Pendelzeit-Grenze. Reine Funde sind keine Bewerbungen
+        # und dürfen weder Tabelle noch Zähler füllen.
         if not any(key in _APPLICATION_DOCUMENT_KEYS
                    for key, _ in _existing_documents(app)):
             continue

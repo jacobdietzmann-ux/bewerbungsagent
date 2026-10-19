@@ -109,21 +109,12 @@ class TestNeueFundeSindSichtbar:
         }], FUND)
         assert rows["neu"]["visible"] is True
 
-    def test_alter_fund_ohne_unterlagen_ist_ebenfalls_sichtbar(self, tmp_path):
-        """``research`` ist durch den Pipeline-Filter kuratiert und immer sichtbar.
-
-        Früher hing die Sichtbarkeit an Unterlagen bzw. am „neu gefunden"-Label.
-        Das führte dazu, dass der Status-Schalter Research-Einträge zählte, die
-        in der Tabelle fehlten. Die Kuratierung passiert jetzt in
-        ``research_filter`` (Pipeline), nicht in der Anzeige.
-        """
+    def test_alter_fund_ohne_unterlagen_bleibt_verborgen(self, tmp_path):
         rows = self._daten(tmp_path, [{
             "key": "alt", "firma": "Alt GmbH", "titel": "Testingenieur",
             "created": "2026-10-01T09:00:00+02:00", "status": "neu",
         }], FUND)
-        assert rows["alt"]["visible"] is True
-        # Das „neu gefunden"-Label bleibt trotzdem korrekt unterscheidend.
-        assert rows["alt"]["neuImLauf"] is False
+        assert rows["alt"]["visible"] is False
 
     def test_dokumentierte_stelle_bleibt_sichtbar(self, tmp_path, monkeypatch):
         import bewerbungsagent.dashboard as dash

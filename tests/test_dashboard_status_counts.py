@@ -30,8 +30,8 @@ def _rows(html: str) -> list[dict]:
     return json.loads(m.group(1))
 
 
-def test_forschung_ohne_unterlagen_ist_sichtbar(tmp_path, monkeypatch):
-    """Der Pipeline-Filter hat sie behalten — dann muss man sie auch sehen."""
+def test_forschung_ohne_unterlagen_ist_nicht_sichtbar(tmp_path, monkeypatch):
+    """Reine Funde sind keine Bewerbungen — weder Tabelle noch Zähler."""
     agent_root = tmp_path / "04_Agent"
     agent_root.mkdir()
     monkeypatch.setattr(dashboard, "AGENT_ROOT", agent_root)
@@ -42,7 +42,7 @@ def test_forschung_ohne_unterlagen_ist_sichtbar(tmp_path, monkeypatch):
         "dokumente": {},
     }
     rows = _rows(_build(tmp_path, [app]))
-    assert rows[0]["visible"] is True
+    assert rows[0]["visible"] is False
 
 
 def test_docs_ohne_unterlagen_bleibt_unsichtbar(tmp_path, monkeypatch):
@@ -57,9 +57,12 @@ def test_docs_ohne_unterlagen_bleibt_unsichtbar(tmp_path, monkeypatch):
     assert rows[0]["visible"] is False
 
 
-def test_schalter_zaehlt_wie_die_tabelle(tmp_path):
-    """Der Zähler im Schalter darf nicht mehr zählen, was die Tabelle verbirgt."""
+def test_zaehler_und_tabelle_nutzen_dieselbe_basis(tmp_path):
+    """Der Zähler darf nicht zählen, was die Tabelle verbirgt."""
     html = _build(tmp_path, [])
     start = html.index("function updateStatusToggleCounts()")
     body = html[start:start + 400]
     assert "r.visible !== false" in body
+    # Und die Tabelle selbst filtert genauso.
+    tstart = html.index("function renderRows()")
+    assert "r.visible === false" in html[tstart:tstart + 400]

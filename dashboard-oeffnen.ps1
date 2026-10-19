@@ -56,7 +56,9 @@ function Test-Healthy {
 
 if (-not (Test-Healthy)) {
     Write-LauncherLog ("Serverstart angefordert: {0}" -f $Py)
-    Start-Process -FilePath $Py -ArgumentList @((Join-Path $Here 'server.py')) `
+    # Relativer Dateiname (nicht Join-Path): Start-Process quotet Leerzeichen im
+    # Argument nicht, und $Here kann Leerzeichen enthalten ("Meine Ablage").
+    Start-Process -FilePath $Py -ArgumentList @('server.py') `
         -WorkingDirectory $Here -WindowStyle Hidden `
         -RedirectStandardOutput $ServerOut -RedirectStandardError $ServerErr
     Start-Sleep -Milliseconds 500

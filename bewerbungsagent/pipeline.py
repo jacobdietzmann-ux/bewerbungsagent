@@ -244,8 +244,12 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
     Funde im Fit-Fenster (``fit_min``–``fit_max``) und „Pendelweg knapp drüber"
     bleiben; alles darunter wird nur als ``deleted`` markiert (nichts wird
     gelöscht). Funde **oberhalb** des Fensters sind Dokumenten-Kandidaten und
-    werden weder gelöscht noch festgehalten. Stellen mit Unterlagen bleiben
-    unangetastet (dort wurde bewusst gearbeitet).
+    werden weder gelöscht noch festgehalten.
+
+    Bereits erzeugte Unterlagen schützen eine ``research``-Stelle **nicht**:
+    Wenn der Fit unter das Fenster fällt, ist der Fund zu schwach, und die
+    alten Dateien bleiben liegen, ohne im Dashboard zu erscheinen. Versendete
+    und abgeschlossene Bewerbungen sind von diesem Filter ohnehin ausgenommen.
     """
     settings = _research_filter_settings(config)
     if settings is None:
@@ -255,8 +259,6 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
     kept = removed = restored = 0
     for a in apps:
         if normalize_status(a.get("status")) != "research":
-            continue
-        if a.get("dokumente"):
             continue
         reason = (a.get("deleted_reason") or "")
         is_filtered = reason.lower().startswith(RESEARCH_REASON_PREFIX)
@@ -452,8 +454,17 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             if _commute_blocked(config, a):
                 continue                     # harte Grenze: bleibt ausgeblendet
             # Für dokumentierte Stellen wurden bewusst Unterlagen erzeugt — sie
-            # bleiben sichtbar, unabhängig von der Begründung.
-            if a.get("dokumente"):
+            # bleiben sichtbar, unabhängig von der Begründung. Ausnahme: eine
+            # ``research``-Stelle unter dem Research-Fenster ist ein zu
+            # schwacher Fund; dort entscheidet der Research-Filter, nicht die
+            # Existenz alter Dateien (sonst bleiben 10–58-%-Treffer für immer
+            # sichtbar).
+            research = _research_filter_settings(config)
+            if a.get("dokumente") and not (
+                research
+                and normalize_status(a.get("status")) == "research"
+                and _fit_value(a) < research["fit_min"]
+            ):
                 a.pop("deleted", None)
                 a.pop("deleted_reason", None)
                 restored_documented += 1

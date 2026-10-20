@@ -105,8 +105,16 @@ class TestApplyFilter:
         assert app.get("deleted") is True
         assert stats["restored"] == 0
 
-    def test_dokumentierte_stelle_bleibt(self, tmp_path):
+    def test_dokumentierte_stelle_unter_dem_fenster_wird_entfernt(self, tmp_path):
+        """Alte Unterlagen machen einen 10-%-Fund nicht zu einem guten Fund."""
         app = _app(fit_pct=10, dokumente={"anschreiben_de": "x.pdf"})
+        stats = _apply_research_filter(_config(tmp_path), [app])
+        assert app.get("deleted") is True
+        assert app["deleted_reason"].startswith("research-kriterium")
+        assert stats["removed"] == 1
+
+    def test_dokumentierte_stelle_im_fenster_bleibt(self, tmp_path):
+        app = _app(fit_pct=65, dokumente={"anschreiben_de": "x.pdf"})
         _apply_research_filter(_config(tmp_path), [app])
         assert not app.get("deleted")
 

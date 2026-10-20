@@ -2,7 +2,7 @@
 
 Angelehnt an das alte ``00_Dashboard/Bewerbungs-Dashboard.html`` mit:
 - Suche (Firma/Position/Branche), Profil-Fit-Filter, Status-Sichtfilter (Checkboxen)
-- KPI-Karten (Versand-Quote, Interview-Rate, Absagen-Quote, Ø Fit, Aktiv)
+- KPI-Karten (Versand-Quote, Interview-Quote, Ø Fit, Aktiv)
 - Status-Verteilungs-Balkendiagramm + gestapeltes Wochen-Balkendiagramm
 - sortierbare Tabelle mit editierbarem Status-Dropdown, Interview-Termin,
   Versand-Datum (auto), Löschen, Ordner öffnen, Dokument-Links
@@ -138,7 +138,7 @@ def _exceeds_dashboard_commute_limit(app: dict, limit: int = MAX_COMMUTE_MINUTES
 # Eintrag ein Faktum im Prozess: fehlende Unterlagen im Ordner oder ein zu
 # weiter Pendelweg dürfen ihn nicht aus Tabelle und Statistik entfernen.
 # Vorher verschwanden 56 abgeschlossene Bewerbungen (7× sent, 49× rejected) —
-# die Absagen-Quote rechnete dadurch nur auf einer Teilmenge.
+# die damalige Absagen-Quote rechnete dadurch nur auf einer Teilmenge.
 _PROGRESSED_STATUSES = {"sent", "followup", "interview", "rejected"}
 
 
@@ -754,10 +754,6 @@ function pct(part, whole) {
 function cls(v, good, warn) {
   return v >= good ? "good" : (v >= warn ? "warn" : "bad");
 }
-// Für Kennzahlen, bei denen *niedrig* gut ist (z. B. Absagen-Quote).
-function clsInv(v, good, warn) {
-  return v <= good ? "good" : (v <= warn ? "warn" : "bad");
-}
 
 function fitBadge(fit) {
   const f = +fit || 0;
@@ -850,24 +846,22 @@ function renderKpis() {
   const sentPlus = rows.filter(r => ["sent","followup","interview"].includes(r.status)).length;
   const interviews = rows.filter(r => r.status === "interview").length;
 
-  // „Versendet" im Sinne der Erfolgsquoten: alles, was tatsächlich rausging.
-  // Eine Absage setzt einen Versand voraus und gehört deshalb in den Nenner —
-  // sonst rechnet die Absagen-Quote gegen eine Grundmenge, die sie selbst
-  // ausschließt, und Interview-Rate + Absagen-Quote ergeben zusammen > 100 %.
-  const everSent = sentPlus + rejectedCount;
-
+  // Versand-Quote: versendete Stellen gegen alle, die noch nicht abgelehnt sind.
   const versandBasis = total - rejectedCount;
   const versandQuote = pct(sentPlus, versandBasis);
-  const interviewRate = pct(interviews, everSent);
-  const absagenQuote = pct(rejectedCount, everSent);
+
+  // Interview-Quote: nur *entschiedene* Bewerbungen zählen (Absage oder
+  // Interview). Noch offene (sent/followup) sind kein Ergebnis und würden die
+  // Quote künstlich drücken — 8 von 120 entschiedenen, nicht 8 von 159.
+  const decided = rejectedCount + interviews;
+  const interviewQuote = pct(interviews, decided);
 
   const ivRows = rows.filter(r => r.status === "interview");
   const fitAvg = ivRows.length ? (ivRows.reduce((a,r)=>a+(+r.fit||0),0)/ivRows.length) : 0;
 
   const cards = [
     { label:"Versand-Quote", value:versandQuote+"%", target:"Ziel ≥ 90%", c:cls(versandQuote,90,60) },
-    { label:"Interview-Rate", value:interviewRate+"%", target:"von versendeten", c:cls(interviewRate,15,8) },
-    { label:"Absagen-Quote", value:absagenQuote+"%", target:"von versendeten", c:clsInv(absagenQuote,30,50) },
+    { label:"Interview-Quote", value:interviewQuote+"%", target:`${interviews} von ${decided} entschieden`, c:cls(interviewQuote,15,8) },
     { label:"Ø Profil-Fit (Interviews)", value:(fitAvg?Math.round(fitAvg):"–")+" <small>%</small>", target:"Ziel ≥ 70%", c:fitAvg>=80?"good":(fitAvg>=65?"warn":(fitAvg?"bad":"")) },
     { label:"Aktiv im Prozess", value:sentPlus+" <small>/ "+total+"</small>", target:"Versendet o. weiter", c:"" },
   ];

@@ -191,6 +191,83 @@ def _simplify(office: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def is_city_only(office: str) -> bool:
+    """True, wenn die Ortsangabe nur eine Stadt nennt (keine Hausnummer/PLZ).
+
+    Dann ist der geokodierte Punkt der Stadtmittelpunkt, und der Pendelweg kann
+    um die halbe Stadt danebenliegen. In diesem Fall lohnt der Versuch, die
+    echte Firmenadresse zu ermitteln.
+    """
+    return bool(office) and not re.search(r"\d", office)
+
+
+# Nominatim-Typen, die nur Geografie beschreiben. Sie liefern den
+# Stadtmittelpunkt (oder eine Straße ohne Hausnummer) und damit keinen
+# Genauigkeitsgewinn gegenüber dem Stadt-Geocoding.
+_GEO_TYPES = {"city", "town", "village", "hamlet", "suburb", "administrative",
+              "district", "state", "country", "postcode", "road", "motorway",
+              "residential", "pedestrian", "footway", "cycleway", "locality"}
+
+
+def _company_address(geocoder: "_Geocoder", firma: str, city: str,
+                     cache: dict) -> dict | None:
+    """Sucht die Firmenadresse in der Stadt über Nominatim (mit Cache).
+
+    Der Cache speichert auch Fehlschläge (``None``): Firmen ohne OSM-Eintrag
+    würden sonst bei jedem Lauf erneut abgefragt — bei ~100 Firmen sind das
+    mehrere Minuten reine Wartezeit wegen der 1-s-Politeness-Regel.
+    """
+    key = f"{normalize(firma)}|{normalize(city)}"
+    if key in cache:
+        return cache[key]
+    result = None
+    if not (firma or "").strip():
+        return None
+    # „LRE Medical GmbH“ findet in OSM nichts, „LRE Medical“ schon — die
+    # Rechtsform steht dort meist nicht im Namen.
+    kurz = re.sub(r"\s*[-–]?\s*(gmbh|mbh|ag|se|kg|ug|e\.?\s?v\.?)(\s*&\s*co\.?\s*kg)?\.?$",
+                  "", firma, flags=re.IGNORECASE).strip(" ,-")
+    queries = [f"{firma}, {city}"]
+    if kurz and kurz != firma:
+        queries.append(f"{kurz}, {city}")
+    for query in queries:
+        item = geocoder.search_one(
+            query, addressdetails=True,
+            extra_params={"countrycodes": "de"},
+        )
+        if not item:
+            continue
+        address = item.get("address") or {}
+        item_type = (item.get("type") or "").lower()
+        if item_type in _GEO_TYPES:
+            continue
+        # Stadt prüfen: exakt oder innerhalb der Münchener Metropolregion.
+        places = [normalize(address.get(k) or "") for k in
+                  ("city", "town", "village", "municipality", "suburb")]
+        places = [p for p in places if p]
+        target = normalize(city)
+        if not any(p == target or _is_metro(p) for p in places):
+            continue
+        if not address.get("road"):
+            continue  # nur ein Punkt ohne Straße — kein Genauigkeitsgewinn
+        road = str(address["road"]).strip()
+        # Sehr kurze „Straßennamen" sind in OSM Gebäude- oder Ortsteilnamen
+        # („T&S" traf ein Gebäude namens „S") und damit kein realer Arbeitsort.
+        if len(road) < 4:
+            continue
+        result = {
+            "lat": float(item["lat"]),
+            "lon": float(item["lon"]),
+            "display_name": item.get("display_name", query),
+            "strasse": " ".join(filter(None, [road, address.get("house_number")])),
+            "ort": address.get("city") or address.get("town") or city,
+            "plz": address.get("postcode") or "",
+        }
+        break
+    cache[key] = result
+    return result
+
+
 class _Geocoder:
     """Nominatim-Geocoder mit Disk-Cache."""
 
@@ -242,6 +319,34 @@ class _Geocoder:
         }
         self.cache[key] = result
         return result
+
+    def search_one(self, query: str, *, addressdetails: bool = False,
+                   extra_params: dict | None = None) -> dict | None:
+        """Erste Nominatim-Trefferzeile (roh, inkl. ``address``) oder ``None``.
+
+        Getrennt von :meth:`geocode`, weil hier die Adressbestandteile gebraucht
+        werden und der Aufrufer selbst entscheiden muss, ob der Treffer zur
+        gesuchten Firma/Stadt passt.
+        """
+        if not (query or "").strip():
+            return None
+        params: dict = {"q": query, "format": "json", "limit": 1}
+        if addressdetails:
+            params["addressdetails"] = 1
+        if extra_params:
+            params.update(extra_params)
+        self._throttle()
+        try:
+            r = requests.get(_NOMINATIM_URL, params=params,
+                             headers={"User-Agent": self.agent}, timeout=15)
+        except requests.RequestException:
+            self._last = time.monotonic()
+            return None
+        self._last = time.monotonic()
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        return data[0] if data else None
 
     def save(self) -> None:
         """Schreibt den Cache — ohne erfolglose Abfragen.
@@ -319,7 +424,16 @@ def enrich_commute(apps: list[dict], data_dir: Path,
     if not home:
         raise RuntimeError(f"Wohnadresse nicht geokodierbar: {home_address}")
 
-    stats = {"total": len(apps), "remote": 0, "routed": 0, "cached": 0, "failed": 0}
+    office_cache_path = data_dir / "office_cache.json"
+    office_cache: dict = {}
+    if office_cache_path.exists():
+        try:
+            office_cache = json.loads(office_cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            office_cache = {}
+
+    stats = {"total": len(apps), "remote": 0, "routed": 0, "cached": 0,
+             "failed": 0, "address_resolved": 0}
 
     for a in apps:
         # Firmensitz-Überschreibung: die Anzeige nennt oft nur die Zentrale.
@@ -343,11 +457,30 @@ def enrich_commute(apps: list[dict], data_dir: Path,
             stats["failed"] += 1
             continue
 
-        dest = geocoder.geocode(office)
-        if not dest:
-            simplified = _simplify(office)
-            if simplified and simplified != office:
-                dest = geocoder.geocode(simplified)
+        # Nennt die Anzeige nur eine Stadt, ist der geokodierte Punkt der
+        # Stadtmittelpunkt — der Pendelweg kann dann um die halbe Stadt
+        # danebenliegen. Deshalb zuerst die echte Firmenadresse versuchen.
+        dest = None
+        if is_city_only(office) and not a.get("deleted"):
+            adresse = _company_address(geocoder, a.get("firma") or "", office,
+                                       office_cache)
+            if adresse:
+                dest = adresse
+                a["office_adresse"] = " ".join(
+                    filter(None, [adresse.get("strasse"), adresse.get("plz"),
+                                  adresse.get("ort")])).strip()
+                stats["address_resolved"] += 1
+        if dest is None:
+            # Kein (mehr) gültiger Firmensitz: alten Wert nicht stehen lassen,
+            # sonst zeigt das Dashboard eine Adresse, zu der nicht geroutet wurde.
+            a.pop("office_adresse", None)
+
+        if dest is None:
+            dest = geocoder.geocode(office)
+            if not dest:
+                simplified = _simplify(office)
+                if simplified and simplified != office:
+                    dest = geocoder.geocode(simplified)
         if not dest:
             a["pendel_modus"] = "Nicht ermittelt"
             a["pendelzeit_min"] = None
@@ -375,6 +508,13 @@ def enrich_commute(apps: list[dict], data_dir: Path,
         a["pendelzeit_min"] = route_cache[cache_key]["min"]
 
     geocoder.save()
+
+    try:
+        tmp = office_cache_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(office_cache, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(office_cache_path)
+    except OSError:
+        pass
 
     try:
         tmp = route_cache_path.with_suffix(".tmp")

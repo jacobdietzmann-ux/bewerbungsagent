@@ -133,6 +133,14 @@ class TestAutoGenerationRoleGuard:
         _run(config, apps)
         assert len(generated_calls) == 1
 
+    def test_quality_engineer_wird_automatisch_beworben(self, config, generated_calls):
+        _run(config, [_job("q", titel="Quality Engineer (m/w/d)", score=88)])
+        assert [a["titel"] for a in generated_calls] == ["Quality Engineer (m/w/d)"]
+
+    def test_adas_hpc_ecu_wird_automatisch_beworben(self, config, generated_calls):
+        _run(config, [_job("h", titel="ADAS & Autonomous HPC / ECU Specialist Hardware (w/m/d)", score=80)])
+        assert len(generated_calls) == 1
+
     @pytest.mark.parametrize("titel", [
         "Payload Integration Engineer - UGV Platforms",   # ausdrücklich gewünscht
         "Systemtest und Integrationsingenieur",
@@ -310,23 +318,23 @@ class TestStudentRolesAlwaysHidden:
 
 
 class TestFitBaender:
-    """50–64 % → ``research``, ab 65 % → ``docs``.
+    """60–70 % → ``research``, ab 71 % (also > 70 %) → ``docs``.
 
-    Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch.
-    Zuvor lag die Unterlagen-Schwelle bei 50 %, und ``run_enrich`` hatte die 50
-    fest verdrahtet — die Konfiguration war dort wirkungslos.
+    Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch —
+    deshalb bekommt das mittlere Band nur den Status ``research``. Die Schwelle
+    ist über ``documents.min_fit_for_generation`` konfigurierbar.
     """
 
     def test_mittleres_band_bekommt_keine_unterlagen(self, config, generated_calls):
         _run(config, [_job("mittel", score=60)])
         assert generated_calls == []
 
-    def test_ab_65_prozent_werden_unterlagen_erzeugt(self, config, generated_calls):
-        _run(config, [_job("hoch", score=65)])
+    def test_ab_71_prozent_werden_unterlagen_erzeugt(self, config, generated_calls):
+        _run(config, [_job("hoch", score=71)])
         assert [a["titel"] for a in generated_calls] == ["Testingenieur"]
 
-    def test_grenze_bei_64_keine_unterlagen(self, config, generated_calls):
-        _run(config, [_job("knapp", score=64)])
+    def test_grenze_bei_70_keine_unterlagen(self, config, generated_calls):
+        _run(config, [_job("knapp", score=70)])
         assert generated_calls == []
 
     def test_bereits_erzeugte_unterlagen_im_mittelband_werden_zurueckgenommen(self, config):
@@ -388,14 +396,14 @@ class TestMengenlaufFitBand:
         run_generate(config, None)
         assert generated_calls == []
 
-    def test_ab_65_wird_erzeugt(self, config, generated_calls):
-        self._matches(config, _job("hoch", score=66))
+    def test_ab_71_wird_erzeugt(self, config, generated_calls):
+        self._matches(config, _job("hoch", score=72))
         result = run_generate(config, None)
         assert [a["titel"] for a in generated_calls] == ["Testingenieur"]
         assert result["jobs_processed"] == 1
 
     def test_ohne_score_zaehlt_fit_pct(self, config, generated_calls):
         """Legacy-Importe haben ``fit_pct`` statt ``score``."""
-        self._matches(config, _job("legacy", score=0, fit_pct=70))
+        self._matches(config, _job("legacy", score=0, fit_pct=72))
         run_generate(config, None)
         assert len(generated_calls) == 1

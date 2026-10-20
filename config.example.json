@@ -45,7 +45,6 @@
     "enabled": true,
     "fit_min": 60,
     "fit_max": 70,
-    "keep_high_fit": 80,
     "commute_grace_min": 10
   },
   "commute": {

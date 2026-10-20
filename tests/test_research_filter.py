@@ -3,11 +3,11 @@
 Der Research-Bestand war mit 165 Einträgen unübersichtlich. Behalten werden nur
 Funde, die eine Entscheidung tragen:
 
-1. Fit im Fenster 60–70 % (knapp unter der Unterlagen-Schwelle von 65 %),
-2. Fit ≥ 80 % (ein sehr guter Treffer ist kein Rauschen),
-3. Pendelweg knapp über der Grenze (30 + 10 = 40 min) als zweite Chance.
+1. Fit im Fenster 60–70 % (knapp unter der Unterlagen-Schwelle),
+2. Pendelweg knapp über der Grenze (30 + 10 = 40 min) als zweite Chance.
 
-Alles andere wird nur als ``deleted`` markiert — nichts wird gelöscht.
+Funde oberhalb des Fensters (> 70 %) sind Dokumenten-Kandidaten und werden nicht
+gelöscht. Alles andere wird nur als ``deleted`` markiert — nichts wird gelöscht.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pytest
 from bewerbungsagent.config import Config
 from bewerbungsagent.pipeline import _apply_research_filter, research_keep_reason
 
-SETTINGS = {"fit_min": 60, "fit_max": 70, "keep_high_fit": 80, "commute_grace_min": 10}
+SETTINGS = {"fit_min": 60, "fit_max": 70, "commute_grace_min": 10}
 
 
 def _app(**overrides) -> dict:
@@ -40,13 +40,9 @@ class TestKeepReason:
     def test_fit_im_fenster(self, fit):
         assert research_keep_reason(_app(fit_pct=fit), 30, SETTINGS)
 
-    @pytest.mark.parametrize("fit", [59, 71, 79])
+    @pytest.mark.parametrize("fit", [59, 71, 79, 80, 95])
     def test_fit_ausserhalb_des_fensters(self, fit):
         assert research_keep_reason(_app(fit_pct=fit), 30, SETTINGS) == ""
-
-    @pytest.mark.parametrize("fit", [80, 95])
-    def test_sehr_hoher_fit_bleibt(self, fit):
-        assert research_keep_reason(_app(fit_pct=fit), 30, SETTINGS)
 
     @pytest.mark.parametrize("km", [31, 35, 40])
     def test_knapp_ueber_der_pendelgrenze(self, km):
@@ -85,11 +81,29 @@ class TestApplyFilter:
 
         by_key = {a["key"]: a for a in apps}
         assert not by_key["keep"].get("deleted")
-        assert not by_key["high"].get("deleted")
+        assert not by_key["high"].get("deleted")   # > 70 %: Dokumenten-Kandidat
         assert not by_key["near"].get("deleted")
         assert by_key["drop"]["deleted"] is True
         assert by_key["drop"]["deleted_reason"].startswith("research-kriterium")
-        assert stats == {"enabled": True, "kept": 3, "removed": 1, "restored": 0}
+        assert stats == {"enabled": True, "kept": 2, "removed": 1, "restored": 0}
+
+    def test_oberhalb_des_fensters_wird_fuer_dokumente_wiederhergestellt(self, tmp_path):
+        """Ein > 70-%-Fund mit veraltetem ``research-kriterium`` kommt zurück."""
+        app = _app(key="high", fit_pct=88, deleted=True,
+                   deleted_reason="research-kriterium: Fit 60–70 % nötig")
+        stats = _apply_research_filter(_config(tmp_path), [app])
+        assert not app.get("deleted")
+        assert not app.get("deleted_reason")
+        assert stats["restored"] == 1
+
+    def test_oberhalb_des_fensters_bleibt_trotz_pendelweg_ausgeblendet(self, tmp_path):
+        """Pendelweg bleibt auch für > 70-%-Funde die harte Grenze."""
+        app = _app(key="weit", fit_pct=88, deleted=True,
+                   deleted_reason="research-kriterium: Fit 60–70 % nötig",
+                   pendelzeit_min=200)
+        stats = _apply_research_filter(_config(tmp_path), [app])
+        assert app.get("deleted") is True
+        assert stats["restored"] == 0
 
     def test_dokumentierte_stelle_bleibt(self, tmp_path):
         app = _app(fit_pct=10, dokumente={"anschreiben_de": "x.pdf"})

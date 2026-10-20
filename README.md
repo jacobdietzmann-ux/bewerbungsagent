@@ -376,15 +376,15 @@ Aus dem Fit folgt der Status — die Grenzen stehen in `bewerbungsagent/pipeline
 | Fit | Status | Dokumente |
 |---|---|---|
 | < 50 % | ausgeblendet | – |
-| 50–64 % | `Research` | keine |
-| ≥ 65 % | `Dokumente erstellt` | ja |
+| 50–70 % | `Research` (Filter hält 60–70 % bzw. Pendelweg knapp drüber) | keine |
+| > 70 % | `Dokumente erstellt` | ja |
 
 Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch — deshalb
 bekommt das mittlere Band nur den Status `Research`. Bereits erzeugte Unterlagen in
 diesem Band setzt der nächste `enrich`-Lauf auf `Research` zurück; die Dateien bleiben
 liegen. Versendete und abgeschlossene Bewerbungen bleiben unangetastet.
 
-Die Schwelle (`documents.min_fit_for_generation`: `hoch` = 65 %, `mittel` = 50 %,
+Die Schwelle (`documents.min_fit_for_generation`: `hoch` = > 70 %, `mittel` = 50 %,
 `niedrig` = 0 %) lässt sich in `config.json` anpassen und gilt für beide Wege —
 `generate` und die automatische Erzeugung in `enrich`.
 
@@ -414,9 +414,10 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
 - `research_filter` – begrenzt den `research`-Bestand. Behalten werden nur Funde mit
-  Fit zwischen `fit_min` und `fit_max` (Standard 60–70 %), mit Fit ≥ `keep_high_fit`
-  (Standard 80 %) oder mit Pendelweg bis `max_pendelzeit_min + commute_grace_min`
-  (Standard 40 min). Alles andere wird nur als `deleted` markiert (nichts wird
+  Fit zwischen `fit_min` und `fit_max` (Standard 60–70 %) oder mit Pendelweg bis
+  `max_pendelzeit_min + commute_grace_min` (Standard 40 min). Funde **oberhalb**
+  des Fensters sind keine Research-Fälle mehr, sondern Dokumenten-Kandidaten und
+  werden nicht gelöscht. Alles andere wird nur als `deleted` markiert (nichts wird
   gelöscht) und bei jeder Neubewertung erneut geprüft — verbessert sich der Fit,
   kommt die Stelle zurück. Stellen mit Unterlagen bleiben immer erhalten.
   `"enabled": false` schaltet den Filter ab.
@@ -432,7 +433,7 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung
-  (`hoch` = 65 %, Standard; `mittel` = 50 %; `niedrig` = 0 %).
+  (`hoch` = > 70 %, Standard; `mittel` = 50 %; `niedrig` = 0 %).
 - `documents.anschreiben_quellen` – `true`: belegt jeden Anspruch im Anschreiben mit
   Quelle und Zeitraum (siehe `bewerbungsagent/rag.py`). Standard `false`.
 - `documents.anschreiben_luecken` – `true`: benennt im Anschreiben transparent die

@@ -32,12 +32,13 @@ from .storage import load_json, now_iso, save_json
 
 # Fit-Bänder. Ein Wert liegt in genau einem Band, und aus dem Band folgen Status
 # und Dokumenterzeugung — die Grenzen stehen deshalb nur hier:
-#   < 50 %  → ausgeblendet (kein tragfähiger Treffer)
-#   50–64 % → ``research``: beobachten, aber keine Unterlagen bauen
-#   ≥ 65 %  → ``docs``: Unterlagen erzeugen
+#   < 50 %   → hart ausgeblendet (kein tragfähiger Treffer)
+#   50–70 %  → ``research`` (der Research-Filter hält davon effektiv nur
+#              60–70 % plus „Pendelweg knapp drüber" als zweite Chance)
+#   > 70 %   → ``docs``: Unterlagen erzeugen
 # Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch.
 FIT_BAND_AUSBLENDEN = 50
-FIT_BAND_UNTERLAGEN = 65
+FIT_BAND_UNTERLAGEN = 71  # erste ganze Zahl über der Research-Obergrenze (70 %)
 
 # Namen für ``documents.min_fit_for_generation`` in der config.json.
 FIT_RANK = {"hoch": FIT_BAND_UNTERLAGEN, "mittel": FIT_BAND_AUSBLENDEN, "niedrig": 0}
@@ -211,7 +212,6 @@ def _research_filter_settings(config: Config) -> dict | None:
     return {
         "fit_min": int(raw.get("fit_min", 60)),
         "fit_max": int(raw.get("fit_max", 70)),
-        "keep_high_fit": int(raw.get("keep_high_fit", 80)),
         "commute_grace_min": int(raw.get("commute_grace_min", 10)),
     }
 
@@ -219,18 +219,14 @@ def _research_filter_settings(config: Config) -> dict | None:
 def research_keep_reason(app: dict, limit: int, settings: dict) -> str:
     """Warum eine Research-Stelle bleibt — ``""`` bedeutet: entfernen.
 
-    Drei Gründe, einen Fund zu behalten:
+    Zwei Gründe, einen Fund zu behalten:
     1. Fit im Fenster ``fit_min``–``fit_max`` (knapp unter der Unterlagen-Schwelle).
-    2. Fit ≥ ``keep_high_fit``: ein sehr guter Treffer ist kein Rauschen, auch
-       wenn (noch) keine Unterlagen entstanden sind.
-    3. Pendelweg knapp über der Grenze (bis ``limit + commute_grace_min``): eine
+    2. Pendelweg knapp über der Grenze (bis ``limit + commute_grace_min``): eine
        zweite Chance, falls sich Wohnung oder Grenze ändern.
     """
     fit = _fit_value(app)
     if settings["fit_min"] <= fit <= settings["fit_max"]:
         return f"Fit {fit} % im Fenster"
-    if settings["keep_high_fit"] and fit >= settings["keep_high_fit"]:
-        return f"Fit {fit} % über {settings['keep_high_fit']} %"
     commute = app.get("pendelzeit_min")
     if commute is not None and commute != "":
         try:
@@ -245,8 +241,11 @@ def research_keep_reason(app: dict, limit: int, settings: dict) -> str:
 def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
     """Begrenzt den ``research``-Bestand auf die behaltenswerten Funde.
 
-    Markiert nur ``deleted`` — nichts wird gelöscht. Stellen mit Unterlagen
-    bleiben unangetastet (dort wurde bewusst gearbeitet).
+    Funde im Fit-Fenster (``fit_min``–``fit_max``) und „Pendelweg knapp drüber"
+    bleiben; alles darunter wird nur als ``deleted`` markiert (nichts wird
+    gelöscht). Funde **oberhalb** des Fensters sind Dokumenten-Kandidaten und
+    werden weder gelöscht noch festgehalten. Stellen mit Unterlagen bleiben
+    unangetastet (dort wurde bewusst gearbeitet).
     """
     settings = _research_filter_settings(config)
     if settings is None:
@@ -259,10 +258,23 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
             continue
         if a.get("dokumente"):
             continue
-        keep = research_keep_reason(a, limit, settings)
         reason = (a.get("deleted_reason") or "")
         is_filtered = reason.lower().startswith(RESEARCH_REASON_PREFIX)
 
+        # Oberhalb des Research-Fensters ist ein Fund kein Research-Fall mehr,
+        # sondern ein Dokumenten-Kandidat. Der Filter löscht ihn also nicht,
+        # sondern räumt nur ein eigenes, überholtes ``research-kriterium`` auf
+        # und lässt die Dokumenterzeugung (nächster Schritt) übernehmen.
+        if _fit_value(a) > settings["fit_max"]:
+            if _commute_blocked(config, a):
+                continue  # Pendelweg bleibt harte Grenze
+            if a.get("deleted") and is_filtered:
+                a.pop("deleted", None)
+                a.pop("deleted_reason", None)
+                restored += 1
+            continue
+
+        keep = research_keep_reason(a, limit, settings)
         if keep:
             kept += 1
             if a.get("deleted") and is_filtered:

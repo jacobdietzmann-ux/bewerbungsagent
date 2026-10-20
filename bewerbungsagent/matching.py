@@ -30,7 +30,10 @@ _ROLE_SIGNAL_RE = re.compile(
     # direkt nach dem Stamm würde diese Rollen fälschlich ausschließen.
     r"|\bverification\w*|\bvalidation\w*|\bverifikation\w*|\bvalidierung\w*"
     r"|\babsicherung\w*|\berprobung\w*|\bversuchsingenieur\w*"
-    r"|\bqualifikation\w*|\bqualifizierung\w*|\bqa\b|\bqualitaetssicherung\w*"
+    # Qualität/Quality (englisch wie deutsch): ``qualitat`` deckt die
+    # NFKD-Normalisierung (ä → a) ab, ``qualitaet`` die ae-Transkription.
+    r"|\bqualifikation\w*|\bqualifizierung\w*|\bqa\b"
+    r"|\bquality\w*|\bqualitat\w*|\bqualitaet\w*"
     r"|\bpruef\w*|\bpruf\w*"          # Prüfstands-, Prüffeld-, Prüfingenieur
     # Domänenwörter, die eine technische Rolle belegen. Das ``(?!er)`` schließt
     # die Berufsbezeichnungen aus: „Elektroniker" ist ein Fertigungsberuf, keine
@@ -40,6 +43,9 @@ _ROLE_SIGNAL_RE = re.compile(
     # „Mechatronik-Ingenieur" bleiben erlaubt; „Kfz-Mechatroniker" nicht.
     r"|\bmechatronik(?!er)\w*|\belektronik(?!er)\w*|\belektrotechnik(?!er)\w*"
     r"|\bintegration\w*"
+    # Automobil-/Embedded-Domänen: ADAS, HPC und ECU belegen eine systemnahe
+    # Hardware-/Testrolle (z. B. „ADAS & Autonomous HPC / ECU Specialist").
+    r"|\badas\b|\bhpc\b|\becu\b"
 )
 
 

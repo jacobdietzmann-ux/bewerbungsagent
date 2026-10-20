@@ -147,6 +147,9 @@ class TestRoleSignal:
         "Validierungsingenieur Gesamtfahrzeug",
         "Erprobungsingenieur Gesamtfahrzeug Inbetriebnahme",
         "Absicherungsingenieur (m/w/d)",
+        "Quality Engineer (m/w/d)",
+        "ADAS & Autonomous HPC / ECU Specialist Hardware (w/m/d)",
+        "Qualitätsingenieur / Qualitätsmanager (m/w/d)",
     ])
     def test_erkennt_testrollen(self, titel):
         assert has_role_signal(titel) is True

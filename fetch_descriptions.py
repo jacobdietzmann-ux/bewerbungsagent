@@ -23,6 +23,7 @@ import re
 import sys
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
@@ -123,6 +124,13 @@ _USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 
+def _chromium_executable_path() -> Path | None:
+    system_chromium = Path("/usr/bin/chromium")
+    if sys.platform.startswith("linux") and system_chromium.is_file():
+        return system_chromium
+    return None
+
+
 @contextmanager
 def browser_page(*, headed: bool = False):
     """Headless-Chromium mit deutschem Kontext als Kontextmanager.
@@ -133,7 +141,7 @@ def browser_page(*, headed: bool = False):
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            executable_path="/usr/bin/chromium",
+            executable_path=_chromium_executable_path(),
             headless=not headed,
             args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
         )

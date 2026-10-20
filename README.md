@@ -187,7 +187,7 @@ Status (oder Kontakt/Notiz/Interview-Termin) **dauerhaft ändern** zu können, s
 lokalen Server:
 
 ```bash
-../00_Dashboard/dashboard-oeffnen.sh   # baut das Dashboard, startet den Server, öffnet den Browser
+../00_Dashboard/dashboard-oeffnen.sh  # startet den Server (falls nötig) und öffnet das Dashboard
 # oder manuell:
 python agent.py dashboard
 python server.py                # läuft auf http://127.0.0.1:8766/00_Dashboard/dashboard.html
@@ -200,6 +200,28 @@ funktioniert die Anzeige, aber Statusänderungen werden nur lokal im Browser geh
 (bis der Server läuft).
 Über „Ordner ↗“ in der Links-Spalte öffnet der Server den jeweiligen Bewerbungsordner im
 Dateimanager.
+
+**Verknüpfung auf dem Desktop (Linux).** Ein `.desktop`-Launcher zeigt auf das Skript;
+ein reiner Symlink auf die `.sh` genügt nicht, weil der Dateimanager ihn sonst im
+Editor öffnet. Das Skript muss ausführbar sein (`100755`), sonst bricht der Klick mit
+„Keine Berechtigung“ (Exit 126) ab:
+
+```bash
+chmod +x dashboard-oeffnen.sh
+cat > ~/Schreibtisch/bewerbungs-dashboard.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Bewerbungs-Dashboard
+Exec=/pfad/zu/00_Dashboard/dashboard-oeffnen.sh
+Icon=applications-office
+Terminal=false
+EOF
+chmod +x ~/Schreibtisch/bewerbungs-dashboard.desktop
+gio set ~/Schreibtisch/bewerbungs-dashboard.desktop metadata::trusted true
+```
+
+Unter Windows übernehmen `dashboard-oeffnen.bat` und `dashboard-oeffnen.ps1` dieselbe
+Aufgabe.
 
 ## Täglicher Lauf (automatisch)
 

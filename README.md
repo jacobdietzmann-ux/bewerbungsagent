@@ -73,27 +73,35 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
 ## Projektstruktur
 
 ```
-04_Agent/
-├── agent.py                  # CLI-Einstieg
-├── server.py                 # Lokaler Dashboard-Server (liefert HTML + speichert Änderungen)
-├── dashboard-oeffnen.sh      # Start: Dashboard bauen + Server starten + Browser öffnen
-├── config.json               # Konfiguration (Pfade, Suchbegriffe, Sprachen, …)
-├── requirements.txt
-├── bewerbungsagent/
-│   ├── config.py             # Konfiguration & Pfadauflösung
-│   ├── profile.py            # Profil laden & Schlüsselwörter extrahieren
-│   ├── matching.py           # Fit-Scoring
-│   ├── statuses.py           # Kanonische Statuswerte (6-Stufen-Funnel)
-│   ├── documents.py          # Anschreiben + Lebenslauf (ReportLab-PDF)
-│   ├── dashboard.py          # Interaktives HTML-Dashboard
-│   ├── importer.py           # Import des alten Dashboards
-│   ├── pipeline.py           # Orchestrierung der Schritte
-│   ├── db.py                 # SQLite-Persistenz (Provider-/Nutzer-Feldtrennung)
-│   ├── storage.py            # JSON-Persistenz (jobs.json, matches.json)
-│   └── search/               # Such-Provider (StepStone, DuckDuckGo, Bing, JobSpy, Import)
-├── data/                     # Arbeitsdaten (jobs.db, jobs.json, matches.json, state.json, …)
-└── output/                   # Generierte Dokumente (ein Ordner pro Stelle)
+2026/
+├── 00_Dashboard/             # Dashboard-Artefakte: dashboard.html + Starter (Windows/Linux)
+├── 01_Bewerbungen/           # Bewerbungsordner je Stelle (PDFs)
+├── 02_Profil-und-Assets/     # Profil-Datenbank, CV-Vorlagen
+├── 03_Recherche/             # Briefings, Stellenanzeigen
+└── 04_Agent/
+    ├── agent.py              # CLI-Einstieg
+    ├── server.py             # Lokaler Dashboard-Server (liefert HTML + speichert Änderungen)
+    ├── config.json           # Konfiguration (Pfade, Suchbegriffe, Sprachen, …)
+    ├── requirements.txt
+    ├── bewerbungsagent/
+    │   ├── config.py         # Konfiguration & Pfadauflösung
+    │   ├── profile.py        # Profil laden & Schlüsselwörter extrahieren
+    │   ├── matching.py       # Fit-Scoring
+    │   ├── statuses.py       # Kanonische Statuswerte (6-Stufen-Funnel)
+    │   ├── documents.py      # Anschreiben + Lebenslauf (ReportLab-PDF)
+    │   ├── dashboard.py      # Template des interaktiven HTML-Dashboards
+    │   ├── importer.py       # Import des alten Dashboards
+    │   ├── pipeline.py       # Orchestrierung der Schritte
+    │   ├── db.py             # SQLite-Persistenz (Provider-/Nutzer-Feldtrennung)
+    │   ├── storage.py        # JSON-Persistenz (jobs.json, matches.json)
+    │   └── search/           # Such-Provider (StepStone, DuckDuckGo, Bing, JobSpy, Import)
+    ├── data/                 # Arbeitsdaten (jobs.db, jobs.json, matches.json, state.json, …)
+    └── output/               # Generierte Dokumente (ein Ordner pro Stelle)
 ```
+
+Code und Dashboard-Artefakt sind getrennt: Der Server läuft in `04_Agent/`, die
+erzeugte `dashboard.html` und die Starter liegen in `00_Dashboard/`. Der Pfad steht
+in `config.json` unter `dashboard_file`.
 
 ## Schnellstart ohne persönliche Daten
 
@@ -179,10 +187,10 @@ Status (oder Kontakt/Notiz/Interview-Termin) **dauerhaft ändern** zu können, s
 lokalen Server:
 
 ```bash
-./dashboard-oeffnen.sh          # baut das Dashboard, startet den Server, öffnet den Browser
+../00_Dashboard/dashboard-oeffnen.sh   # baut das Dashboard, startet den Server, öffnet den Browser
 # oder manuell:
 python agent.py dashboard
-python server.py                # läuft auf http://127.0.0.1:8766/04_Agent/dashboard.html
+python server.py                # läuft auf http://127.0.0.1:8766/00_Dashboard/dashboard.html
 ```
 
 Der Server liefert das Dashboard aus und speichert Änderungen über `GET/POST /state` in

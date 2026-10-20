@@ -52,7 +52,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 HOST = "127.0.0.1"
 PORT = 8766
-DASHBOARD_PATH = "/04_Agent/dashboard.html"
+# Das Dashboard liegt seit der Trennung von Code und Ausgabe in ``00_Dashboard``
+# (Ordner für alle Dashboard-Artefakte). Der Code bleibt in ``04_Agent``.
+DASHBOARD_DIR = os.path.join(ROOT, "00_Dashboard")
+DASHBOARD_PATH = "/00_Dashboard/dashboard.html"
 STATE_FILE = os.path.join(SCRIPT_DIR, "data", "state.json")
 # SQLite-Datenbank = Single Source of Truth (ADR-018). ``state.json`` bleibt nur
 # als abgeleiteter Snapshot für bisync/Backup bestehen. Der Pfad kommt aus der
@@ -72,7 +75,7 @@ DB_FILE = _resolve_db_file()
 DASHBOARD_SRC = os.path.join(SCRIPT_DIR, "bewerbungsagent", "dashboard.py")
 # Das erzeugte Dashboard. Änderungen daran (z. B. durch ``agent.py dashboard``)
 # müssen der laufende Server ebenfalls bemerken.
-DASHBOARD_OUT = os.path.join(SCRIPT_DIR, "dashboard.html")
+DASHBOARD_OUT = os.path.join(DASHBOARD_DIR, "dashboard.html")
 
 EDITABLE = ("status", "contact", "deleted", "deleted_reason", "notes", "interviewDate",
             "statusChangedAt", "sentAt")

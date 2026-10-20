@@ -12,9 +12,11 @@ param()
 $ErrorActionPreference = 'Stop'
 
 $Here        = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Url         = 'http://127.0.0.1:8766/04_Agent/dashboard.html'
+# Dieser Launcher liegt in 00_Dashboard; der Server und seine Daten in 04_Agent.
+$AgentDir    = Join-Path (Split-Path -Parent $Here) '04_Agent'
+$Url         = 'http://127.0.0.1:8766/00_Dashboard/dashboard.html'
 $HealthUrl   = 'http://127.0.0.1:8766/healthz'
-$DataDir     = Join-Path $Here 'data'
+$DataDir     = Join-Path $AgentDir 'data'
 $LauncherLog = Join-Path $DataDir 'launcher.log'
 $ServerOut   = Join-Path $DataDir 'server.log'
 $ServerErr   = Join-Path $DataDir 'server.err.log'
@@ -57,9 +59,9 @@ function Test-Healthy {
 if (-not (Test-Healthy)) {
     Write-LauncherLog ("Serverstart angefordert: {0}" -f $Py)
     # Relativer Dateiname (nicht Join-Path): Start-Process quotet Leerzeichen im
-    # Argument nicht, und $Here kann Leerzeichen enthalten ("Meine Ablage").
+    # Argument nicht, und der Pfad enthält Leerzeichen ("Meine Ablage").
     Start-Process -FilePath $Py -ArgumentList @('server.py') `
-        -WorkingDirectory $Here -WindowStyle Hidden `
+        -WorkingDirectory $AgentDir -WindowStyle Hidden `
         -RedirectStandardOutput $ServerOut -RedirectStandardError $ServerErr
     Start-Sleep -Milliseconds 500
 }

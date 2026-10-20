@@ -73,8 +73,8 @@ Deshalb sind die vom Agenten **automatisch erzeugten** Dateien ausgenommen
 (`~/.config/rclone/bisync-exclude.txt`):
 
 ```
-/DOKUMENTE/Job/Bewerbung/2026/04_Agent/dashboard.html
-/DOKUMENTE/Job/Bewerbung/2026/04_Agent/dashboard.html.pre-*
+/DOKUMENTE/Job/Bewerbung/2026/00_Dashboard/dashboard.html
+/DOKUMENTE/Job/Bewerbung/2026/00_Dashboard/dashboard.html.pre-*
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/jobs.json
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/matches.json
 /DOKUMENTE/Job/Bewerbung/2026/04_Agent/data/state.json

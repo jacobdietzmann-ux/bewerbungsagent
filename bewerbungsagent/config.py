@@ -20,7 +20,9 @@ DEFAULT_CONFIG: dict = {
     "output_dir": "output",
     # Zielordner für fertige Bewerbungsunterlagen (ein Unterordner pro Stelle).
     "bewerbungen_dir": "../01_Bewerbungen",
-    "dashboard_file": "dashboard.html",
+    # Dashboard-Ausgabe: eigener Ordner, damit Code (04_Agent) und Artefakt
+    # getrennt bleiben. Relativ zum Agent-Root.
+    "dashboard_file": "../00_Dashboard/dashboard.html",
     "search": {
         "enabled": True,
         "providers": ["manual", "duckduckgo", "bing"],

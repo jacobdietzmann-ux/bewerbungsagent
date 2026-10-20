@@ -2,18 +2,20 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-URL="http://127.0.0.1:8766/04_Agent/dashboard.html"
-DATA_DIR="$HERE/data"
+# Dieser Launcher liegt in 00_Dashboard; der Server und seine Daten in 04_Agent.
+AGENT_DIR="$(cd "$HERE/../04_Agent" && pwd)"
+URL="http://127.0.0.1:8766/00_Dashboard/dashboard.html"
+DATA_DIR="$AGENT_DIR/data"
 LOG="$DATA_DIR/launcher.log"
 SERVER_LOG="$DATA_DIR/server.log"
 mkdir -p "$DATA_DIR"
 exec >>"$LOG" 2>&1
 printf '[%s] Launcher gestartet\n' "$(date --iso-8601=seconds)"
-cd "$HERE"
+cd "$AGENT_DIR"
 
 # Python-Interpreter des Agents finden.
-if [ -x "$HERE/.venv/bin/python" ]; then
-  PY="$HERE/.venv/bin/python"
+if [ -x "$AGENT_DIR/.venv/bin/python" ]; then
+  PY="$AGENT_DIR/.venv/bin/python"
 elif [ -x "$HOME/.venvs/bewerbungsagent/bin/python" ]; then
   PY="$HOME/.venvs/bewerbungsagent/bin/python"
 else
@@ -28,7 +30,7 @@ fi
 
 HEALTH_URL="http://127.0.0.1:8766/healthz"
 if ! curl -fsS --connect-timeout 1 --max-time 2 "$HEALTH_URL" >/dev/null 2>&1; then
-  nohup "$PY" "$HERE/server.py" >>"$SERVER_LOG" 2>&1 </dev/null &
+  nohup "$PY" "$AGENT_DIR/server.py" >>"$SERVER_LOG" 2>&1 </dev/null &
   SERVER_PID=$!
   disown "$SERVER_PID" 2>/dev/null || true
   printf '[%s] Serverstart angefordert (PID %s)\n' "$(date --iso-8601=seconds)" "$SERVER_PID"

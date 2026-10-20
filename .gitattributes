@@ -1,0 +1,9 @@
+# Shell-Skripte brauchen LF und das Ausführbar-Bit.
+# Bei CRLF bricht Linux sonst mit "bad interpreter: /usr/bin/env bash^M" ab —
+# das passiert leicht, wenn die Datei über einen Windows-Checkout läuft.
+*.sh            text eol=lf
+dashboard-oeffnen.sh text eol=lf
+
+# Windows-Starter behalten CRLF.
+*.bat           text eol=crlf
+*.ps1           text eol=crlf

@@ -168,3 +168,79 @@ def test_dashboard_offers_research_status_toggle(
     # Unterlagen unsichtbar.
     assert "Neuer Fund" in html
     assert _embedded_rows(html)["Neuer Fund"]["visible"] is False
+
+
+class TestBriefingLinks:
+    """Interview-Briefings werden im Bewerbungsordner gefunden und verlinkt.
+
+    Sie entstehen erst nach dem Versand und stehen deshalb nicht im
+    ``dokumente``-Feld der DB — ohne Ordner-Scan blieben sie unsichtbar.
+    """
+
+    def _setup(self, tmp_path, monkeypatch, *files):
+        agent_root = tmp_path / "04_Agent"
+        agent_root.mkdir()
+        folder = tmp_path / "01_Bewerbungen" / "Firma - Stelle"
+        folder.mkdir(parents=True)
+        (folder / "Anschreiben.pdf").write_bytes(b"pdf")
+        for name in files:
+            (folder / name).write_bytes(b"pdf" if name.endswith(".pdf") else b"# md")
+        monkeypatch.setattr(dashboard, "AGENT_ROOT", agent_root)
+        return folder
+
+    def _app(self, folder) -> dict:
+        return {
+            "firma": "Firma", "titel": "Testingenieur", "status": "interview",
+            "interviewDate": "2026-11-03", "pendelzeit_min": 20,
+            "dokumente": {"anschreiben_de": str(folder / "Anschreiben.pdf")},
+        }
+
+    def _docs(self, tmp_path, folder) -> list[dict]:
+        output = tmp_path / "dashboard.html"
+        dashboard.build_dashboard({"applications": [self._app(folder)]}, output)
+        return _embedded_rows(output.read_text(encoding="utf-8"))["Firma"]["docs"]
+
+    def test_briefing_pdf_wird_verlinkt(self, tmp_path, monkeypatch):
+        folder = self._setup(tmp_path, monkeypatch,
+                             "Briefing_Firma_2026-10-20.pdf")
+        labels = {d["label"]: d["href"] for d in self._docs(tmp_path, folder)}
+        assert "Briefing (PDF)" in labels
+        assert labels["Briefing (PDF)"].endswith("Briefing_Firma_2026-10-20.pdf")
+
+    def test_englische_variante_bekommt_eigenes_label(self, tmp_path, monkeypatch):
+        folder = self._setup(tmp_path, monkeypatch,
+                             "Briefing_Firma_2026-10-20.pdf",
+                             "Briefing_Firma_2026-10-20_EN.pdf")
+        labels = [d["label"] for d in self._docs(tmp_path, folder)]
+        assert "Briefing (PDF)" in labels
+        assert "Briefing (PDF, EN)" in labels
+
+    def test_markdown_nur_ohne_passendes_pdf(self, tmp_path, monkeypatch):
+        folder = self._setup(tmp_path, monkeypatch,
+                             "Briefing_A.pdf", "Briefing_A.md", "Briefing_B.md")
+        hrefs = [d["href"] for d in self._docs(tmp_path, folder)]
+        assert any(h.endswith("Briefing_A.pdf") for h in hrefs)
+        assert not any(h.endswith("Briefing_A.md") for h in hrefs)
+        assert any(h.endswith("Briefing_B.md") for h in hrefs)
+
+    def test_ohne_briefing_keine_leeren_links(self, tmp_path, monkeypatch):
+        folder = self._setup(tmp_path, monkeypatch)
+        docs = self._docs(tmp_path, folder)
+        assert [d["label"] for d in docs] == ["Anschreiben"]
+
+    def test_briefing_allein_macht_stelle_nicht_sichtbar(self, tmp_path, monkeypatch):
+        """Ein Briefing ist kein Bewerbungsunterlagen-Ersatz."""
+        agent_root = tmp_path / "04_Agent"
+        agent_root.mkdir()
+        folder = tmp_path / "01_Bewerbungen" / "Firma - Stelle"
+        folder.mkdir(parents=True)
+        (folder / "Briefing_Firma.pdf").write_bytes(b"pdf")
+        monkeypatch.setattr(dashboard, "AGENT_ROOT", agent_root)
+
+        output = tmp_path / "dashboard.html"
+        dashboard.build_dashboard({"applications": [{
+            "firma": "Firma", "titel": "Testingenieur", "status": "docs",
+            "dokumente": {"anschreiben_de": str(folder / "Fehlt.pdf")},
+        }]}, output)
+        rows = _embedded_rows(output.read_text(encoding="utf-8"))
+        assert rows["Firma"]["visible"] is False

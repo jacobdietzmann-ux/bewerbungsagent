@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -95,7 +96,9 @@ def _doc_label(key: str) -> str:
 
 def _root_rel(stored_rel: str) -> str:
     """Wandelt einen relativ zu ``04_Agent`` gespeicherten Pfad in einen relativ zu ROOT um."""
-    return os.path.normpath(os.path.join(AGENT_ROOT.name, stored_rel))
+    # Immer mit ``/`` als Trenner: Backslashes aus Windows-Pfaden sind in einem
+    # URL-Pfad nicht zuverlässig und brachen einzelne Dokument-Links.
+    return os.path.normpath(os.path.join(AGENT_ROOT.name, stored_rel)).replace(os.sep, "/")
 
 
 def _existing_documents(app: dict) -> list[tuple[str, str]]:
@@ -119,6 +122,60 @@ def _existing_documents(app: dict) -> list[tuple[str, str]]:
             seen.add(canonical)
             documents.append((canonical, stored))
     return documents
+
+
+_BRIEFING_NAME_RE = re.compile(r"^briefing.*\.(pdf|md)$", re.IGNORECASE)
+
+
+def _briefing_label(name: str) -> str:
+    """Sprechendes Label aus dem Dateinamen (Deutsch/Englisch unterscheiden)."""
+    low = name.lower()
+    english = bool(re.search(r"(^|[_\-.])en([_\-.]|$)", low))
+    return "Briefing (PDF, EN)" if english else "Briefing (PDF)"
+
+
+def _briefing_documents(app: dict) -> list[dict]:
+    """Briefings im Bewerbungsordner als zusätzliche Links.
+
+    Das Briefing entsteht erst nach der Bewerbung (Interview-Vorbereitung) und
+    steht deshalb nicht im ``dokumente``-Feld der DB. Es wird daher über den
+    Ordner der vorhandenen Unterlagen gefunden: ``Briefing*.pdf`` zählt, eine
+    Markdown-Datei nur, wenn kein PDF mit demselben Namen existiert.
+    """
+    folders: list[Path] = []
+    for _key, stored in _existing_documents(app):
+        path = Path(stored)
+        if not path.is_absolute():
+            path = AGENT_ROOT / path
+        if path.parent not in folders:
+            folders.append(path.parent)
+
+    found: list[dict] = []
+    seen: set[str] = set()
+    for folder in folders:
+        try:
+            entries = list(folder.iterdir())
+        except OSError:
+            continue
+        pdfs: dict[str, Path] = {}
+        markdown: dict[str, Path] = {}
+        for entry in entries:
+            if not _BRIEFING_NAME_RE.match(entry.name) or not entry.is_file():
+                continue
+            stem = entry.stem.lower()
+            if entry.suffix.lower() == ".pdf":
+                pdfs[stem] = entry
+            else:
+                markdown[stem] = entry
+        chosen = sorted(pdfs.values()) + [p for k, p in sorted(markdown.items())
+                                         if k not in pdfs]
+        for entry in chosen:
+            href = "/" + os.path.relpath(entry, ROOT).replace(os.sep, "/")
+            if href in seen:
+                continue
+            seen.add(href)
+            found.append({"label": _briefing_label(entry.name), "href": href})
+    return found
 
 
 def documented_applications(applications: list[dict]) -> list[dict]:
@@ -262,11 +319,15 @@ def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
         # korrekt gegen den Server-Root auflöst (sonst 404).
         rel = _root_rel(stored)
         docs.append({"label": _doc_label(key), "href": "/" + rel})
+    # Interview-Briefings liegen erst nach dem Versand im Bewerbungsordner und
+    # werden deshalb hier zusätzlich eingesammelt.
+    existing_hrefs = {d["href"] for d in docs}
+    docs.extend(d for d in _briefing_documents(app) if d["href"] not in existing_hrefs)
 
     folder = ""
     if docs:
         # Für /open?path=… (wird an ROOT angehängt) ohne führenden Schrägstrich.
-        folder = os.path.dirname(docs[0]["href"]).lstrip("/")
+        folder = os.path.dirname(docs[0]["href"]).lstrip("/").replace("\\", "/")
 
     contact = app.get("contact") or app.get("ansprechpartner") or ""
 

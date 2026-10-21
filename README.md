@@ -414,6 +414,11 @@ Die Schwelle (`documents.min_fit_for_generation`: `hoch` = > 70 %, `mittel` = 50
 `niedrig` = 0 %) lässt sich in `config.json` anpassen und gilt für beide Wege —
 `generate` und die automatische Erzeugung in `enrich`.
 
+Unabhängig vom Fit werden **Studenten-/Praktikumsstellen** und **Technikerrollen**
+(„Techniker", „Systemtechniker", „Technician") ausgeblendet: beides sind keine
+Ingenieursstellen. Eine *abgeschlossene* Bewerbung (`sent`/`followup`/`interview`/
+`rejected`) auf eine solche Stelle bleibt als echter Verlauf sichtbar.
+
 ## Konfiguration
 
 Alle Einstellungen stehen in [`config.json`](config.json):
@@ -429,8 +434,7 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
   (Standard 4).
-- `search.triage` – Relevanz-Triage an/aus (Standard `true`). Domänenfremde Treffer
-  (Vertrieb, Marketing, Finanzen, Gastronomie, Fahren, Pflege, handwerkliche Fertigung)
+- `search.triage` – Relevanz-Triage an/aus (Standard `true`). Domänenfremde Treffer  (Vertrieb, Marketing, Finanzen, Gastronomie, Fahren, Pflege, handwerkliche Fertigung)
   werden schon bei der Suche verworfen, statt erst später gelöscht zu werden. Verworfene
   Treffer werden zur Nachvollziehbarkeit in `data/triage_rejected.json` protokolliert.
   Unklare Titel bleiben im Bestand — dort entscheidet der Fit.

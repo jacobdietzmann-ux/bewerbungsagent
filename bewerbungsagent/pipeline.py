@@ -23,7 +23,8 @@ from .documents import (
 from .homeoffice import detect_home_office
 from .importer import import_old_dashboard
 from .industry import classify_industry
-from .matching import fit_value, has_role_signal, is_student_role, match_jobs
+from .matching import (fit_value, has_role_signal, is_student_role,
+                       is_technician_role, match_jobs)
 from .profile import Profile, normalize
 from .salary import enrich_salary
 from .search import run_search as _search
@@ -358,6 +359,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     selected = []
     skipped_commute = []
     skipped_student = []
+    skipped_technician = []
     skipped_existing = []
     skipped_role = []
     for m in matches:
@@ -367,6 +369,10 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         # Studenten-/Praktikumsstellen werden nie bedient.
         if is_student_role(m.get("titel")):
             skipped_student.append(m)
+            continue
+        # Technikerstellen ebenso — außer bei ausdrücklicher ID-Wahl.
+        if job_ids is None and is_technician_role(m.get("titel")):
+            skipped_technician.append(m)
             continue
         if bereits_dokumentiert and ((m.get("key") or _job_key(m)) in bereits_dokumentiert):
             skipped_existing.append(m)
@@ -394,6 +400,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
 
     return {"generated": created, "jobs_processed": len(selected),
             "skipped_commute": skipped_commute, "skipped_student": skipped_student,
+            "skipped_technician": skipped_technician,
             "skipped_role": skipped_role, "skipped_existing": len(skipped_existing)}
 
 
@@ -450,6 +457,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     deleted_count = 0
     deleted_commute = 0
     deleted_student = 0
+    deleted_technician = 0
     restored_documented = 0
     restored_reason = 0
     restored_active = 0
@@ -478,6 +486,16 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                 a.pop("deleted", None)
                 a.pop("deleted_reason", None)
                 restored_active += 1
+            continue
+        # Techniker-/Facharbeiterrollen sind keine Ingenieursstellen. Der Check
+        # steht NACH dem Schutz aktiver Bewerbungen: eine abgeschlossene
+        # Bewerbung auf eine Technikerstelle ist echter Verlauf und bleibt
+        # sichtbar (z. B. „Test System Technician", rejected).
+        if is_technician_role(a.get("titel")):
+            if not a.get("deleted") or not str(a.get("deleted_reason") or "").startswith("Technikerrolle"):
+                a["deleted"] = True
+                a["deleted_reason"] = "Technikerrolle (keine Ingenieursstelle)"
+                deleted_technician += 1
             continue
         if a.get("deleted"):
             # Ein ausgeblendeter Datensatz wird *neu bewertet*: Der Grund muss
@@ -594,6 +612,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "deleted_fit_under_50": deleted_count,
         "deleted_commute": deleted_commute,
         "deleted_student": deleted_student,
+        "deleted_technician": deleted_technician,
         "restored_documented": restored_documented,
         "restored_reason": restored_reason,
         "restored_active": restored_active,

@@ -76,6 +76,26 @@ def is_student_role(title: str | None) -> bool:
     return bool(_STUDENT_ROLE_RE.search(title or ""))
 
 
+# Facharbeiter-/Technikerrollen („Techniker", „Systemtechniker",
+# „Elektrotechniker", „Technician") sind keine Ingenieursstellen: sie verlangen
+# in der Regel eine Ausbildung statt eines Studiums und zielen nicht auf
+# Test-/Systemverantwortung. Sie werden aus dem Bestand ausgeblendet.
+#
+# Bewusst NICHT getroffen: „Technik", „Technische", „Technology" — das sind
+# Sachgebiete, keine Berufsbezeichnungen („Technischer Projektleiter" bleibt
+# eine Ingenieursrolle).
+_TECHNICIAN_ROLE_RE = re.compile(
+    r"\w*techniker\w*"        # Techniker, Systemtechniker, Elektrotechniker
+    r"|\btechnician\w*",      # Technician, Technicians
+    re.IGNORECASE,
+)
+
+
+def is_technician_role(title: str | None) -> bool:
+    """True, wenn der Titel eine Facharbeiter-/Technikerrolle ist."""
+    return bool(_TECHNICIAN_ROLE_RE.search(title or ""))
+
+
 def _job_text(job: dict) -> tuple[str, str]:
     title = job.get("titel") or job.get("title") or ""
     desc = (

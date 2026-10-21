@@ -317,6 +317,47 @@ class TestStudentRolesAlwaysHidden:
         assert not app.get("deleted")
 
 
+class TestTechnicianRolesHidden:
+    """Technikerstellen verschwinden aus dem Bestand — außer bei echter Aktivität.
+
+    Die TI-Stelle „Techniker im Outgoing Quality Team" erreichte 82 % und bekam
+    über die Quality-Schwelle sogar Dokumente. Eine Technikerrolle ist aber keine
+    Ingenieursstelle. Eine *abgeschlossene* Bewerbung auf eine Technikerstelle
+    bleibt dagegen sichtbar: das ist echter Verlauf, keine Fehlsuche.
+    """
+
+    def test_technikerstelle_wird_ausgeblendet(self, config):
+        apps = [_job("ti", titel="Techniker (m/w/d) im Outgoing Quality Team", score=82)]
+        result = _run(config, apps)
+        assert result["deleted_technician"] == 1
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app.get("deleted") is True
+        assert "Technikerrolle" in app["deleted_reason"]
+
+    def test_dokumentierte_technikerstelle_bleibt_nicht_sichtbar(self, config):
+        """Einmal erzeugte Unterlagen schützen eine Technikerrolle nicht."""
+        apps = [_job("ti", titel="Systemtechniker (m/w/d)", score=82,
+                     dokumente={"deutsch": {"anschreiben": "x.pdf"}})]
+        _run(config, apps)
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app.get("deleted") is True
+
+    @pytest.mark.parametrize("status", ["sent", "followup", "interview", "rejected"])
+    def test_aktive_bewerbung_bleibt_sichtbar(self, config, status):
+        """Eine abgeschlossene Bewerbung auf eine Technikerstelle ist Historie."""
+        apps = [_job("tech", titel="Test System Technician", status=status, score=63)]
+        _run(config, apps)
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert not app.get("deleted")
+        assert not str(app.get("deleted_reason") or "").startswith("Technikerrolle")
+
+    def test_ingenieursrolle_bleibt(self, config):
+        apps = [_job("ing", titel="Testingenieur (m/w/d)", score=70)]
+        _run(config, apps)
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert not app.get("deleted")
+
+
 class TestFitBaender:
     """60–70 % → ``research``, ab 71 % (also > 70 %) → ``docs``.
 

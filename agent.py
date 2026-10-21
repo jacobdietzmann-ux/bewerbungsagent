@@ -192,6 +192,8 @@ def main(argv=None) -> int:
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         print(f"Gelöscht (Studenten-/Praktikumsstelle): "
               f"{result.get('deleted_student', 0)} Stelle(n).")
+        print(f"Gelöscht (Technikerrolle): "
+              f"{result.get('deleted_technician', 0)} Stelle(n).")
         if result.get("restored_documented"):
             print(f"Wieder sichtbar (Unterlagen vorhanden): "
                   f"{result['restored_documented']} Stelle(n).")
@@ -232,6 +234,11 @@ def main(argv=None) -> int:
         if skipped_student:
             print(f"  Übersprungen (Studenten-/Praktikumsstelle): {len(skipped_student)} Stelle(n)")
             for s in skipped_student:
+                print(f"      - {s.get('firma')} — {s.get('titel')}")
+        skipped_technician = result.get("skipped_technician") or []
+        if skipped_technician:
+            print(f"  Übersprungen (Technikerrolle): {len(skipped_technician)} Stelle(n)")
+            for s in skipped_technician:
                 print(f"      - {s.get('firma')} — {s.get('titel')}")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")

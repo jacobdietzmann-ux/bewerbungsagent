@@ -8,6 +8,7 @@ from bewerbungsagent.matching import (
     fit_value,
     has_role_signal,
     is_student_role,
+    is_technician_role,
     location_bonus_for,
     match_jobs,
     score_job,
@@ -194,6 +195,42 @@ class TestRoleSignal:
     def test_leerer_titel_ist_kein_signal(self):
         assert has_role_signal("") is False
         assert has_role_signal(None) is False
+
+
+class TestTechnicianRole:
+    """Facharbeiter-/Technikerrollen sind keine Ingenieursstellen."""
+
+    @pytest.mark.parametrize("titel", [
+        "Techniker (m/w/d) im Outgoing Quality Team (FFAB)",
+        "Systemtechniker (m/w/d)",
+        "Elektrotechniker für Betriebstechnik",
+        "Qualitätstechniker (m/w/d)",
+        "Test System Technician",
+        "Junior Calibration Technician (m/f/d)",
+        "IT Systems Technician - Hardware Integration (All Genders)",
+        "Production Technician Electronics (m/f/d)",
+    ])
+    def test_erkennt_technikerrollen(self, titel):
+        assert is_technician_role(titel) is True
+
+    @pytest.mark.parametrize("titel", [
+        # Sachgebiete, keine Berufsbezeichnungen:
+        "Technischer Projektleiter (m/w/d)",
+        "Technische Redaktion (m/w/d)",
+        "Systemingenieur Technik",
+        "Technology Manager",
+        # Ingenieursrollen bleiben unberührt:
+        "Testingenieur (m/w/d)",
+        "Pruefeldingenieur ePropulsion",
+        "Systemingenieur (m/w/d) - Schwerpunkt Mechatronik",
+        "Software Test Engineer",
+    ])
+    def test_ingenieursrollen_bleiben(self, titel):
+        assert is_technician_role(titel) is False
+
+    def test_leerer_titel(self):
+        assert is_technician_role("") is False
+        assert is_technician_role(None) is False
 
 
 class TestFormulaWeights:

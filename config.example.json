@@ -19,7 +19,9 @@
       { "firma": "NXP", "ats": "workday", "tenant": "nxp", "site": "careers" },
       { "firma": "Qualcomm", "ats": "eightfold", "host": "careers.qualcomm.com", "domain": "qualcomm.com", "location": "munich" },
       { "firma": "Infineon", "ats": "eightfold", "host": "jobs.infineon.com", "domain": "infineon.com", "location": "munich" },
-      { "firma": "HENSOLDT", "ats": "successfactors", "host": "jobs.hensoldt.net" }
+      { "firma": "HENSOLDT", "ats": "successfactors", "host": "jobs.hensoldt.net" },
+      { "firma": "Renesas", "ats": "smartrecruiters", "company": "RenesasElectronics", "city": "Munich" },
+      { "firma": "Texas Instruments", "ats": "oracle", "host": "edbz.fa.us2.oraclecloud.com", "site": "CX", "location": "Germany" }
     ],
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,

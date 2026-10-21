@@ -266,6 +266,140 @@ class TestSuccessFactorsJ2W:
         assert [j["titel"] for j in jobs] == ["Entwicklungsingenieur"]
 
 
+class TestSmartRecruiters:
+    def _posting(self, i: int, city: str = "Munich") -> dict:
+        return {"id": 1000 + i, "name": f"Engineer {i}",
+                "postingUrl": f"https://jobs.smartrecruiters.com/Acme/{1000 + i}",
+                "location": {"city": city, "country": "de"}}
+
+    def _get(self, list_payload, detail_text="<p>" + ("Volltext. " * 30) + "</p>"):
+        def _getter(url, params=None, **_k):
+            if "/postings/" in url:  # Detail
+                return _Resp({"jobAd": {"sections": {
+                    "jobDescription": {"text": detail_text},
+                    "qualifications": {"text": "<ul><li>Quali</li></ul>"},
+                    "additionalInformation": {"text": ""}}}})
+            offset = (params or {}).get("offset", 0)
+            page = list_payload[offset:offset + 100]
+            return _Resp({"content": page, "totalFound": len(list_payload)})
+        return _getter
+
+    def test_kurzer_text_wird_verworfen(self, monkeypatch):
+        """Unter 200 Zeichen ist es ein Platzhalter, kein Anzeigentext."""
+        monkeypatch.setattr(ats.requests, "get",
+                            self._get([self._posting(0)], detail_text="<p>kurz</p>"))
+        jobs = ats.smartrecruiters("Acme", "Acme")
+        assert jobs[0]["beschreibung"] == ""
+
+    def test_liste_und_volltext(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get",
+                            self._get([self._posting(0)]))
+        jobs = ats.smartrecruiters("Acme", "Acme GmbH", city="Munich")
+        assert len(jobs) == 1
+        job = jobs[0]
+        assert job["titel"] == "Engineer 0"
+        assert job["ort"] == "Munich, de"
+        assert job["quelle"] == "ATS"
+        # Volltext kommt aus den drei jobAd-Sektionen, HTML wird entfernt.
+        assert "Volltext" in job["beschreibung"]
+        assert "Quali" in job["beschreibung"]
+        assert "<p>" not in job["beschreibung"]
+
+    def test_city_und_country_werden_gesendet(self, monkeypatch):
+        seen = {}
+
+        def _getter(url, params=None, **_k):
+            if "/postings/" not in url:
+                seen.update(params or {})
+            return _Resp({"content": [], "totalFound": 0})
+
+        monkeypatch.setattr(ats.requests, "get", _getter)
+        ats.smartrecruiters("Acme", "Acme", city="Munich", country="de")
+        assert seen.get("city") == "Munich"
+        assert seen.get("country") == "de"
+
+    def test_paginiert(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get",
+                            self._get([self._posting(i) for i in range(150)]))
+        jobs = ats.smartrecruiters("Acme", "Acme", max_jobs=150)
+        assert len(jobs) == 150
+
+    def test_detail_fehler_bricht_nicht_ab(self, monkeypatch):
+        def _getter(url, params=None, **_k):
+            if "/postings/" in url:
+                return _Resp({}, status=500)
+            return _Resp({"content": [self._posting(0)], "totalFound": 1})
+
+        monkeypatch.setattr(ats.requests, "get", _getter)
+        jobs = ats.smartrecruiters("Acme", "Acme")
+        assert len(jobs) == 1
+        assert jobs[0]["beschreibung"] == ""
+
+    def test_ohne_name_oder_url_entfaellt(self, monkeypatch):
+        payload = [{"id": 1, "name": "", "postingUrl": "https://x/1",
+                    "location": {"city": "Munich"}},
+                   {"id": 2, "name": "Ok", "postingUrl": "",
+                    "location": {"city": "Munich"}}]
+        monkeypatch.setattr(ats.requests, "get", self._get(payload))
+        assert ats.smartrecruiters("Acme", "Acme") == []
+
+    def test_search_ohne_company_meldet_fehler(self):
+        jobs, errors = ats.search([{"firma": "Renesas", "ats": "smartrecruiters"}])
+        assert jobs == []
+        assert any("company fehlt" in e for e in errors)
+
+
+class TestOracleCloud:
+    def _req(self, i: int, location: str = "Freising, Bayern, Germany") -> dict:
+        return {"Id": 25000000 + i, "Title": f"Ingenieur {i}",
+                "PrimaryLocation": location}
+
+    def _getter(self, jobs: list[dict]):
+        def _get(url, params=None, **_k):
+            finder = (params or {}).get("finder", "")
+            offset = int(finder.split("offset=")[1].split(",")[0]) if "offset=" in finder else 0
+            page = jobs[offset:offset + 25]
+            return _Resp({"items": [{"requisitionList": page}]})
+        return _get
+
+    def test_liste_und_url(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get", self._getter([self._req(0)]))
+        jobs = ats.oracle_cloud("edbz.fa.us2.oraclecloud.com", "CX", "TI")
+        assert len(jobs) == 1
+        assert jobs[0]["titel"] == "Ingenieur 0"
+        assert jobs[0]["ort"] == "Freising, Bayern, Germany"
+        assert jobs[0]["url"] == "https://careers.ti.com/de/sites/CX/job/25000000/"
+        assert jobs[0]["beschreibung"] == ""  # kein Text im Index
+
+    def test_paginiert_bis_seite_kurz_ist(self, monkeypatch):
+        """``hasMore`` ist unzuverlässig — die Schleife muss über die Länge gehen."""
+        monkeypatch.setattr(ats.requests, "get",
+                            self._getter([self._req(i) for i in range(40)]))
+        assert len(ats.oracle_cloud("h", "CX", "TI")) == 40
+
+    def test_location_wird_in_den_finder_gesetzt(self, monkeypatch):
+        seen = {}
+
+        def _get(url, params=None, **_k):
+            seen["finder"] = (params or {}).get("finder", "")
+            return _Resp({"items": [{"requisitionList": []}]})
+
+        monkeypatch.setattr(ats.requests, "get", _get)
+        ats.oracle_cloud("h", "CX", "TI", location="Germany")
+        assert "location=Germany" in seen["finder"]
+
+    def test_ohne_id_oder_titel_entfaellt(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get", self._getter([
+            {"Id": None, "Title": "X", "PrimaryLocation": "DE"},
+            {"Id": 1, "Title": "", "PrimaryLocation": "DE"}]))
+        assert ats.oracle_cloud("h", "CX", "TI") == []
+
+    def test_search_ohne_host_meldet_fehler(self):
+        jobs, errors = ats.search([{"firma": "TI", "ats": "oracle"}])
+        assert jobs == []
+        assert any("host/site fehlt" in e for e in errors)
+
+
 class TestSearch:
     def _board(self, **over):
         return {"firma": "Acme", "ats": "greenhouse", "board": "acme", **over}

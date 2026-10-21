@@ -328,6 +328,10 @@ Die freie Websuche ist bewusst **pluggable**:
     Index `/api/pcsx/search` filtert serverseitig nach `location` (Standard `munich`).
   - **SuccessFactors „Jobs2Web"** (`host`) hat keinen JSON-Endpunkt: die Stellen liegen als
     HTML-Tiles in `/tile-search-results/` und werden geparst (HENSOLDT, 25 pro Seite).
+  - **SmartRecruiters** (`company`, optional `city`/`country`) liefert den **vollständigen
+    Anzeigentext** über die Detail-URL (`jobAd.sections`) — kein Browser-Fetch nötig (Renesas).
+  - **Oracle Cloud HCM** (`host` + `site`, optional `location`) ist das System von Texas
+    Instruments; der Index liefert 25 Stellen pro Aufruf, den Text holt der Browser-Fetch.
 - **Arbeitnow** ist eine kostenlose Job-Board-API ohne Schlüssel (`search.arbeitnow_pages`,
   Standard 3). Sie liefert 300 Stellen pro Seite **ohne serverseitigen Filter** — der Ort wird
   lokal gefiltert, und es kommt nur eine Kurzfassung mit, der Volltext muss per `fetch` nach.

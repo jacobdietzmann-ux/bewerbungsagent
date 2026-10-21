@@ -230,10 +230,123 @@ def eightfold(host: str, domain: str, firma: str, *, location: str = "munich",
     return jobs
 
 
+def smartrecruiters(company: str, firma: str, *, city: str | None = None,
+                    country: str | None = None,
+                    user_agent: str | None = None,
+                    max_jobs: int = 500) -> list[dict]:
+    """SmartRecruiters: ``/v1/companies/{company}/postings`` (Renesas u. a.).
+
+    Die Liste liefert 100 Stellen pro Seite inklusive Ort; ``city``/``country``
+    filtern serverseitig. Den **vollständigen Anzeigentext** gibt es nur über die
+    Detail-URL (``jobAd.sections``: jobDescription + qualifications +
+    additionalInformation) — deshalb wird sie pro Stelle nachgeladen. Für diese
+    Stellen entfällt damit der Browser-Fetch.
+    """
+    headers = {**(_ua(user_agent)), "Accept": "application/json"}
+    base = f"https://api.smartrecruiters.com/v1/companies/{company}/postings"
+    postings: list[dict] = []
+    offset = 0
+    while len(postings) < max_jobs:
+        params: dict = {"limit": 100, "offset": offset}
+        if city:
+            params["city"] = city
+        if country:
+            params["country"] = country
+        r = requests.get(base, params=params, headers=headers, timeout=_TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+        page = data.get("content") or []
+        if not page:
+            break
+        postings.extend(page)
+        total = data.get("totalFound") or 0
+        offset += len(page)
+        if offset >= total:
+            break
+
+    def _detail(posting: dict) -> str:
+        try:
+            d = requests.get(
+                f"{base}/{posting.get('id')}", headers=headers, timeout=_TIMEOUT
+            )
+            d.raise_for_status()
+            sections = ((d.json() or {}).get("jobAd") or {}).get("sections") or {}
+        except (requests.RequestException, ValueError):
+            return ""
+        parts = [_texts((sections.get(k) or {}).get("text") or "") for k in
+                 ("jobDescription", "qualifications", "additionalInformation")]
+        return "\n\n".join(p for p in parts if p)
+
+    jobs: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        descriptions = list(pool.map(_detail, postings[:max_jobs]))
+    for posting, desc in zip(postings[:max_jobs], descriptions):
+        location = posting.get("location") or {}
+        place = ", ".join(filter(None, [location.get("city"),
+                                        location.get("country")]))
+        url = (posting.get("postingUrl") or posting.get("ref") or "").strip()
+        if not posting.get("name") or not url:
+            continue
+        job = _job(firma=firma, titel=posting.get("name") or "",
+                   ort=place, url=url, beschreibung=desc)
+        jobs.append(job)
+    return jobs
+
+
+def oracle_cloud(host: str, site: str, firma: str, *,
+                 location: str | None = None,
+                 user_agent: str | None = None,
+                 max_jobs: int = 500) -> list[dict]:
+    """Oracle Cloud HCM („Oracle Recruiting Cloud", z. B. Texas Instruments).
+
+    Der öffentliche Index ``/hcmRestApi/resources/latest/recruitingCEJobRequisitions``
+    liefert 25 Stellen pro ``finder``-Aufruf; ``offset`` paginiert und
+    ``location`` filtert serverseitig (Land oder Stadt). ``hasMore`` ist **nicht**
+    verlässlich (steht schon auf ``false``, während noch Stellen folgen) — die
+    Schleife läuft deshalb, bis eine Seite kürzer als ``limit`` ist.
+
+    Der Beschreibungstext fehlt im Index (``ShortDescriptionStr`` ist leer) und
+    wird über den Browser-Fetch von der Detailseite geladen.
+    """
+    url = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
+    page_size = 25
+    jobs: list[dict] = []
+    offset = 0
+    while len(jobs) < max_jobs:
+        finder = (f"findReqs;siteNumber={site},limit={page_size},offset={offset},"
+                  f"sortBy=POSTING_DATES_DESC")
+        if location:
+            finder += f",location={location}"
+        r = requests.get(url, params={"onlyData": "true",
+                                      "expand": "requisitionList.secondaryLocations",
+                                      "finder": finder},
+                         headers=_ua(user_agent), timeout=_TIMEOUT)
+        r.raise_for_status()
+        items = (r.json() or {}).get("items") or []
+        page = (items[0].get("requisitionList") or []) if items else []
+        if not page:
+            break
+        for raw in page:
+            job_id = str(raw.get("Id") or "").strip()
+            title = (raw.get("Title") or "").strip()
+            if not job_id or not title:
+                continue
+            jobs.append(_job(
+                firma=firma,
+                titel=title,
+                ort=raw.get("PrimaryLocation") or "",
+                url=f"https://careers.ti.com/de/sites/{site}/job/{job_id}/",
+                beschreibung="",
+            ))
+        offset += len(page)
+        if len(page) < page_size:
+            break
+    return jobs[:max_jobs]
+
+
 # --------------------------------------------------------------------------
 # SAP SuccessFactors „Jobs2Web" (tile-search-results, HTML statt JSON)
 # --------------------------------------------------------------------------
-
 _TILE_RE = re.compile(
     r'<li[^>]*class="[^"]*job-tile[^"]*"[^>]*data-url="([^"]+)"[^>]*>(.*?)</li>',
     re.DOTALL,
@@ -406,6 +519,34 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                 found = successfactors_j2w(host, firma,
                                            user_agent=user_agent,
                                            max_jobs=entry.get("max_jobs", 2000))
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "smartrecruiters":
+            company = str(entry.get("company") or "").strip()
+            if not company:
+                errors.append(f"ats (smartrecruiters: company fehlt)")
+                continue
+            try:
+                found = smartrecruiters(company, firma,
+                                        city=entry.get("city"),
+                                        country=entry.get("country"),
+                                        user_agent=user_agent,
+                                        max_jobs=entry.get("max_jobs", 500))
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "oracle":
+            host = str(entry.get("host") or "").strip()
+            site = str(entry.get("site") or "").strip()
+            if not host or not site:
+                errors.append(f"ats (oracle: host/site fehlt)")
+                continue
+            try:
+                found = oracle_cloud(host, site, firma,
+                                     location=entry.get("location"),
+                                     user_agent=user_agent,
+                                     max_jobs=entry.get("max_jobs", 500))
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")
                 continue

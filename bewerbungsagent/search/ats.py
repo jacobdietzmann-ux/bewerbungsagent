@@ -15,6 +15,7 @@ Antwortformat nicht mit echten Daten geprüft wurde.
 
 from __future__ import annotations
 
+import concurrent.futures
 import re
 from urllib.parse import urlparse
 
@@ -121,6 +122,63 @@ def ashby(board: str, firma: str, user_agent: str | None = None) -> list[dict]:
     return jobs
 
 
+def _workday_page(list_url: str, headers: dict, offset: int) -> dict:
+    """Eine Seite des Workday-Job-Index (``limit`` ist auf 20 begrenzt)."""
+    r = requests.post(
+        list_url, headers=headers, timeout=_TIMEOUT,
+        json={"appliedFacets": {}, "limit": 20,
+              "offset": offset, "searchText": ""},
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def workday(tenant: str, site: str, firma: str,
+            user_agent: str | None = None, max_jobs: int = 2000) -> list[dict]:
+    """Workday: externe Karriereseite ohne Authentifizierung.
+
+    Die Stellenliste kommt über ``POST /wday/cxs/{tenant}/{site}/jobs`` — die
+    JSON-Antwort ist öffentlich, aber ``limit`` ist auf 20 begrenzt, daher wird
+    paginiert (parallel, weil einzelne Konzerne mehrere tausend Stellen führen).
+    Jede Stelle trägt Titel, Ort und den Pfad zur Detailseite, aber **keinen**
+    Beschreibungstext: der liegt nur als ``application/ld+json`` auf der
+    Detailseite und wird über den Browser-Fetch nachgeladen.
+
+    ``max_jobs`` begrenzt die Zahl der abzurufenden Einträge; der München-Filter
+    greift erst danach.
+    """
+    headers = {**(_ua(user_agent)), "Accept": "application/json",
+               "Content-Type": "application/json"}
+    list_url = f"https://{tenant}.wd3.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
+    base = f"https://{tenant}.wd3.myworkdayjobs.com"
+
+    first = _workday_page(list_url, headers, 0)
+    postings = first.get("jobPostings") or []
+    total = first.get("total") or len(postings)
+    limit = min(total, max_jobs)
+
+    if limit > len(postings):
+        offsets = list(range(len(postings), limit, 20))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            for page in pool.map(lambda o: _workday_page(list_url, headers, o),
+                                 offsets):
+                postings.extend(page.get("jobPostings") or [])
+
+    jobs: list[dict] = []
+    for posting in postings[:max_jobs]:
+        path = (posting.get("externalPath") or "").strip()
+        if not path:
+            continue
+        jobs.append(_job(
+            firma=firma,
+            titel=posting.get("title") or "",
+            ort=posting.get("locationsText") or "",
+            url=f"{base}/en-US/{site}{path}",
+            beschreibung="",
+        ))
+    return jobs
+
+
 BOARDS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby}
 
 
@@ -195,17 +253,34 @@ def search(boards: list[dict], *, user_agent: str | None = None,
     seen: set[tuple[str, str]] = set()
     for entry in boards or []:
         ats = str(entry.get("ats") or "").strip().lower()
-        board = str(entry.get("board") or "").strip()
-        firma = str(entry.get("firma") or board).strip()
-        fetch = BOARDS.get(ats)
-        if not fetch or not board:
-            errors.append(f"ats ({ats or '?'}:{board or '?'}): unbekanntes System")
-            continue
-        try:
-            found = fetch(board, firma, user_agent=user_agent)
-        except requests.RequestException as exc:
-            errors.append(f"ats ({firma}): {type(exc).__name__}")
-            continue
+        firma = str(entry.get("firma") or "").strip()
+        # Workday braucht Tenant und Site statt eines einzelnen Board-Namens.
+        if ats == "workday":
+            tenant = str(entry.get("tenant") or "").strip()
+            site = str(entry.get("site") or "").strip()
+            firma = firma or site
+            if not tenant or not site:
+                errors.append(f"ats (workday:{tenant or '?'}/{site or '?'}): tenant/site fehlt")
+                continue
+            try:
+                found = workday(tenant, site, firma,
+                                user_agent=user_agent,
+                                max_jobs=entry.get("max_jobs", 2000))
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        else:
+            board = str(entry.get("board") or "").strip()
+            firma = firma or board
+            fetch = BOARDS.get(ats)
+            if not fetch or not board:
+                errors.append(f"ats ({ats or '?'}:{board or '?'}): unbekanntes System")
+                continue
+            try:
+                found = fetch(board, firma, user_agent=user_agent)
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
         kept = 0
         for job in found:
             if not job.get("titel") or not job.get("url"):

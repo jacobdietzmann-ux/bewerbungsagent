@@ -315,13 +315,15 @@ Die freie Websuche ist bewusst **pluggable**:
   python scripts/recheck_expired.py --apply    # Korrekturen speichern
   ```
 - **ATS** (Standard seit 10/2026) fragt die Karriereseiten der Zielunternehmen **direkt** ab:
-  Greenhouse, Lever und Ashby haben öffentliche JSON-Endpunkte — kein Scraping, keine Blockade,
-  und der **vollständige Anzeigentext kommt mit**. Für diese Stellen entfällt der Browser-Fetch.
-  Die Board-Liste wird automatisch aus bereits vorhandenen Anzeigen abgeleitet (aus
-  `job-boards.eu.greenhouse.io/skdse/…` wird `greenhouse:skdse`), kann aber in
-  `search.ats_boards` fest vorgegeben werden. Gemessen: 193 Stellen von zwei Firmen, davon 71
-  im Münchener Umkreis (Vorfilter `search.ats_only_near_munich`, sonst kostet jede weltweite
-  Stelle einen Geocoding-Aufruf).
+  Greenhouse, Lever, Ashby und Workday haben öffentliche JSON-Endpunkte — kein Scraping, keine
+  Blockade. Die Board-Liste wird automatisch aus bereits vorhandenen Anzeigen abgeleitet
+  (Greenhouse/Lever/Ashby), kann aber in `search.ats_boards` fest vorgegeben werden.
+  - **Greenhouse/Lever/Ashby** liefern den **vollständigen Anzeigentext** mit — für diese
+    Stellen entfällt der Browser-Fetch.
+  - **Workday** liefert Titel, Ort und URL (Eintrag mit `tenant` und `site` statt `board`),
+    aber **keinen** Beschreibungstext — der liegt als `ld+json` auf der Detailseite und wird
+    über `python agent.py fetch` nachgeladen. Der Stellenindex wird parallel paginiert, weil
+    einzelne Konzerne mehrere tausend Stellen führen.
 - **Arbeitnow** ist eine kostenlose Job-Board-API ohne Schlüssel (`search.arbeitnow_pages`,
   Standard 3). Sie liefert 300 Stellen pro Seite **ohne serverseitigen Filter** — der Ort wird
   lokal gefiltert, und es kommt nur eine Kurzfassung mit, der Volltext muss per `fetch` nach.
@@ -411,9 +413,10 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `profile_json` – Pfad zur Profil-Datenbank (Standard: die bestehende Datei).
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
   (verfügbar: `manual`, `stepstone`, `jobspy`, `ats`, `arbeitnow`, `duckduckgo`, `bing`).
-- `search.ats_boards` – Karriereseiten für die ATS-Abfrage, z. B.
-  `[{"firma": "STARK Defence", "ats": "greenhouse", "board": "skdse"}]`. Leer = automatisch aus
-  den vorhandenen Anzeigen ableiten (Greenhouse, Lever, Ashby).
+- `search.ats_boards` – Karriereseiten für die ATS-Abfrage. Greenhouse/Lever/Ashby nutzen
+  `board` (`{"firma": "STARK Defence", "ats": "greenhouse", "board": "skdse"}`), Workday
+  `tenant` und `site` (`{"firma": "Airbus", "ats": "workday", "tenant": "ag", "site": "Airbus"}`).
+  Leer = Greenhouse/Lever/Ashby automatisch aus den vorhandenen Anzeigen ableiten.
 - `search.ats_only_near_munich` – nur Stellen aus der Münchener Metropolregion übernehmen
   (Standard `true`); verhindert teure Geocoding-Aufrufe für weltweite Stellen.
 - `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).

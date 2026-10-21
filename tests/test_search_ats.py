@@ -126,6 +126,71 @@ class TestAshby:
         assert [j["titel"] for j in jobs] == ["Sichtbar"]
 
 
+class TestWorkday:
+    def _postings(self, n: int, title="Ingenieur", location="München Area") -> list[dict]:
+        return [{"title": f"{title} {i}", "locationsText": location,
+                 "externalPath": f"/job/X/{title}-{i}", "postedOn": "2026-10-21"}
+                for i in range(n)]
+
+    def _responder(self, postings: list[dict]):
+        def _post(url, json=None, **_k):
+            offset = (json or {}).get("offset", 0)
+            limit = 20
+            page = postings[offset:offset + limit]
+            return _Resp({"jobPostings": page, "total": len(postings)})
+        return _post
+
+    def test_paginiert_alle_stellen(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "post", self._responder(self._postings(45)))
+
+        jobs = ats.workday("ag", "Airbus", "Airbus")
+
+        assert len(jobs) == 45
+
+    def test_url_und_ort_korrekt(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "post", self._responder(self._postings(1)))
+
+        jobs = ats.workday("ag", "Airbus", "Airbus")
+
+        assert jobs[0]["url"] == "https://ag.wd3.myworkdayjobs.com/en-US/Airbus/job/X/Ingenieur-0"
+        assert jobs[0]["ort"] == "München Area"
+        assert jobs[0]["quelle"] == "ATS"
+
+    def test_max_jobs_begrenzt(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "post", self._responder(self._postings(100)))
+
+        jobs = ats.workday("ag", "Airbus", "Airbus", max_jobs=30)
+
+        assert len(jobs) == 30
+
+    def test_ohne_external_path_entfaellt(self, monkeypatch):
+        postings = [{"title": "Ohne Pfad", "locationsText": "München Area",
+                     "externalPath": ""}]
+        monkeypatch.setattr(ats.requests, "post", self._responder(postings))
+
+        assert ats.workday("ag", "Airbus", "Airbus") == []
+
+    def test_search_mit_workday_eintrag(self, monkeypatch):
+        postings = [
+            {"title": "Systemingenieur", "locationsText": "München Area",
+             "externalPath": "/job/1"},
+            {"title": "Systemingenieur Fern", "locationsText": "Toulouse Area",
+             "externalPath": "/job/2"},
+        ]
+        monkeypatch.setattr(ats.requests, "post", self._responder(postings))
+
+        jobs, errors = ats.search([{"firma": "Airbus", "ats": "workday",
+                                    "tenant": "ag", "site": "Airbus"}])
+
+        assert [j["titel"] for j in jobs] == ["Systemingenieur"]
+        assert any("23" not in e and "Airbus" in e for e in errors)
+
+    def test_workday_ohne_tenant_site_meldet_fehler(self):
+        jobs, errors = ats.search([{"firma": "Airbus", "ats": "workday"}])
+        assert jobs == []
+        assert any("tenant/site fehlt" in e for e in errors)
+
+
 class TestSearch:
     def _board(self, **over):
         return {"firma": "Acme", "ats": "greenhouse", "board": "acme", **over}

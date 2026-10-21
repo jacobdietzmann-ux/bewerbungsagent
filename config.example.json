@@ -14,7 +14,8 @@
     ],
     "jobspy_max_terms": 4,
     "ats_boards": [
-      { "firma": "Isar Aerospace", "ats": "greenhouse", "board": "isaraerospace" }
+      { "firma": "Isar Aerospace", "ats": "greenhouse", "board": "isaraerospace" },
+      { "firma": "Airbus", "ats": "workday", "tenant": "ag", "site": "Airbus" }
     ],
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,

@@ -182,6 +182,120 @@ def workday(tenant: str, site: str, firma: str,
 BOARDS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby}
 
 
+def eightfold(host: str, domain: str, firma: str, *, location: str = "munich",
+              user_agent: str | None = None, max_jobs: int = 500) -> list[dict]:
+    """Eightfold.ai-Karriereseite (``/api/pcsx/search``).
+
+    Achtfold ist das ATS hinter Qualcomm, Infineon u. a. Der öffentliche Index
+    liefert JSON mit ``data.positions`` und ``data.count``; ``num`` wird
+    serverseitig ignoriert (immer 10 pro Seite), deshalb wird über ``start``
+    paginiert. Der ``location``-Parameter filtert serverseitig — ohne ihn hätte
+    eine Firma mehrere tausend Stellen, die erst danach lokal gefiltert würden.
+
+    Der Beschreibungstext fehlt im Index und wird über den Browser-Fetch
+    nachgeladen.
+    """
+    base = f"https://{host}/api/pcsx/search"
+    params = {"domain": domain, "query": "", "location": location,
+              "start": 0, "num": 10}
+    positions: list[dict] = []
+    while True:
+        r = requests.get(base, params=params, headers=_ua(user_agent),
+                         timeout=_TIMEOUT)
+        r.raise_for_status()
+        data = (r.json() or {}).get("data") or {}
+        page = data.get("positions") or []
+        if not page:
+            break
+        positions.extend(page)
+        count = data.get("count") or 0
+        params["start"] += len(page)
+        if (count and len(positions) >= count) or len(positions) >= max_jobs:
+            break
+
+    jobs: list[dict] = []
+    for p in positions[:max_jobs]:
+        title = (p.get("name") or "").strip()
+        url_path = (p.get("positionUrl") or "").strip()
+        if not title or not url_path:
+            continue
+        locations = p.get("locations") or p.get("standardizedLocations") or []
+        jobs.append(_job(
+            firma=firma,
+            titel=title,
+            ort=", ".join(filter(None, locations)),
+            url=f"https://{host}{url_path}",
+            beschreibung="",
+        ))
+    return jobs
+
+
+# --------------------------------------------------------------------------
+# SAP SuccessFactors „Jobs2Web" (tile-search-results, HTML statt JSON)
+# --------------------------------------------------------------------------
+
+_TILE_RE = re.compile(
+    r'<li[^>]*class="[^"]*job-tile[^"]*"[^>]*data-url="([^"]+)"[^>]*>(.*?)</li>',
+    re.DOTALL,
+)
+_TILE_TITLE_RE = re.compile(r'<a[^>]*class="jobTitle-link[^"]*"[^>]*>(.*?)</a>',
+                            re.DOTALL)
+_TILE_LOCATION_RE = re.compile(
+    r'id="[^"]*-desktop-section-(?:multi)?location-value"[^>]*>(.*?)</div>',
+    re.DOTALL,
+)
+
+
+def successfactors_j2w(host: str, firma: str, *,
+                       user_agent: str | None = None,
+                       max_jobs: int = 2000) -> list[dict]:
+    """SAP SuccessFactors „Jobs2Web"-Karriereseite (HTML-Tiles).
+
+    Diese ältere SuccessFactors-Variante hat **keinen** JSON-Endpunkt: die
+    Stellen liegen als HTML-„Tiles" in ``/tile-search-results/?q=&startrow=N``
+    (25 pro Seite, Gesamtzahl in ``jobRecordsFound``). Live verifiziert an
+    HENSOLDT. Die Tiles enthalten Titel (``jobTitle-link``), Ort
+    (``…-location-value``) und den Pfad zur Detailseite (``data-url``).
+
+    Der Beschreibungstext fehlt und wird über den Browser-Fetch nachgeladen.
+    """
+    base = f"https://{host}/tile-search-results/"
+    params = {"q": "", "startrow": 0}
+    jobs: list[dict] = []
+    seen: set[str] = set()
+    while len(jobs) < max_jobs:
+        r = requests.get(base, params=params, headers=_ua(user_agent),
+                         timeout=_TIMEOUT)
+        r.raise_for_status()
+        text = r.text
+        found_any = False
+        for tile in _TILE_RE.finditer(text):
+            found_any = True
+            path, body = tile.group(1).strip(), tile.group(2)
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            title_match = _TILE_TITLE_RE.search(body)
+            if not title_match:
+                continue
+            title = clean_html(title_match.group(1))
+            if not title:
+                continue
+            location_match = _TILE_LOCATION_RE.search(body)
+            location = clean_html(location_match.group(1)) if location_match else ""
+            jobs.append(_job(
+                firma=firma,
+                titel=title,
+                ort=location,
+                url=f"https://{host}{path}",
+                beschreibung="",
+            ))
+        if not found_any:
+            break
+        params["startrow"] += 25
+    return jobs
+
+
 # --------------------------------------------------------------------------
 # Board aus einer vorhandenen Anzeigen-URL ableiten
 # --------------------------------------------------------------------------
@@ -266,6 +380,32 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                 found = workday(tenant, site, firma,
                                 user_agent=user_agent,
                                 max_jobs=entry.get("max_jobs", 2000))
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "eightfold":
+            host = str(entry.get("host") or "").strip()
+            domain = str(entry.get("domain") or "").strip()
+            if not host or not domain:
+                errors.append(f"ats (eightfold:{host or '?'}/{domain or '?'}): host/domain fehlt")
+                continue
+            try:
+                found = eightfold(host, domain, firma,
+                                  location=str(entry.get("location") or "munich"),
+                                  user_agent=user_agent,
+                                  max_jobs=entry.get("max_jobs", 500))
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "successfactors":
+            host = str(entry.get("host") or "").strip()
+            if not host:
+                errors.append(f"ats (successfactors: host fehlt)")
+                continue
+            try:
+                found = successfactors_j2w(host, firma,
+                                           user_agent=user_agent,
+                                           max_jobs=entry.get("max_jobs", 2000))
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")
                 continue

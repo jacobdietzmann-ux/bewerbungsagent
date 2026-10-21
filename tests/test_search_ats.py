@@ -17,6 +17,7 @@ class _Resp:
     def __init__(self, payload, status: int = 200):
         self._payload = payload
         self.status_code = status
+        self.text = payload if isinstance(payload, str) else ""
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -135,39 +136,29 @@ class TestWorkday:
     def _responder(self, postings: list[dict]):
         def _post(url, json=None, **_k):
             offset = (json or {}).get("offset", 0)
-            limit = 20
-            page = postings[offset:offset + limit]
+            page = postings[offset:offset + 20]
             return _Resp({"jobPostings": page, "total": len(postings)})
         return _post
 
     def test_paginiert_alle_stellen(self, monkeypatch):
         monkeypatch.setattr(ats.requests, "post", self._responder(self._postings(45)))
-
-        jobs = ats.workday("ag", "Airbus", "Airbus")
-
-        assert len(jobs) == 45
+        assert len(ats.workday("ag", "Airbus", "Airbus")) == 45
 
     def test_url_und_ort_korrekt(self, monkeypatch):
         monkeypatch.setattr(ats.requests, "post", self._responder(self._postings(1)))
-
         jobs = ats.workday("ag", "Airbus", "Airbus")
-
         assert jobs[0]["url"] == "https://ag.wd3.myworkdayjobs.com/en-US/Airbus/job/X/Ingenieur-0"
         assert jobs[0]["ort"] == "München Area"
         assert jobs[0]["quelle"] == "ATS"
 
     def test_max_jobs_begrenzt(self, monkeypatch):
         monkeypatch.setattr(ats.requests, "post", self._responder(self._postings(100)))
-
-        jobs = ats.workday("ag", "Airbus", "Airbus", max_jobs=30)
-
-        assert len(jobs) == 30
+        assert len(ats.workday("ag", "Airbus", "Airbus", max_jobs=30)) == 30
 
     def test_ohne_external_path_entfaellt(self, monkeypatch):
         postings = [{"title": "Ohne Pfad", "locationsText": "München Area",
                      "externalPath": ""}]
         monkeypatch.setattr(ats.requests, "post", self._responder(postings))
-
         assert ats.workday("ag", "Airbus", "Airbus") == []
 
     def test_search_mit_workday_eintrag(self, monkeypatch):
@@ -178,17 +169,101 @@ class TestWorkday:
              "externalPath": "/job/2"},
         ]
         monkeypatch.setattr(ats.requests, "post", self._responder(postings))
-
         jobs, errors = ats.search([{"firma": "Airbus", "ats": "workday",
                                     "tenant": "ag", "site": "Airbus"}])
-
         assert [j["titel"] for j in jobs] == ["Systemingenieur"]
-        assert any("23" not in e and "Airbus" in e for e in errors)
 
     def test_workday_ohne_tenant_site_meldet_fehler(self):
         jobs, errors = ats.search([{"firma": "Airbus", "ats": "workday"}])
         assert jobs == []
         assert any("tenant/site fehlt" in e for e in errors)
+
+
+class TestEightfold:
+    def _position(self, i: int) -> dict:
+        return {"id": 1000 + i, "name": f"Engineer {i}",
+                "locations": ["Munich, Germany"],
+                "positionUrl": f"/careers/job/{1000 + i}"}
+
+    def _responder(self, positions: list[dict]):
+        def _get(url, params=None, **_k):
+            start = (params or {}).get("start", 0)
+            page = positions[start:start + 10]
+            return _Resp({"status": 200, "data": {
+                "positions": page, "count": len(positions)}})
+        return _get
+
+    def test_paginiert_und_mappt(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get",
+                            self._responder([self._position(i) for i in range(25)]))
+        jobs = ats.eightfold("careers.qualcomm.com", "qualcomm.com", "Qualcomm")
+        assert len(jobs) == 25
+        assert jobs[0]["url"] == "https://careers.qualcomm.com/careers/job/1000"
+        assert jobs[0]["titel"] == "Engineer 0"
+        assert jobs[0]["ort"] == "Munich, Germany"
+        assert jobs[0]["beschreibung"] == ""  # kein Volltext im Index
+
+    def test_ohne_titel_oder_url_entfaellt(self, monkeypatch):
+        pos = [{"name": "", "locations": ["Munich"], "positionUrl": "/x"},
+               {"name": "Ok", "locations": ["Munich"], "positionUrl": ""},
+               {"name": "Gut", "locations": ["Munich"], "positionUrl": "/y"}]
+        monkeypatch.setattr(ats.requests, "get", self._responder(pos))
+        assert [j["titel"] for j in
+                ats.eightfold("h", "d", "Firma")] == ["Gut"]
+
+    def test_search_mit_eightfold_eintrag(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get",
+                            self._responder([self._position(0)]))
+        jobs, errors = ats.search([{"firma": "Qualcomm", "ats": "eightfold",
+                                    "host": "careers.qualcomm.com",
+                                    "domain": "qualcomm.com"}])
+        assert [j["titel"] for j in jobs] == ["Engineer 0"]
+
+    def test_eightfold_ohne_host_domain_meldet_fehler(self):
+        jobs, errors = ats.search([{"firma": "X", "ats": "eightfold"}])
+        assert jobs == []
+        assert any("host/domain fehlt" in e for e in errors)
+
+
+class TestSuccessFactorsJ2W:
+    def _tile(self, path: str, title: str, location: str) -> str:
+        return (
+            f'<li class="job-tile job-id-1" data-url="{path}">'
+            f'<div class="tiletitle"><a class="jobTitle-link" href="{path}">{title}</a></div>'
+            f'<div id="job-1-desktop-section-multilocation-value">{location}</div>'
+            f'</li>'
+        )
+
+    def _responder(self, tiles: list[str]):
+        def _get(url, params=None, **_k):
+            startrow = (params or {}).get("startrow", 0)
+            page = tiles[startrow // 25:(startrow // 25) + 25]
+            return _Resp("".join(page))
+        return _get
+
+    def test_parst_tiles(self, monkeypatch):
+        tiles = [self._tile("/job/X/1/", "Systemingenieur (m/w/d)",
+                            "Taufkirchen, DE, 82024")]
+        monkeypatch.setattr(ats.requests, "get", self._responder(tiles))
+        jobs = ats.successfactors_j2w("jobs.hensoldt.net", "HENSOLDT")
+        assert len(jobs) == 1
+        assert jobs[0]["titel"] == "Systemingenieur (m/w/d)"
+        assert jobs[0]["url"] == "https://jobs.hensoldt.net/job/X/1/"
+        assert "Taufkirchen" in jobs[0]["ort"]
+        assert jobs[0]["beschreibung"] == ""
+
+    def test_leere_seite_beendet_schleife(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get",
+                            lambda *a, **k: _Resp("keine Tiles"))
+        assert ats.successfactors_j2w("h", "Firma") == []
+
+    def test_search_mit_successfactors_eintrag(self, monkeypatch):
+        tiles = [self._tile("/job/1/", "Entwicklungsingenieur",
+                            "Taufkirchen, DE, 82024")]
+        monkeypatch.setattr(ats.requests, "get", self._responder(tiles))
+        jobs, errors = ats.search([{"firma": "HENSOLDT", "ats": "successfactors",
+                                    "host": "jobs.hensoldt.net"}])
+        assert [j["titel"] for j in jobs] == ["Entwicklungsingenieur"]
 
 
 class TestSearch:

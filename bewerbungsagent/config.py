@@ -25,7 +25,11 @@ DEFAULT_CONFIG: dict = {
     "dashboard_file": "../00_Dashboard/dashboard.html",
     "search": {
         "enabled": True,
-        "providers": ["manual", "duckduckgo", "bing"],
+        # ``duckduckgo``/``bing`` sind bewusst nicht mehr voreingestellt: live
+        # geprüft liefern sie für Stellensuche nichts Verwertbares (DuckDuckGo
+        # 0 Treffer, Bing nur ``bing.com/ck/a``-Redirects zu branchenfremden
+        # Firmen). ``ats`` deckt die Karriereseiten der Zielunternehmen direkt ab.
+        "providers": ["manual", "stepstone", "jobspy", "ats", "arbeitnow"],
         "location": "München",
         "query_terms": [
             "Testingenieur",
@@ -44,6 +48,16 @@ DEFAULT_CONFIG: dict = {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
         ),
+        # Karriereseiten direkt (Greenhouse/Lever/Ashby). Leer = automatisch aus
+        # den vorhandenen Anzeigen ableiten. Beispiel:
+        #   [{"firma": "STARK Defence", "ats": "greenhouse", "board": "skdse"}]
+        "ats_boards": [],
+        # Nur Stellen aus der Münchener Metropolregion übernehmen (oder Remote).
+        # Ohne diesen Filter kostet eine Firma mit 141 weltweiten Stellen 141
+        # Geocoding-Aufrufe, nur um 130 davon als zu weit zu verwerfen.
+        "ats_only_near_munich": True,
+        # Arbeitnow liefert 300 Stellen pro Seite ohne serverseitigen Filter.
+        "arbeitnow_pages": 3,
     },
     # Stellen mit längerem Pendelweg (Auto, ab Wohnadresse) werden gar nicht erst
     # angelegt: keine Unterlagen, keine Anzeige im Dashboard. Unbekannte

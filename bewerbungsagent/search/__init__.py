@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
-from . import bing, duckduckgo, jobspy, manual, stepstone
+from . import arbeitnow, ats, bing, duckduckgo, jobspy, manual, stepstone
 
 
 def _clean_url(url: str) -> str:
@@ -72,10 +72,28 @@ def _is_non_job_host(url: str) -> bool:
     return any(h in host for h in _NON_JOB_HOSTS)
 
 
+def _existing_jobs(config: Config) -> list[dict]:
+    """Bekannte Anzeigen (Bestand + Import) — Grundlage für die ATS-Erkennung.
+
+    Daraus lassen sich die Karriereseiten der Firmen ableiten, die schon einmal
+    gefunden wurden. Ohne das müsste jede Firma von Hand in ``ats_boards``
+    eingetragen werden.
+    """
+    from ..storage import load_json
+    jobs: list[dict] = []
+    for path in (config.jobs_path(), config.import_path()):
+        try:
+            jobs.extend(load_json(path, []) or [])
+        except Exception:
+            continue
+    return jobs
+
+
 # Quellen, die bereits verifizierte Stellen liefern (strukturierte Jobbörsen statt
 # roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
 # von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
-_DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs"}
+_DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
+                   "ATS", "Arbeitnow"}
 
 
 def run_search(config: Config, profile: Profile,
@@ -134,12 +152,38 @@ def run_search(config: Config, profile: Profile,
             if name == "manual":
                 continue
             provider = {"duckduckgo": duckduckgo, "bing": bing,
-                        "stepstone": stepstone, "jobspy": jobspy}.get(name)
+                        "stepstone": stepstone, "jobspy": jobspy,
+                        "ats": ats, "arbeitnow": arbeitnow}.get(name)
             if provider is None:
                 errors.append(f"Unbekannter Provider: {name}")
                 continue
 
-            if name == "stepstone":
+            if name == "ats":
+                # Karriereseiten der Zielunternehmen. Die Board-Liste steht in
+                # ``search.ats_boards``; fehlt sie, wird sie aus den vorhandenen
+                # Anzeigen abgeleitet — dann braucht keine Firma Pflege.
+                boards = s.get("ats_boards")
+                if not boards:
+                    boards = ats.boards_from_jobs(_existing_jobs(config))
+                jobs_found, ats_errors = provider.search(
+                    boards,
+                    user_agent=s.get("user_agent", "Mozilla/5.0"),
+                    only_near_munich=s.get("ats_only_near_munich", True),
+                )
+                for job in jobs_found:
+                    add(job)
+                errors.extend(ats_errors)
+            elif name == "arbeitnow":
+                try:
+                    for job in provider.search(
+                        max_pages=s.get("arbeitnow_pages", 3),
+                        user_agent=s.get("user_agent", "Mozilla/5.0"),
+                        only_near_munich=True,
+                    ):
+                        add(job)
+                except Exception as exc:
+                    errors.append(f"{name}: {exc}")
+            elif name == "stepstone":
                 # StepStone: Suchbegriff + Ort getrennt.
                 for term in build_stepstone_queries(s):
                     try:

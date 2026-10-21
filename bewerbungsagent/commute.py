@@ -128,6 +128,19 @@ def is_remote(ort: str) -> bool:
     return any(m in normalize(ort or "") for m in _REMOTE_MARKERS)
 
 
+def is_near_munich(ort: str) -> bool:
+    """True, wenn der Ort in der Münchener Metropolregion liegt oder remote ist.
+
+    Für Provider, die **alle** Stellen einer Firma auf einmal liefern (ATS,
+    Arbeitnow), ist das der günstige Vorfilter: eine Firma mit 141 Stellen
+    weltweit würde sonst 141 Geocoding-Aufrufe à 1 s kosten, nur um danach
+    festzustellen, dass 130 davon zu weit weg sind.
+    """
+    if is_remote(ort):
+        return True
+    return _is_metro(normalize(ort or ""))
+
+
 def office_override(firma: str, overrides: dict | None) -> str:
     """Konfigurierter Firmensitz, der die Ortsangabe der Anzeige ersetzt.
 

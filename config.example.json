@@ -8,10 +8,16 @@
     "providers": [
       "manual",
       "stepstone",
-      "duckduckgo",
-      "jobspy"
+      "jobspy",
+      "ats",
+      "arbeitnow"
     ],
     "jobspy_max_terms": 4,
+    "ats_boards": [
+      { "firma": "Isar Aerospace", "ats": "greenhouse", "board": "isaraerospace" }
+    ],
+    "ats_only_near_munich": true,
+    "arbeitnow_pages": 3,
     "location": "München",
     "query_terms": [
       "Testingenieur",

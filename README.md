@@ -314,11 +314,27 @@ Die freie Websuche ist bewusst **pluggable**:
   python scripts/recheck_expired.py            # Probelauf: nur prüfen
   python scripts/recheck_expired.py --apply    # Korrekturen speichern
   ```
-- **DuckDuckGo** liefert teils Jobbörsen-Treffer, wird aber bei mehreren Anfragen schnell
-  rate-limited; **Bing** liefert bei deutschen Job-Queries oft unbrauchbare Treffer.
+- **ATS** (Standard seit 10/2026) fragt die Karriereseiten der Zielunternehmen **direkt** ab:
+  Greenhouse, Lever und Ashby haben öffentliche JSON-Endpunkte — kein Scraping, keine Blockade,
+  und der **vollständige Anzeigentext kommt mit**. Für diese Stellen entfällt der Browser-Fetch.
+  Die Board-Liste wird automatisch aus bereits vorhandenen Anzeigen abgeleitet (aus
+  `job-boards.eu.greenhouse.io/skdse/…` wird `greenhouse:skdse`), kann aber in
+  `search.ats_boards` fest vorgegeben werden. Gemessen: 193 Stellen von zwei Firmen, davon 71
+  im Münchener Umkreis (Vorfilter `search.ats_only_near_munich`, sonst kostet jede weltweite
+  Stelle einen Geocoding-Aufruf).
+- **Arbeitnow** ist eine kostenlose Job-Board-API ohne Schlüssel (`search.arbeitnow_pages`,
+  Standard 3). Sie liefert 300 Stellen pro Seite **ohne serverseitigen Filter** — der Ort wird
+  lokal gefiltert, und es kommt nur eine Kurzfassung mit, der Volltext muss per `fetch` nach.
+- **DuckDuckGo** und **Bing** sind seit 10/2026 **nicht mehr voreingestellt**: live geprüft
+  lieferte DuckDuckGo 0 Treffer, Bing ausschließlich `bing.com/ck/a`-Redirects zu
+  branchenfremden Firmen. Die Module bleiben für den Fall, dass sich das ändert; für
+  Stellensuche braucht es stattdessen eine bezahlte Such-API (Brave/Adzuna) mit Schlüssel.
 - **JobSpy** aggregiert LinkedIn/Indeed/Google Jobs inklusive Beschreibung; läuft auf den ersten
   `jobspy_max_terms` (Standard 4) Suchbegriffen, weil es langsam ist und verwandte Begriffe
-  stark überlappen. Optional installieren: `pip install -e ".[jobspy]"`.
+  stark überlappen. Optional installieren: `pip install -e ".[jobspy]"`. Indeed antwortet
+  derzeit durchgehend mit 403, Google Jobs ohne Daten, LinkedIn mit 429 — der Provider ist
+  stark limitiert. Die **Bundesagentur-API** (`rest.arbeitsagentur.de`) antwortete im Test
+  ebenfalls mit 403 und ist deshalb nicht eingebaut.
 
 ### Gespeicherte Suchen
 
@@ -394,7 +410,13 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 
 - `profile_json` – Pfad zur Profil-Datenbank (Standard: die bestehende Datei).
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
-  (verfügbar: `manual`, `stepstone`, `duckduckgo`, `bing`, `jobspy`).
+  (verfügbar: `manual`, `stepstone`, `jobspy`, `ats`, `arbeitnow`, `duckduckgo`, `bing`).
+- `search.ats_boards` – Karriereseiten für die ATS-Abfrage, z. B.
+  `[{"firma": "STARK Defence", "ats": "greenhouse", "board": "skdse"}]`. Leer = automatisch aus
+  den vorhandenen Anzeigen ableiten (Greenhouse, Lever, Ashby).
+- `search.ats_only_near_munich` – nur Stellen aus der Münchener Metropolregion übernehmen
+  (Standard `true`); verhindert teure Geocoding-Aufrufe für weltweite Stellen.
+- `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
   (Standard 4).
 - `search.triage` – Relevanz-Triage an/aus (Standard `true`). Domänenfremde Treffer

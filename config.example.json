@@ -21,7 +21,8 @@
       { "firma": "Infineon", "ats": "eightfold", "host": "jobs.infineon.com", "domain": "infineon.com", "location": "munich" },
       { "firma": "HENSOLDT", "ats": "successfactors", "host": "jobs.hensoldt.net" },
       { "firma": "Renesas", "ats": "smartrecruiters", "company": "RenesasElectronics", "city": "Munich" },
-      { "firma": "Texas Instruments", "ats": "oracle", "host": "edbz.fa.us2.oraclecloud.com", "site": "CX", "location": "Germany" }
+      { "firma": "Texas Instruments", "ats": "oracle", "host": "edbz.fa.us2.oraclecloud.com", "site": "CX", "location": "Germany" },
+      { "firma": "MTU Aero Engines", "ats": "typo3", "list_url": "https://www.mtu.de/de/karriere/jobboerse/s/all/all/all/all/" }
     ],
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,

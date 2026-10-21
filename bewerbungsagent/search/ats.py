@@ -16,7 +16,9 @@ Antwortformat nicht mit echten Daten geprüft wurde.
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import re
+from html import unescape as html_unescape
 from urllib.parse import urlparse
 
 import requests
@@ -293,8 +295,7 @@ def smartrecruiters(company: str, firma: str, *, city: str | None = None,
     return jobs
 
 
-def oracle_cloud(host: str, site: str, firma: str, *,
-                 location: str | None = None,
+def oracle_cloud(host: str, site: str, firma: str, *,                 location: str | None = None,
                  user_agent: str | None = None,
                  max_jobs: int = 500) -> list[dict]:
     """Oracle Cloud HCM („Oracle Recruiting Cloud", z. B. Texas Instruments).
@@ -342,6 +343,97 @@ def oracle_cloud(host: str, site: str, firma: str, *,
         if len(page) < page_size:
             break
     return jobs[:max_jobs]
+
+
+# --------------------------------------------------------------------------
+# TYPO3-Jobbörse (MTU Aero Engines)
+# --------------------------------------------------------------------------
+
+# Die Liste rendert jede Stelle als ``div.jobs-list__item`` mit den Eckdaten in
+# ``data-*``-Attributen — robuster als das sichtbare Markup zu parsen.
+_MTU_ITEM_RE = re.compile(
+    r'<div class="jobs-list__item"\s+'
+    r'data-job-id="[^"]*"\s+'
+    r'data-title="([^"]*)"\s+'
+    r'data-category="([^"]*)"\s+'
+    r'data-location="([^"]*)"\s+'
+    r'data-target-group="([^"]*)"\s*>'
+    r'.*?href="([^"]+)"',
+    re.DOTALL,
+)
+
+# ``data-location`` kodiert Orte als ``münchen_ger`` / ``fort worth_usa``.
+# Für die Ortsprüfung wird das in lesbaren Text zurückverwandelt.
+_MTU_LOCATION_SUFFIX_RE = re.compile(r"_(ger|usa|pol|srb|can|sg|nl|aut|gbr)$")
+
+
+def _mtu_location(raw: str) -> str:
+    """``münchen_ger,starnberg_ger`` → ``München, Starnberg``."""
+    parts = []
+    for part in (raw or "").split(","):
+        text = _MTU_LOCATION_SUFFIX_RE.sub("", part.strip())
+        text = text.replace("_", " ").strip()
+        if text:
+            parts.append(text.title())
+    return ", ".join(parts)
+
+
+def _mtu_description(url: str, user_agent: str | None) -> str:
+    """Volltext aus dem ``application/ld+json`` der Detailseite."""
+    try:
+        r = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
+        r.raise_for_status()
+        match = re.search(r'<script type="application/ld\+json">(.*?)</script>',
+                          r.text, re.DOTALL)
+        if not match:
+            return ""
+        data = json.loads(match.group(1))
+    except (requests.RequestException, ValueError):
+        return ""
+    return _texts(data.get("description") or "")
+
+
+def typo3_jobboard(list_url: str, firma: str, *,
+                   user_agent: str | None = None,
+                   only_near_munich: bool = True,
+                   max_jobs: int = 500) -> list[dict]:
+    """TYPO3-Jobbörse mit Solr-Suche (MTU Aero Engines).
+
+    Die Übersichtsseite enthält **alle** Stellen (keine Paginierung) und trägt
+    Titel, Kategorie, Ort und Zielgruppe als ``data-*``-Attribute. Den
+    vollständigen Anzeigentext liefert die Detailseite als ``application/ld+json``
+    — per normalem HTTP-Abruf, ohne Browser.
+
+    Die Detailseiten werden nur für die Stellen geladen, die den Ortsfilter
+    passieren (bei MTU sind das rund 190 von 400) — sonst kostet ein Lauf
+    mehrere Minuten für Stellen, die anschließend ohnehin aussortiert werden.
+    """
+    r = requests.get(list_url, headers=_ua(user_agent), timeout=_TIMEOUT)
+    r.raise_for_status()
+
+    parsed = []
+    for title, _category, location, _target, url in _MTU_ITEM_RE.findall(r.text):
+        title = clean_html(html_unescape(title))
+        if not title or not url:
+            continue
+        place = _mtu_location(location)
+        if only_near_munich and not is_near_munich(place):
+            continue
+        parsed.append((title, place, url.strip()))
+
+    parsed = parsed[:max_jobs]
+    if not parsed:
+        return []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        descriptions = list(pool.map(
+            lambda entry: _mtu_description(entry[2], user_agent), parsed))
+
+    jobs: list[dict] = []
+    for (title, place, url), desc in zip(parsed, descriptions):
+        jobs.append(_job(firma=firma, titel=title, ort=place, url=url,
+                         beschreibung=desc))
+    return jobs
 
 
 # --------------------------------------------------------------------------
@@ -547,6 +639,23 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                                      location=entry.get("location"),
                                      user_agent=user_agent,
                                      max_jobs=entry.get("max_jobs", 500))
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "typo3":
+            list_url = str(entry.get("list_url") or "").strip()
+            if not list_url:
+                errors.append(f"ats (typo3: list_url fehlt)")
+                continue
+            try:
+                # Der Ortsfilter wird hier schon angewendet, weil er auch
+                # entscheidet, für welche Stellen die Detailseite geladen wird.
+                found = typo3_jobboard(
+                    list_url, firma,
+                    user_agent=user_agent,
+                    only_near_munich=only_near_munich,
+                    max_jobs=entry.get("max_jobs", 500),
+                )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")
                 continue

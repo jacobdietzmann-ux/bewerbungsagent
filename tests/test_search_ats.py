@@ -8,6 +8,8 @@ sind für Stellensuche unbrauchbar geworden (DuckDuckGo 0 Treffer, Bing nur
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from bewerbungsagent.search import ats
@@ -398,6 +400,100 @@ class TestOracleCloud:
         jobs, errors = ats.search([{"firma": "TI", "ats": "oracle"}])
         assert jobs == []
         assert any("host/site fehlt" in e for e in errors)
+
+
+class TestTypo3Jobboard:
+    """MTU-Jobbörse: ``data-*``-Attribute in der Liste, Volltext per ld+json."""
+
+    def _item(self, title: str, location: str, url: str) -> str:
+        return (
+            f'<div class="jobs-list__item" data-job-id="1" '
+            f'data-title="{title}" data-category="it" '
+            f'data-location="{location}" data-target-group="professionals">'
+            f'<a class="jobs-list__item_anchor" href="{url}">'
+            f'<h3 class="jobs-list__title">{title}</h3></a></div>'
+        )
+
+    def _detail(self, text: str) -> str:
+        payload = json.dumps({"@type": "JobPosting", "description": text})
+        return (f'<html><script type="application/ld+json">{payload}'
+                f'</script></html>')
+
+    def _getter(self, listing: str, detail_text: str = "Aufgaben: " + "Test. " * 60):
+        def _getter(url, **_k):
+            if "stellenanzeige" in url:
+                return _Resp(self._detail(detail_text))
+            return _Resp(listing)
+        return _getter
+
+    def test_parst_attribute_und_volltext(self, monkeypatch):
+        listing = self._item("Testingenieur (m/w/d)", "münchen_ger",
+                             "https://www.mtu.de/de/karriere/jobboerse/stellenanzeige/x/")
+        monkeypatch.setattr(ats.requests, "get", self._getter(listing))
+
+        jobs = ats.typo3_jobboard("https://example.test/liste/", "MTU")
+
+        assert len(jobs) == 1
+        assert jobs[0]["titel"] == "Testingenieur (m/w/d)"
+        assert jobs[0]["ort"] == "München"
+        assert jobs[0]["quelle"] == "ATS"
+        assert "Test." in jobs[0]["beschreibung"]
+
+    def test_entfernte_orte_werden_gefiltert(self, monkeypatch):
+        listing = (self._item("Nah", "münchen_ger", "https://x/stellenanzeige/a/") +
+                   self._item("Fern", "fort worth_usa", "https://x/stellenanzeige/b/"))
+        monkeypatch.setattr(ats.requests, "get", self._getter(listing))
+
+        jobs = ats.typo3_jobboard("https://example.test/liste/", "MTU")
+
+        assert [j["titel"] for j in jobs] == ["Nah"]
+
+    def test_filter_abschaltbar(self, monkeypatch):
+        listing = self._item("Fern", "fort worth_usa", "https://x/stellenanzeige/b/")
+        monkeypatch.setattr(ats.requests, "get", self._getter(listing))
+
+        jobs = ats.typo3_jobboard("https://example.test/liste/", "MTU",
+                                  only_near_munich=False)
+
+        assert [j["titel"] for j in jobs] == ["Fern"]
+
+    def test_mehrfachorte_werden_gelesen(self, monkeypatch):
+        listing = self._item("X", "münchen_ger,starnberg_ger",
+                             "https://x/stellenanzeige/a/")
+        monkeypatch.setattr(ats.requests, "get", self._getter(listing))
+
+        jobs = ats.typo3_jobboard("https://example.test/liste/", "MTU")
+
+        assert jobs[0]["ort"] == "München, Starnberg"
+
+    def test_detail_fehler_bricht_nicht_ab(self, monkeypatch):
+        listing = self._item("X", "münchen_ger", "https://x/stellenanzeige/a/")
+
+        def _get(url, **_k):
+            if "stellenanzeige" in url:
+                return _Resp("", status=500)
+            return _Resp(listing)
+
+        monkeypatch.setattr(ats.requests, "get", _get)
+        jobs = ats.typo3_jobboard("https://example.test/liste/", "MTU")
+        assert len(jobs) == 1
+        assert jobs[0]["beschreibung"] == ""
+
+    def test_ohne_items_leere_liste(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get", lambda *a, **k: _Resp("<html/>"))
+        assert ats.typo3_jobboard("https://example.test/liste/", "MTU") == []
+
+    def test_html_entities_im_titel(self, monkeypatch):
+        listing = self._item("Test &amp; Validation", "münchen_ger",
+                             "https://x/stellenanzeige/a/")
+        monkeypatch.setattr(ats.requests, "get", self._getter(listing))
+        jobs = ats.typo3_jobboard("https://example.test/liste/", "MTU")
+        assert jobs[0]["titel"] == "Test & Validation"
+
+    def test_search_ohne_list_url_meldet_fehler(self):
+        jobs, errors = ats.search([{"firma": "MTU", "ats": "typo3"}])
+        assert jobs == []
+        assert any("list_url fehlt" in e for e in errors)
 
 
 class TestSearch:

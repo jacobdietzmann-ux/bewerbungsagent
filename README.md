@@ -332,6 +332,10 @@ Die freie Websuche ist bewusst **pluggable**:
     Anzeigentext** über die Detail-URL (`jobAd.sections`) — kein Browser-Fetch nötig (Renesas).
   - **Oracle Cloud HCM** (`host` + `site`, optional `location`) ist das System von Texas
     Instruments; der Index liefert 25 Stellen pro Aufruf, den Text holt der Browser-Fetch.
+  - **TYPO3-Jobbörse** (`list_url`) ist die eigene Jobbörse von MTU Aero Engines: alle
+    Stellen auf einer Seite, Eckdaten als `data-*`-Attribute, Volltext als `ld+json` auf der
+    Detailseite — ohne Browser. Die Detailseiten werden nur für die Stellen geladen, die den
+    Ortsfilter passieren (rund 190 von 400).
 - **Arbeitnow** ist eine kostenlose Job-Board-API ohne Schlüssel (`search.arbeitnow_pages`,
   Standard 3). Sie liefert 300 Stellen pro Seite **ohne serverseitigen Filter** — der Ort wird
   lokal gefiltert, und es kommt nur eine Kurzfassung mit, der Volltext muss per `fetch` nach.

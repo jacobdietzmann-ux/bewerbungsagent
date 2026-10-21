@@ -118,12 +118,49 @@ def _fit_value(job: dict) -> int:
 
 def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
     jobs, errors, triage_rejected = _search(config, profile, definition)
+    jobs = _preserve_descriptions(jobs, _store(config).load_state())
     save_json(config.jobs_path(), jobs)
     context = _enrich_job_context(config, jobs)
     return {
         "count": len(jobs), "errors": errors, "path": str(config.jobs_path()),
         "context": context, "triage_rejected": triage_rejected,
     }
+
+
+def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
+    """Übernimmt bereits geladene Anzeigentexte in einen frischen Suchlauf.
+
+    ``running search`` ersetzt ``jobs.json`` komplett, aber die Suchprovider
+    liefern nur Titel und URL — der Volltext kommt erst über
+    ``fetch_descriptions``. Ohne diesen Schritt war er nach jedem Suchlauf weg
+    und das anschließende Matching bewertete die Stellen nur nach dem Titel:
+    61 Stellen fielen messbar von ihrem echten Fit auf 0–10 % zurück (u. a.
+    PCS Quality Engineer, PTA). Die Texte liegen in SQLite und werden hier per
+    ``key`` zurückgespielt; neue Stellen bleiben unberührt.
+    """
+    by_key = {a.get("key"): a for a in (state.get("applications") or [])
+              if a.get("key")}
+    if not by_key:
+        return jobs
+    restored = 0
+    for job in jobs:
+        if (job.get("beschreibung") or "").strip():
+            continue
+        previous = by_key.get(_job_key(job))
+        if not previous:
+            continue
+        text = (previous.get("beschreibung") or "").strip()
+        if text:
+            job["beschreibung"] = text
+            restored += 1
+        # Einmal geprüfte Verfügbarkeit nicht erneut auf „unbekannt" setzen.
+        if job.get("verfuegbar") is None and previous.get("verfuegbar") is not None:
+            job["verfuegbar"] = previous["verfuegbar"]
+            if previous.get("verfuegbar_grund"):
+                job["verfuegbar_grund"] = previous["verfuegbar_grund"]
+    if restored:
+        print(f"Anzeigentexte aus dem Bestand übernommen: {restored} Stelle(n).")
+    return jobs
 
 
 def letzter_fund_meta(config: Config) -> dict:

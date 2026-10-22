@@ -24,6 +24,7 @@ keine Font-Dateien benötigt werden.
 
 from __future__ import annotations
 
+import io
 import re
 from datetime import date
 from xml.sax.saxutils import escape as _xmlescape
@@ -308,6 +309,44 @@ def _asset_path(profile: Profile, key: str):
     return p if p.exists() else None
 
 
+# Zielauflösung für eingebettete Bilder. Ein Foto mit 25 mm Breite braucht bei
+# 300 dpi rund 295 px. Das Profil-Foto hatte 700 px und wurde mit 25 mm gedruckt
+# (≈711 dpi): der Lebenslauf wuchs dadurch auf 1,75 MB, ohne dass man auf dem
+# Papier einen Unterschied sieht. 300 dpi ist die übliche Druckauflösung.
+EMBED_DPI = 300
+
+
+def _image_for_pdf(path, width_mm: float, *, dpi: int = EMBED_DPI,
+                   jpeg: bool = True):
+    """Bildquelle für ReportLab, auf die tatsächliche Druckgröße reduziert.
+
+    Gibt den Pfad zurück, wenn das Bild schon klein genug ist, sonst einen
+    ``BytesIO`` mit dem verkleinerten Bild. ``jpeg`` eignet sich für Fotos
+    (keine Transparenz, deutlich kleiner); Unterschriften bleiben PNG, damit
+    ein transparenter Hintergrund erhalten bleibt.
+    """
+    try:
+        from PIL import Image as _PIL
+    except ImportError:  # pragma: no cover - Pillow ist optional
+        return str(path)
+    with _PIL.open(path) as im:
+        w, h = im.size
+        target_w = max(1, round(width_mm / 25.4 * dpi))
+        if w <= target_w:
+            return str(path)
+        target_h = max(1, round(h * target_w / w))
+        canvas = im.convert("RGB") if jpeg else im.copy()
+        canvas = canvas.resize((target_w, target_h), _PIL.LANCZOS)
+        buf = io.BytesIO()
+        if jpeg:
+            canvas.save(buf, format="JPEG", quality=90, optimize=True,
+                        progressive=True)
+        else:
+            canvas.save(buf, format="PNG", optimize=True)
+        buf.seek(0)
+    return buf
+
+
 def _photo_image(profile: Profile, width_mm: float = 25.0):
     """Bewerbungsfoto als rechtsbündiges Bild (Standard: ~25 mm breit)."""
     p = _asset_path(profile, "foto")
@@ -317,7 +356,8 @@ def _photo_image(profile: Profile, width_mm: float = 25.0):
     with _PIL.open(p) as im:
         w, h = im.size
     height_mm = width_mm * h / w
-    return Image(str(p), width=width_mm * mm, height=height_mm * mm)
+    source = _image_for_pdf(p, width_mm, jpeg=True)
+    return Image(source, width=width_mm * mm, height=height_mm * mm)
 
 
 def _signature_image(profile: Profile, width_mm: float = 38.0):
@@ -329,7 +369,9 @@ def _signature_image(profile: Profile, width_mm: float = 38.0):
     with _PIL.open(p) as im:
         w, h = im.size
     height_mm = width_mm * h / w
-    return Image(str(p), width=width_mm * mm, height=height_mm * mm, hAlign="LEFT")
+    # PNG behält einen transparenten Hintergrund (Unterschrift auf weißem Papier).
+    source = _image_for_pdf(p, width_mm, jpeg=False)
+    return Image(source, width=width_mm * mm, height=height_mm * mm, hAlign="LEFT")
 
 
 def _job_reference_id(job: dict) -> str:

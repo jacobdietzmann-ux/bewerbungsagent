@@ -329,6 +329,11 @@ def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
         # Für /open?path=… (wird an ROOT angehängt) ohne führenden Schrägstrich.
         folder = os.path.dirname(docs[0]["href"]).lstrip("/").replace("\\", "/")
 
+    # Absoluter Pfad für die Zwischenablage. ``folder`` ist relativ zum
+    # Server-Root; erst damit lässt sich der Ordner in Explorer/Finder oder in
+    # ein anderes Programm einfügen.
+    folder_abs = os.path.normpath(str(ROOT / folder)) if folder else ""
+
     contact = app.get("contact") or app.get("ansprechpartner") or ""
 
     return {
@@ -349,6 +354,7 @@ def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
         "contact": contact,
         "link": app.get("url", "") or "",
         "folder": folder,
+        "folderAbs": folder_abs,
         "docs": docs,
         "notes": app.get("notes", "") or "",
         "beschreibung": app.get("beschreibung", "") or "",
@@ -477,6 +483,15 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .s-rejected { background:#7f1d1d33; color:#fca5a5; border:1px solid #7f1d1d66; }
   a.folder { color:var(--accent); text-decoration:none; font-size:12px; }
   a.folder:hover { text-decoration:underline; }
+  /* „Pfad kopieren" sitzt neben „Ordner ↗" und soll wie ein Link wirken,
+     aber als echter Button anklickbar sein. */
+  button.copy-btn {
+    background:none; border:none; padding:0; margin-left:6px;
+    color:var(--muted); font:inherit; font-size:11px; cursor:pointer;
+    text-decoration:underline;
+  }
+  button.copy-btn:hover { color:var(--accent); }
+  button.copy-btn.done { color:#22c55e; text-decoration:none; }
   button.row-delete { background:transparent; border:1px solid var(--line); border-radius:8px;
     padding:4px 9px; font-size:13px; cursor:pointer; line-height:1; }
   button.row-delete:hover { border-color:var(--red); background:#7f1d1d22; }
@@ -1150,6 +1165,9 @@ function renderRows() {
       `<a class="folder" href="${esc(d.href)}" target="_blank" rel="noopener noreferrer">${esc(d.label)}</a>`).join("<br>");
     const openBtn = r.folder
       ? `<br><a class="folder folder-open" href="#" data-folder="${encodeURIComponent(r.folder)}">Ordner ↗</a>`
+        + (r.folderAbs
+            ? `<button class="copy-btn" data-copy="${encodeURIComponent(r.folderAbs)}" title="Absoluten Ordnerpfad in die Zwischenablage kopieren">Pfad kopieren</button>`
+            : "")
       : "";
     tr.innerHTML = `
       <td>${esc(r.company)}</td>
@@ -1212,6 +1230,7 @@ function renderRows() {
     }
   });
   tb.querySelectorAll("a.folder-open").forEach(el => el.addEventListener("click", openFolder));
+  tb.querySelectorAll("button.copy-btn").forEach(el => el.addEventListener("click", copyFolderPath));
   tb.querySelectorAll("button.row-delete").forEach(el => el.addEventListener("click", onDelete));
   tb.querySelectorAll("button.desc-toggle").forEach(el => el.addEventListener("click", onToggleDesc));
 }
@@ -1283,9 +1302,48 @@ function openFolder(e) {
   }
 }
 
+/* Kopiert den absoluten Ordnerpfad in die Zwischenablage.
+   ``navigator.clipboard`` gibt es nur in einem „secure context" — bei
+   http://127.0.0.1 ist das der Fall, bei Aufruf über file:// nicht. Deshalb
+   gibt es einen Fallback über ein temporäres Textfeld. */
+function copyFolderPath(e) {
+  e.preventDefault();
+  const btn = e.currentTarget;
+  const value = decodeURIComponent(btn.dataset.copy || "");
+  if (!value) return;
+
+  const ok = () => {
+    toast("Pfad kopiert:<br><code>" + esc(value) + "</code>");
+    btn.classList.add("done");
+    const old = btn.textContent;
+    btn.textContent = "kopiert ✓";
+    setTimeout(() => { btn.textContent = old; btn.classList.remove("done"); }, 1600);
+  };
+  const failed = () => toast("Kopieren nicht möglich. Pfad:<br><code>" + esc(value) + "</code>");
+  const legacyCopy = () => {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (err) { copied = false; }
+    document.body.removeChild(ta);
+    copied ? ok() : failed();
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(value).then(ok).catch(legacyCopy);
+  } else {
+    legacyCopy();
+  }
+}
+
 let toastTimer = null;
-function toast(html) {
-  let t = document.getElementById("toast");
+function toast(html) {  let t = document.getElementById("toast");
   if (!t) {
     t = document.createElement("div");
     t.id = "toast";

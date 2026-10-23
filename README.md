@@ -348,7 +348,9 @@ Die freie Websuche ist bewusst **pluggable**:
   - **25 Karten pro Anfrage** — `page=2`, `start=25`, `offset=25`, `currentPage`, `p`, `spage`
     und `pageIndex` werden ignoriert, es kommt stets dieselbe erste Seite. Mehr Treffer gibt es
     nur über **mehr Suchbegriffe** (`jobleads_searches`) oder einen Browser mit Scrollen; die
-    gespeicherte Seite einer Browser-Sitzung enthielt 177 Karten.
+    gespeicherte Seite einer Browser-Sitzung enthielt 177 Karten. Weil das Fenster nur 25 Karten
+    breit ist, entscheidet die **Wortwahl** über die Abdeckung: `Test Engineer` fand eine Stelle
+    3/3 Läufe, `System Test Engineer` nur 1/3 — breitere Begriffe decken mehr ab.
   - **HTTP 429 (Cloudflare)** bei Bursts: 177 Detailseiten mit 6 Threads → nur 80 Volltexte.
     Der Provider holt deshalb mit 3 Threads und bis zu 4 Versuchen mit Backoff.
   - `minSalary` ist **keine** harte Grenze (bei `minSalary=80000` kamen weiterhin
@@ -475,7 +477,12 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).
 - `search.jobleads_searches` – JobLeads-Suchen (Standard `[]`). Ein Eintrag ist entweder ein
   Suchbegriff (die URL wird samt München-Koordinaten gebaut) oder ein Objekt mit fertiger
-  `list_url`, optional `max_jobs` und `with_description`.
+  `list_url`, optional `max_jobs` und `with_description`. Ist die Liste **leer**, greift der
+  Provider auf `search.query_terms` zurück (begrenzt über `jobleads_max_terms`, Standard 6) —
+  eine leere Liste ist eine vergessene Pflege, keine Abschaltung, und hat schon einmal dazu
+  geführt, dass Stellen derselben Trefferliste nie gefunden wurden.
+- `search.jobleads_max_terms` – Obergrenze für diesen Rückfall (Standard 6). Jede Suche kostet
+  eine Listenseite plus bis zu 25 Detailseiten; JobLeads drosselt mit HTTP 429.
 - `search.jobleads_min_salary` – `minSalary` in der Such-URL (Standard `0` = aus). Filtert bei
   JobLeads **nicht** hart, verschiebt nur das Ranking.
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft

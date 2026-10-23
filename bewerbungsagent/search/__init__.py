@@ -180,6 +180,16 @@ def run_search(config: Config, profile: Profile,
                 # entweder ein Suchbegriff (URL wird gebaut) oder ein Dict mit
                 # fertiger ``list_url`` (z. B. eine von Hand kuratierte Suche).
                 entries = s.get("jobleads_searches") or []
+                if not entries:
+                    # Eine leere Liste ist keine bewusste Abschaltung, sondern
+                    # eine vergessene Pflege: als der Provider aktiviert wurde,
+                    # standen hier nur 2 Begriffe, und 2 von 6 nachweislich
+                    # passenden Stellen (E.ON, Advantest) wurden nie gefunden.
+                    # Deshalb die allgemeinen Suchbegriffe als Rückfall — aber
+                    # begrenzt, weil jede Suche eine eigene Seite plus bis zu 25
+                    # Detailseiten kostet und JobLeads mit HTTP 429 drosselt.
+                    entries = list(s.get("query_terms") or [])[
+                        :int(s.get("jobleads_max_terms", 6))]
                 for entry in entries:
                     extra: dict = {}
                     if isinstance(entry, str):

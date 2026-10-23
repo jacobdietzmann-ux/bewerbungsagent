@@ -65,6 +65,10 @@ DEFAULT_CONFIG: dict = {
         # Der Provider ist standardmäßig nicht aktiv, weil jede Suche eine
         # eigene Seite abfragt — die Treffer überlappen mit StepStone/JobSpy.
         "jobleads_searches": [],
+        # Obergrenze für den Rückfall auf ``query_terms``, wenn
+        # ``jobleads_searches`` leer ist. Jede Suche kostet eine Listenseite
+        # plus bis zu 25 Detailseiten; JobLeads drosselt mit HTTP 429.
+        "jobleads_max_terms": 6,
         # JobLeads wendet ``minSalary`` nur auf das Ranking an, nicht als harte
         # Grenze (60.000–80.000 kam trotz minSalary=80000 durch). Bleibt aus.
         "jobleads_min_salary": 0,

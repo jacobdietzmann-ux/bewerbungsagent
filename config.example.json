@@ -22,7 +22,8 @@
       { "firma": "HENSOLDT", "ats": "successfactors", "host": "jobs.hensoldt.net" },
       { "firma": "Renesas", "ats": "smartrecruiters", "company": "RenesasElectronics", "city": "Munich" },
       { "firma": "Texas Instruments", "ats": "oracle", "host": "edbz.fa.us2.oraclecloud.com", "site": "CX", "location": "Germany" },
-      { "firma": "MTU Aero Engines", "ats": "typo3", "list_url": "https://www.mtu.de/de/karriere/jobboerse/s/all/all/all/all/" }
+      { "firma": "MTU Aero Engines", "ats": "typo3", "list_url": "https://www.mtu.de/de/karriere/jobboerse/s/all/all/all/all/" },
+      { "firma": "E.ON", "ats": "sitemap", "sitemap": "https://jobs.eon.com/sitemap.xml", "url_must_contain": "muenchen", "max_jobs": 40 }
     ],
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,

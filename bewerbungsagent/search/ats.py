@@ -729,6 +729,127 @@ def successfactors_j2w(host: str, firma: str, *,
 
 
 # --------------------------------------------------------------------------
+# Firmen-Jobbörse über die Sitemap (generisch)
+# --------------------------------------------------------------------------
+
+# ``<script type="application/ld+json">`` ohne feste Attributreihenfolge: das
+# ``type`` kann hinter einem ``nonce``/``id`` stehen.
+_JSONLD_SCRIPT_RE = re.compile(
+    r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', re.DOTALL)
+_SITEMAP_LOC_RE = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.DOTALL)
+
+
+def _jsonld_job_postings(html: str) -> list[dict]:
+    """Alle ``JobPosting``-Objekte aus den JSON-LD-Blöcken einer Seite.
+
+    Eine Seite enthält oft mehrere Blöcke (Breadcrumb, Organisation, Stelle) und
+    die ``@type``-Angabe mal als String, mal als Liste. Beides wird abgedeckt.
+    """
+    found: list[dict] = []
+    for match in _JSONLD_SCRIPT_RE.finditer(html or ""):
+        roh = match.group(1).strip()
+        if not roh:
+            continue
+        try:
+            data = json.loads(roh)
+        except ValueError:
+            continue
+        for item in (data if isinstance(data, list) else [data]):
+            if not isinstance(item, dict):
+                continue
+            typ = item.get("@type")
+            typen = typ if isinstance(typ, list) else [typ]
+            if any(str(t).lower() == "jobposting" for t in typen if t):
+                found.append(item)
+    return found
+
+
+def _jsonld_ort(posting: dict) -> str:
+    """Ort aus ``jobLocation`` (Dict oder Liste, Adresse verschachtelt)."""
+    locations = posting.get("jobLocation")
+    items = locations if isinstance(locations, list) else [locations]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        address = item.get("address")
+        address = address if isinstance(address, dict) else {}
+        ort = (address.get("addressLocality") or address.get("addressRegion")
+               or item.get("name") or "")
+        if str(ort).strip():
+            return _texts(str(ort))
+    return ""
+
+
+def sitemap_jobboard(sitemap_url: str, firma: str, *,
+                     url_must_contain: str | tuple[str, ...] = (),
+                     user_agent: str | None = None,
+                     only_near_munich: bool = True,
+                     with_description: bool = True,
+                     max_jobs: int = 200) -> list[dict]:
+    """Firmen-Jobbörse ohne API: Sitemap → Detailseiten mit ``JobPosting``-JSON-LD.
+
+    Für Karriereseiten, die weder ein bekanntes ATS noch einen JSON-Endpunkt
+    haben, aber eine ``sitemap.xml`` mit den Anzeigen-URLs ausliefern. Live
+    verifiziert an E.ON (``jobs.eon.com``): 502 Anzeigen in der Sitemap, der Ort
+    steht im Slug, und die Detailseite liefert Titel, Arbeitgeber, Ort und
+    Volltext als ``JobPosting``-JSON-LD.
+
+    ``url_must_contain`` grenzt **vor** dem Laden der Detailseiten ein (eine
+    Weltfirma hat hunderte Anzeigen; ohne Filter würde jede einzeln geladen).
+    Der Filter ist eine Heuristik — der echte Ort kommt anschließend aus dem
+    JSON-LD und wird gegen ``is_near_munich`` geprüft.
+    """
+    r = requests.get(sitemap_url, headers=_ua(user_agent), timeout=_TIMEOUT)
+    r.raise_for_status()
+    urls = [u.strip() for u in _SITEMAP_LOC_RE.findall(r.text)]
+    urls = [u for u in urls if u.startswith("http") and "/job/" in u]
+    if url_must_contain:
+        needle = (url_must_contain if isinstance(url_must_contain, tuple)
+                  else (url_must_contain,))
+        kleingeschrieben = tuple(str(n).lower() for n in needle if str(n).strip())
+        if kleingeschrieben:
+            urls = [u for u in urls if any(n in u.lower() for n in kleingeschrieben)]
+
+    seen: set[str] = set()
+    unique = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    unique = unique[:max_jobs]
+    if not unique:
+        return []
+
+    jobs: list[dict] = []
+    for url in unique:
+        try:
+            detail = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
+            detail.raise_for_status()
+        except requests.RequestException:
+            continue
+        postings = _jsonld_job_postings(detail.text)
+        if not postings:
+            continue
+        posting = postings[0]
+        titel = _texts(str(posting.get("title") or ""))
+        if not titel:
+            continue
+        org = posting.get("hiringOrganization")
+        if isinstance(org, list):
+            org = org[0] if org else {}
+        arbeitgeber = _texts(str((org or {}).get("name") or "")) if isinstance(org, dict) else ""
+        beschreibung = _texts(str(posting.get("description") or "")) if with_description else ""
+        jobs.append(_job(
+            firma=arbeitgeber or firma,
+            titel=titel,
+            ort=_jsonld_ort(posting),
+            url=url,
+            beschreibung=beschreibung,
+        ))
+    return jobs
+
+
+# --------------------------------------------------------------------------
 # Board aus einer vorhandenen Anzeigen-URL ableiten
 # --------------------------------------------------------------------------
 
@@ -898,6 +1019,23 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                     only_near_munich=only_near_munich,
                     with_description=entry.get("with_description", True),
                     max_jobs=entry.get("max_jobs", 100),
+                )
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "sitemap":
+            sitemap_url = str(entry.get("sitemap") or entry.get("sitemap_url") or "").strip()
+            if not sitemap_url:
+                errors.append("ats (sitemap: sitemap fehlt)")
+                continue
+            try:
+                found = sitemap_jobboard(
+                    sitemap_url, firma,
+                    url_must_contain=entry.get("url_must_contain") or (),
+                    user_agent=user_agent,
+                    only_near_munich=only_near_munich,
+                    with_description=entry.get("with_description", True),
+                    max_jobs=entry.get("max_jobs", 200),
                 )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")

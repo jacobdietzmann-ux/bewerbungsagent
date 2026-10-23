@@ -336,6 +336,18 @@ Die freie Websuche ist bewusst **pluggable**:
     Stellen auf einer Seite, Eckdaten als `data-*`-Attribute, Volltext als `ld+json` auf der
     Detailseite — ohne Browser. Die Detailseiten werden nur für die Stellen geladen, die den
     Ortsfilter passieren (rund 190 von 400).
+  - **Sitemap** (`sitemap`, optional `url_must_contain`, `max_jobs`) ist der generische Weg für
+    Karriereseiten ohne ATS-API, die aber eine `sitemap.xml` mit den Anzeigen-URLs ausliefern.
+    Jede Detailseite wird gelesen und das `JobPosting`-JSON-LD ausgewertet (Titel, Arbeitgeber,
+    Ort, Volltext). Live verifiziert an **E.ON** (`jobs.eon.com`, Anbieter „4suxess"):
+    `careers.eon.com` rendert die Liste nur per JavaScript, `/api/*` ist im `robots.txt`
+    gesperrt und ein Ortsfilter per URL existiert nicht — die Sitemap dagegen listet alle 502
+    Anzeigen, der Ort steht im Slug. `url_must_contain` grenzt **vor** dem Laden der
+    Detailseiten ein (9 statt 502), sonst würde jede Anzeige einzeln geholt. Zwei Eigenheiten:
+    Der Arbeitgeber kommt aus dem JSON-LD, nicht aus `firma` — unter „E.ON" würden sonst die
+    Konzerntöchter verschwinden (`E.ON Drive Germany GmbH`, `E.ON Digital Technology GmbH`, …).
+    Und die Sitemap ist **unvollständig/veraltet**: 4 der 9 München-URLs antworteten mit 404 und
+    werden übersprungen, ohne den Lauf abzubrechen.
 - **Arbeitnow** ist eine kostenlose Job-Board-API ohne Schlüssel (`search.arbeitnow_pages`,
   Standard 3). Sie liefert 300 Stellen pro Seite **ohne serverseitigen Filter** — der Ort wird
   lokal gefiltert, und es kommt nur eine Kurzfassung mit, der Volltext muss per `fetch` nach.
@@ -471,7 +483,9 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   `bing`).
 - `search.ats_boards` – Karriereseiten für die ATS-Abfrage. Greenhouse/Lever/Ashby nutzen
   `board`, Workday `tenant`+`site`, Eightfold `host`+`domain`, SuccessFactors „Jobs2Web" nur
-  `host`. Leer = Greenhouse/Lever/Ashby automatisch aus den vorhandenen Anzeigen ableiten.
+  `host`, SmartRecruiters `company`, Oracle Cloud `host`+`site`, TYPO3 `list_url`. Für
+  `ats: "sitemap"` gilt `sitemap` (Pflicht) plus optional `url_must_contain` und `max_jobs`.
+  Leer = Greenhouse/Lever/Ashby automatisch aus den vorhandenen Anzeigen ableiten.
 - `search.ats_only_near_munich` – nur Stellen aus der Münchener Metropolregion übernehmen
   (Standard `true`); verhindert teure Geocoding-Aufrufe für weltweite Stellen.
 - `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).

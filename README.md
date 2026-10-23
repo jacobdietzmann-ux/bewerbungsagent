@@ -435,6 +435,21 @@ bekommt das mittlere Band nur den Status `Research`. Bereits erzeugte Unterlagen
 diesem Band setzt der nächste `enrich`-Lauf auf `Research` zurück; die Dateien bleiben
 liegen. Versendete und abgeschlossene Bewerbungen bleiben unangetastet.
 
+Research-Funde erscheinen **nur mit Unterlagen** in der Dashboard-Tabelle — das ist die
+Entscheidungsgrundlage „lohnt sich eine Bewerbung?". Eine pauschale Lockerung wäre kein
+Gewinn: im Live-Bestand liegen 658 Einträge im Status `research`/`neu` ohne Unterlagen
+(bestimmt am 23.10.2026). Für bewusst beobachtete Kandidaten gibt es deshalb die
+ausdrückliche Freigabe:
+
+```json
+{ "key": "https://…", "status": "research", "research_sichtbar": true }
+```
+
+`research_sichtbar` wirkt nur bei Status `research`, hebt die Pendelzeit-Grenze **nicht**
+auf und ist ein Nutzerfeld (`db.USER_FIELDS`) — ein Suchlauf kann es nicht
+überschreiben. Die Zeile steht dann mit Badge `Research` in der Tabelle, die der
+Status-Schalter „Research einblenden" ein- und ausblenden kann.
+
 Die Schwelle (`documents.min_fit_for_generation`: `hoch` = > 70 %, `mittel` = 50 %,
 `niedrig` = 0 %) lässt sich in `config.json` anpassen und gilt für beide Wege —
 `generate` und die automatische Erzeugung in `enrich`.

@@ -36,6 +36,10 @@ Base = declarative_base()
 USER_FIELDS = (
     "status", "contact", "notes", "deleted", "interviewDate",
     "statusChangedAt", "sentAt", "deleted_reason", "deletedAt",
+    # Freigabe eines Research-Funds für die Dashboard-Tabelle. Eine bewusste
+    # Entscheidung des Nutzers, kein ableitbarer Zustand — deshalb hier und
+    # nicht im Provider-Anteil, den ein Suchlauf neu schreiben darf.
+    "research_sichtbar",
 )
 
 # Status, den ein CLI-Lauf nicht zurückstufen darf: was der Nutzer als

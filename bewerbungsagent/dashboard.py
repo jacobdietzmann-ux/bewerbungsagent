@@ -203,13 +203,21 @@ def dashboard_applications(applications: list[dict],
                            limit: int = MAX_COMMUTE_MINUTES) -> list[dict]:
     """Für Tabelle und Statistik relevante Bewerbungen.
 
-    Zwei Regeln:
+    Drei Regeln:
 
     1. **Bereits beworben** (``sent`` und weiter): immer sichtbar. Der Eintrag
        dokumentiert einen Vorgang, nicht eine Option.
-    2. **Noch nicht beworben** (``research``/``docs``): nur mit vorhandenem
+    2. **Ausdrücklich freigegebene Research-Funde** (``research_sichtbar``): auch
+       ohne Unterlagen sichtbar — aber nur innerhalb der Pendelzeit-Grenze. Das
+       ist die Beobachtungsliste für Stellen im Research-Band (Fit 60–70 %), für
+       die noch keine Bewerbung erzeugt wurde.
+    3. **Noch nicht beworben** (``research``/``docs``): nur mit vorhandenem
        Anschreiben/Lebenslauf und innerhalb der Pendelzeit-Grenze. Das ist die
        Entscheidungsgrundlage, ob sich eine Bewerbung lohnt.
+
+    Regel 3 bleibt bewusst streng: von 928 Einträgen liegen 658 im Status
+    ``research``/``neu`` ohne Unterlagen. Ohne die Freigabe aus Regel 2 würde
+    eine pauschale Lockerung die Tabelle mit 658 ungeprüften Funden füllen.
 
     ``limit`` kommt aus ``max_pendelzeit_min`` der Konfiguration; der Standard
     ist die Modulkonstante, damit Aufrufe ohne Konfiguration (Tests, Skripte)
@@ -217,7 +225,14 @@ def dashboard_applications(applications: list[dict],
     """
     result = []
     for app in applications:
-        if normalize_status(app.get("status")) in _PROGRESSED_STATUSES:
+        status = normalize_status(app.get("status"))
+        if status in _PROGRESSED_STATUSES:
+            result.append(app)
+            continue
+        # Freigegebene Research-Funde: der Pendelweg bleibt harte Grenze, die
+        # Unterlagen sind hier nicht nötig (es wird ja noch nicht beworben).
+        if (status == "research" and app.get("research_sichtbar")
+                and not _exceeds_dashboard_commute_limit(app, limit)):
             result.append(app)
             continue
         # ``research``/``docs``: nur mit vorhandenem Anschreiben/Lebenslauf und
@@ -230,6 +245,7 @@ def dashboard_applications(applications: list[dict],
             continue
         result.append(app)
     return result
+
 
 
 def _app_id(app: dict) -> str:

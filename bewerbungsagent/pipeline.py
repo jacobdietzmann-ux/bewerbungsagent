@@ -79,6 +79,26 @@ def _job_key(job: dict) -> str:
     return normalize(f"{job.get('firma', '')}|{job.get('titel', '')}")
 
 
+# Ortsnamen, die dieselbe Stadt meinen. Dieselbe Anzeige erscheint bei
+# verschiedenen Börsen übersetzt („Munich" vs. „München"), sonst greift die
+# Identitätsprüfung nicht.
+_ORT_ALIAS = {"munich": "münchen", "muenchen": "münchen", "munchen": "münchen"}
+
+
+def _identity(job: dict) -> tuple[str, str, str]:
+    """Identität einer Anzeige über die Börsen hinweg: Firma + Titel + Ort.
+
+    Die URL taugt dafür nicht: dieselbe Stelle hat bei JobLeads, Labo, XING und
+    der Firmenseite vier verschiedene URLs. Ohne diesen Schlüssel legte ein Lauf
+    eine zweite Bewerbung für eine Stelle an, auf die schon beworben wurde
+    (Advantest R&D Engineer: JobLeads ``sent`` + Labo ``docs``).
+    """
+    firma = normalize(job.get("firma") or "")
+    titel = normalize(job.get("titel") or "")
+    ort = normalize(job.get("ort") or "")
+    return (firma, titel, _ORT_ALIAS.get(ort, ort))
+
+
 def _store(config: Config) -> Store:
     """SQLite-Store für den Datenbestand (Single Source of Truth, ADR-018)."""
     return Store(config.db_path())
@@ -688,6 +708,11 @@ def _merge_state(existing: dict, matches: list[dict],
     result = []
     seen: set[str] = set()
     neu_zeitpunkte: list[str] = []
+    # Identitäten bereits vorhandener Einträge. Eine Anzeige, die unter anderer
+    # URL erneut gefunden wird, darf keine zweite Bewerbung erzeugen — sonst
+    # entstehen zwei Ordner und im schlimmsten Fall zwei Bewerbungen auf
+    # dieselbe Stelle.
+    vorhandene_identitaet = {_identity(a) for a in apps if a.get("key")}
     for m in matches:
         key = m["key"]
         if key in by_key:
@@ -701,6 +726,12 @@ def _merge_state(existing: dict, matches: list[dict],
             _flag_far_commute(old, limit)
             result.append(old)
         else:
+            ident = _identity(m)
+            if ident in vorhandene_identitaet:
+                # Dieselbe Stelle, andere Quelle: der bestehende Eintrag
+                # dokumentiert den Vorgang (Status, Unterlagen, Notizen) und
+                # bleibt unangetastet.
+                continue
             m.setdefault("status", "research")
             m.setdefault("dokumente", {})
             m.setdefault("created", now_iso())
@@ -708,6 +739,7 @@ def _merge_state(existing: dict, matches: list[dict],
             # Neue Stellen mit zu weitem Pendelweg gar nicht erst anlegen.
             _flag_far_commute(m, limit)
             result.append(m)
+            vorhandene_identitaet.add(ident)
         seen.add(key)
 
     # Bereits erfasste, aber aktuell nicht mehr gefundene Stellen behalten.

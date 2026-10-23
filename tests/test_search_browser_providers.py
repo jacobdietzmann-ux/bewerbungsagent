@@ -134,15 +134,47 @@ def test_indeed_liest_karten_ueber_data_jk():
 
 
 def test_indeed_plz_wird_aus_dem_ort_entfernt():
-    assert indeed._PLZ_RE.sub("", "80939 München").strip() == "München"
-    assert indeed._PLZ_RE.sub("", "München").strip() == "München"
+    assert indeed.normalize_location("80939 München") == "München"
+    assert indeed.normalize_location("München") == "München"
 
 
-def test_indeed_ort_mit_hybrid_hinweis():
-    """``Hybrides Arbeiten in 80634 München`` bleibt erkennbar als München."""
-    from bewerbungsagent.commute import is_near_munich
-    ort = indeed._PLZ_RE.sub("", "Hybrides Arbeiten in 80634 München").strip()
+@pytest.mark.parametrize("roh, erwartet", [
+    # Live beobachtet: Indeed schreibt den Beschäftigungsort vor die Stadt.
+    ("Hybrides Arbeiten in 80634 München", "München"),
+    ("Hybrides Arbeiten in 80687 München", "München"),
+    ("Hybrides Arbeiten in München", "München"),
+    ("80939 München", "München"),
+    ("Heppenheim (Bergstraße)\xa0+ 9 weitere", "Heppenheim (Bergstraße)"),
+    ("Garching bei München", "Garching bei München"),
+    ("", ""),
+])
+def test_indeed_ort_wird_bereinigt(roh, erwartet):
+    """Ohne Bereinigung bleibt der Pendelweg unbekannt (Geocoding scheitert)."""
+    assert indeed.normalize_location(roh) == erwartet
+
+
+@pytest.mark.parametrize("adresse", [
+    "Zeppelinstraße 18 82205 Gilching",
+    "Einsteinstraße 20 85521 Ottobrunn",
+    "Willy-Messerschmitt-Straße 1, 82024 Taufkirchen",
+    "Düsseldorf, Köln, Frankfurt, Essen, München, Hamburg, weitere Standorte in DE",
+])
+def test_indeed_laesst_strassenadressen_unveraendert(adresse):
+    """Regression: eine zu breite Regel machte aus der Adresse nur die Stadt.
+
+    Der Pendelweg soll ab der echten Firmenadresse gerechnet werden, nicht ab
+    dem Stadtmittelpunkt — die Stadt-Reduktion war ein Rückschritt hinter die
+    bereits eingeführte Firmenadress-Suche.
+    """
+    assert indeed.normalize_location(adresse) == adresse
+
+
+def test_indeed_ort_ist_nach_bereinigung_geokodierbar():
+    """Regression: ``Hybrides Arbeiten in 80687 München`` ergab pendel=None."""
+    from bewerbungsagent.commute import is_near_munich, resolve_office
+    ort = indeed.normalize_location("Hybrides Arbeiten in 80687 München")
     assert is_near_munich(ort)
+    assert resolve_office(ort), "Ort muss auflösbar sein, sonst kein Pendelweg"
 
 
 def test_indeed_job_setzt_quelle_und_volltext():

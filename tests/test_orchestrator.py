@@ -145,6 +145,37 @@ class TestKantenEntscheidungen:
         assert not hasattr(graph_mod, "MAX_KUERZUNG_VERSUCHE")
 
 
+class TestEnrichKnotenIstFunktional:
+    """Regression: ``knoten_enrich`` notierte nur den Schritt.
+
+    Der Graph lief ``match → enrich → generate``, rief aber ``run_enrich`` nie
+    auf. Damit fehlten im Tagesablauf die Ausblendung unter der Fit-Grenze, das
+    Research-Fenster und die Gehaltsschätzung — der Bestand wuchs ungefiltert.
+    """
+
+    def test_knoten_ruft_run_enrich_auf(self, graph_mod, monkeypatch):
+        aufgerufen = []
+        monkeypatch.setattr(
+            graph_mod, "run_enrich",
+            lambda config, profile: (aufgerufen.append(profile) or {"total": 1}))
+        out = graph_mod.knoten_enrich({"config": "C", "profile": "P", "weg": []})
+        assert aufgerufen == ["P"]
+        assert out["enrich"] == {"total": 1}
+        assert out["weg"] == ["enrich"]
+
+    def test_ergebnis_landet_im_ablauf_zustand(self, graph_mod, setup, monkeypatch):
+        config, profile = setup
+        monkeypatch.setattr("bewerbungsagent.pipeline.enrich_commute",
+                            lambda apps, data_dir, *a, **k: {"total": len(apps)})
+        monkeypatch.setattr("bewerbungsagent.pipeline.enrich_salary",
+                            lambda apps: {"kept": 0, "estimated": 0})
+        monkeypatch.setattr("bewerbungsagent.pipeline._generate_one",
+                            lambda *a, **k: [])
+        result = graph_mod.run_abo(config, profile, review=False)
+        assert "enrich" in result
+        assert "total" in result["enrich"]
+
+
 class TestKnotenSindFunktional:
     def test_weg_wird_fortgeschrieben_nicht_ersetzt(self, graph_mod):
         state = {"weg": ["suche"]}

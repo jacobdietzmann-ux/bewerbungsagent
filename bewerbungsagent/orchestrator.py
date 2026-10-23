@@ -29,6 +29,7 @@ from .config import Config
 from .matching import fit_value, is_student_role  # noqa: F401
 from .pipeline import (
     run_dashboard,
+    run_enrich,
     run_generate,
     run_match,
     run_search,
@@ -55,6 +56,7 @@ class Ablauf(TypedDict, total=False):
     # Ergebnisse je Stufe
     search: dict
     match: dict
+    enrich: dict
     generate: dict
     dashboard: dict
 
@@ -148,8 +150,19 @@ def knoten_match(state: Ablauf) -> Ablauf:
 
 
 def knoten_enrich(state: Ablauf) -> Ablauf:
-    """Pendelweg, Gehalt, Aufräumen, Auto-Unterlagen."""
-    return {"weg": _notiere(state, "enrich")}
+    """Pendelweg, Gehalt, Aufräumen (Fit-Filter, Research-Fenster) und Auto-Unterlagen.
+
+    Dieser Knoten war lange ein reiner Durchlauf mit Notiz: Der Graph lief
+    ``match → enrich → generate``, aber ``run_enrich`` wurde nie aufgerufen.
+    Damit fehlten im Tagesablauf genau die Schritte, die den Bestand
+    entscheidbar halten — die Ausblendung unter der Fit-Grenze, das
+    Research-Fenster und die Gehaltsschätzung. Der lineare Weg
+    (``agent.py pipeline`` → ``run_full``) ruft ``run_enrich`` ebenfalls nicht
+    auf; dort erzeugt ``run_generate`` die Unterlagen, hier tut es der Knoten
+    selbst und ``run_generate`` überspringt danach bereits dokumentierte Stellen.
+    """
+    result = run_enrich(state["config"], state["profile"])
+    return {"enrich": result, "weg": _notiere(state, "enrich")}
 
 
 def knoten_generate(state: Ablauf) -> Ablauf:

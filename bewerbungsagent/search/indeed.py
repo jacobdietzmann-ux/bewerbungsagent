@@ -33,9 +33,42 @@ _MIN_DESCRIPTION = 200
 _CONSENT_LABELS = ("Alle Cookies akzeptieren", "Accept all", "Akzeptieren",
                    "Alle akzeptieren")
 
-# „Hybrides Arbeiten in 80634 München" → „München" wäre falsch geraten; der Ort
-# bleibt wie angegeben, ``is_near_munich`` erkennt „München" darin.
+# Indeed liefert den Ort in verschiedenen Formen:
+#   "80939 München"                        → PLZ + Stadt
+#   "Hybrides Arbeiten in 80634 München"   → Beschäftigungsart + PLZ + Stadt
+#   "Heppenheim (Bergstraße) + 9 weitere"  → Stadt + Zusatz
+# Ohne Bereinigung scheitert das Geocoding und der Pendelweg bleibt unbekannt
+# (bei 30-Minuten-Grenze ein stilles Loch).
+#
+# Wichtig: Hier werden **nur** diese Indeed-Formen behandelt. Eine Straßenadresse
+# wie "Zeppelinstraße 18 82205 Gilching" darf NICHT auf "Gilching" reduziert
+# werden — der Pendelweg soll ab der echten Firmenadresse gerechnet werden, nicht
+# ab dem Stadtmittelpunkt.
 _PLZ_RE = re.compile(r"^\d{5}\s+")
+_PLZ_ORT_RE = re.compile(r"^\d{5}\s+(.+)$")
+_MOBIL_RE = re.compile(r"^(?:hybrides?\s+arbeiten|mobile[rs]?\s+arbeiten|"
+                       r"homeoffice|remote)\s+in\s+", re.I)
+_WEITERE_RE = re.compile(r"\s*\+\s*\d+\s*weitere?.*$", re.I)
+
+
+def normalize_location(text: str) -> str:
+    """Ort aus der Indeed-Schreibweise auf den Städtenamen reduzieren.
+
+    ``„Hybrides Arbeiten in 80687 München"`` → ``„München"``, damit der
+    Pendelweg berechnet werden kann. Formen, die keine dieser Muster tragen,
+    bleiben **unverändert** — geraten wird nicht.
+    """
+    ort = _WEITERE_RE.sub("", (text or "").replace("\xa0", " ")).strip()
+    if not ort:
+        return ""
+    ohne_mobil = _MOBIL_RE.sub("", ort).strip()
+    treffer = _PLZ_ORT_RE.match(ohne_mobil)
+    if treffer:
+        return treffer.group(1).strip()
+    if ohne_mobil != ort and ohne_mobil:
+        # „Hybrides Arbeiten in München" (ohne PLZ)
+        return ohne_mobil
+    return ort
 
 
 def search_url(term: str, location: str = "München") -> str:
@@ -113,7 +146,7 @@ def search(terms: str | list[str], location: str = "München", *,
                 gesammelt[url] = {
                     "titel": karte["titel"],
                     "firma": karte["firma"],
-                    "ort": _PLZ_RE.sub("", karte.get("ort") or "").strip() or location,
+                    "ort": normalize_location(karte.get("ort") or "") or location,
                     "url": url,
                 }
                 if with_description:

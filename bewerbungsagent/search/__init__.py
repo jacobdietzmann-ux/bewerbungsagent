@@ -93,7 +93,7 @@ def _existing_jobs(config: Config) -> list[dict]:
 # roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
 # von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
-                   "ATS", "Arbeitnow"}
+                   "ATS", "Arbeitnow", "JobLeads"}
 
 
 def run_search(config: Config, profile: Profile,
@@ -153,7 +153,8 @@ def run_search(config: Config, profile: Profile,
                 continue
             provider = {"duckduckgo": duckduckgo, "bing": bing,
                         "stepstone": stepstone, "jobspy": jobspy,
-                        "ats": ats, "arbeitnow": arbeitnow}.get(name)
+                        "ats": ats, "arbeitnow": arbeitnow,
+                        "jobleads": ats}.get(name)
             if provider is None:
                 errors.append(f"Unbekannter Provider: {name}")
                 continue
@@ -173,6 +174,36 @@ def run_search(config: Config, profile: Profile,
                 for job in jobs_found:
                     add(job)
                 errors.extend(ats_errors)
+            elif name == "jobleads":
+                # JobLeads ist ein Aggregator mit Such-URLs; anders als die
+                # ATS-Boards gibt es keine feste Karriereseite. Ein Eintrag ist
+                # entweder ein Suchbegriff (URL wird gebaut) oder ein Dict mit
+                # fertiger ``list_url`` (z. B. eine von Hand kuratierte Suche).
+                entries = s.get("jobleads_searches") or []
+                for entry in entries:
+                    extra: dict = {}
+                    if isinstance(entry, str):
+                        list_url = ats.jobleads_url(
+                            entry, s.get("location", "München"),
+                            min_salary=s.get("jobleads_min_salary", 0),
+                        )
+                    else:
+                        list_url = str(entry.get("list_url") or "").strip()
+                        extra = entry
+                    if not list_url:
+                        errors.append("jobleads: list_url fehlt")
+                        continue
+                    try:
+                        for job in ats.jobleads(
+                            list_url,
+                            user_agent=s.get("user_agent", "Mozilla/5.0"),
+                            only_near_munich=s.get("ats_only_near_munich", True),
+                            with_description=extra.get("with_description", True),
+                            max_jobs=extra.get("max_jobs", 100),
+                        ):
+                            add(job)
+                    except Exception as exc:
+                        errors.append(f"{name} ({list_url[:40]}...): {exc}")
             elif name == "arbeitnow":
                 try:
                     for job in provider.search(

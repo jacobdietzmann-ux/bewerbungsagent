@@ -75,6 +75,11 @@ def exceeds_commute_limit(app: dict, limit: int | None = None) -> bool:
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 
+# Mittelpunkt Münchens (Marienplatz). Nur für Umkreissuchen bei Jobbörsen, die
+# Koordinaten statt Ortsnamen erwarten — nicht die Wohnadresse.
+MUNICH_LAT = 48.1371079
+MUNICH_LON = 11.5753822
+
 # Ortsnamen, die zur Münchener Metropolregion zählen (dort wird ein realer
 # Arbeitsweg angenommen). Reihenfolge irrelevant, nur Zugehörigkeit zählt.
 # Wird beim Import normalisiert, damit Umlaute/„ue/oe"-Schreibungen robust matchen.

@@ -26,6 +26,8 @@
     ],
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,
+    "jobleads_searches": [],
+    "jobleads_min_salary": 0,
     "location": "München",
     "query_terms": [
       "Testingenieur",

@@ -58,6 +58,16 @@ DEFAULT_CONFIG: dict = {
         "ats_only_near_munich": True,
         # Arbeitnow liefert 300 Stellen pro Seite ohne serverseitigen Filter.
         "arbeitnow_pages": 3,
+        # JobLeads liefert die Trefferliste samt Volltext (JSON-LD) ohne Login.
+        # Einträge sind Suchbegriffe (URL wird gebaut) oder Dicts mit fertiger
+        # ``list_url``, z. B.:
+        #   [{"list_url": "https://www.jobleads.com/de/jobs/...", "max_jobs": 50}]
+        # Der Provider ist standardmäßig nicht aktiv, weil jede Suche eine
+        # eigene Seite abfragt — die Treffer überlappen mit StepStone/JobSpy.
+        "jobleads_searches": [],
+        # JobLeads wendet ``minSalary`` nur auf das Ranking an, nicht als harte
+        # Grenze (60.000–80.000 kam trotz minSalary=80000 durch). Bleibt aus.
+        "jobleads_min_salary": 0,
     },
     # Stellen mit längerem Pendelweg (Auto, ab Wohnadresse) werden gar nicht erst
     # angelegt: keine Unterlagen, keine Anzeige im Dashboard. Unbekannte

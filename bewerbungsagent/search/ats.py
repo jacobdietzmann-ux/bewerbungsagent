@@ -18,8 +18,9 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import re
+import time
 from html import unescape as html_unescape
-from urllib.parse import urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 
@@ -32,6 +33,13 @@ from .base import clean_html
 _MIN_DESCRIPTION = 200
 
 _TIMEOUT = 25
+
+# JobLeads drosselt Bursts über Cloudflare mit HTTP 429 (Sekunden, kein
+# Tageslimit): 177 Detailseiten mit 6 Threads liefen in eine Sperre, 80 kamen
+# durch. Deshalb weniger Parallelität plus Backoff statt vieler Threads.
+_JOBLEADS_WORKERS = 3
+_JOBLEADS_RETRIES = 4
+_JOBLEADS_BACKOFF = 1.5
 
 
 def _ua(user_agent: str | None) -> dict[str, str]:
@@ -437,6 +445,225 @@ def typo3_jobboard(list_url: str, firma: str, *,
 
 
 # --------------------------------------------------------------------------
+# JobLeads (aggregiert Stellen, serverseitig gerendert)
+# --------------------------------------------------------------------------
+
+# Der Kartencontainer trägt je nach Auslieferung ein Vue-Scope-Attribut vor
+# ``class`` („<div data-v-cb046f9e="" class="search-job-card …">"), wie es die
+# gespeicherte SPA-DOM (MHTML) enthält. Deshalb nicht auf die Position von
+# ``class`` verlassen, sondern auf das exakte ``data-testid``. Fallback bleibt
+# der Klassenname, falls eine Auslieferung das Testid wegkürzt.
+_JOLEADS_CARD_RE = re.compile(
+    r'<div class="search-job-card.*?(?=<div class="search-job-card|$)',
+    re.DOTALL,
+)
+_JOLEADS_CARD_MARKER = 'data-testid="search-job-card"'
+_JOLEADS_CARD_CLASS_RE = re.compile(
+    r'<div[^>]*class="[^"]*search-job-card(?=[\s"])', re.IGNORECASE)
+_JOBLEADS_LINK_RE = re.compile(
+    r'data-testid="search-job-card-link"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+    re.DOTALL,
+)
+_JOBLEADS_COMPANY_RE = re.compile(
+    r'data-testid="search-job-card-company-name"[^>]*>(.*?)<', re.DOTALL)
+_JOBLEADS_SALARY_RE = re.compile(
+    r'data-testid="job-card-chip-salary"[^>]*>(.*?)</', re.DOTALL)
+_JOBLEADS_DATE_RE = re.compile(
+    r'data-testid="job-card-date"[^>]*>(.*?)</', re.DOTALL)
+# Das JSON-LD trägt ein ``nonce``-Attribut vor ``type``, deshalb nicht auf die
+# genaue Attributreihenfolge verlassen.
+_JOBLEADS_LD_RE = re.compile(
+    r'<script[^>]*type="application/ld\+json"[^>]*id="jobPostingLdjson"[^>]*>'
+    r'(.*?)</script>',
+    re.DOTALL,
+)
+
+
+# JobLeads schreibt Orte im Slug ohne Umlaute („munchen"). Für das Dashboard
+# wird daraus wieder der lesbare Name — sonst steht bei jeder Münchener Stelle
+# „Munchen".
+_JOBLEADS_ORT_FIX = {
+    "munchen": "München",
+    "garching bei munchen": "Garching bei München",
+    "unterschleissheim": "Unterschleißheim",
+    "unterfohring": "Unterföhring",
+    "furstenfeldbruck": "Fürstenfeldbruck",
+    "grunwald": "Grünwald",
+    "grobenszell": "Gröbenzell",
+}
+
+
+def jobleads_url(query: str, location: str = "München",
+                 *, radius_km: int = 30, days: int = 7,
+                 min_salary: int = 0) -> str:
+    """Baut eine JobLeads-Such-URL aus Begriff + Ort.
+
+    JobLeads verlangt für den Ortsfilter Koordinaten; ohne sie greift nur der
+    Slug-Ort in der URL. Die Koordinaten kommen aus ``commute`` (dort liegt der
+    München-Mittelpunkt schon), damit sie nicht doppelt gepflegt werden.
+
+    ``min_salary`` wird von JobLeads **nicht** als harte Grenze angewendet —
+    bei ``minSalary=80000`` kamen weiterhin Anzeigen mit 60.000–80.000. Der
+    Parameter verschiebt nur das Ranking, deshalb ist er standardmäßig aus.
+    """
+    from ..commute import MUNICH_LAT, MUNICH_LON
+
+    params = {
+        "filter_by_contractType": "full_time",
+        "filter_by_daysReleased": str(days),
+        "location_coordinates_radius": str(radius_km * 1000),
+        "location_latitude": f"{MUNICH_LAT}",
+        "location_longitude": f"{MUNICH_LON}",
+        "location_radius": str(radius_km),
+    }
+    if min_salary:
+        params["minSalary"] = str(min_salary)
+    slug = quote(location, safe="") if location else ""
+    q = quote(query, safe="")
+    return f"https://www.jobleads.com/de/jobs/l/{slug}/q/{q}?{urlencode(params)}"
+
+
+def _jobleads_cards(html: str) -> list[str]:
+    """Zerlegt eine JobLeads-Ergebnisseite in Kartenblöcke.
+
+    Geschnitten wird am ``data-testid="search-job-card"`` des Containers; der
+    Block beginnt beim davorstehenden ``<div``. Damit ist die Reihenfolge der
+    Attribute egal — die Live-Seite liefert ``class`` zuerst, die gespeicherte
+    SPA-DOM schiebt ``data-v-*`` davor.
+    """
+    marks = [m.start() for m in re.finditer(
+        re.escape(_JOLEADS_CARD_MARKER), html)]
+    if not marks:
+        return _JOLEADS_CARD_RE.findall(html)
+    starts = []
+    for mark in marks:
+        start = html.rfind("<div", 0, mark)
+        starts.append(start if start >= 0 else mark)
+    cards = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(html)
+        if end > start:
+            cards.append(html[start:end])
+    return cards
+
+
+def _jobleads_location(url: str) -> str:
+    """Ort aus dem Slug: ``/de/job/titel--gilching--hash`` → ``Gilching``."""
+    path = urlparse(url).path.rstrip("/")
+    parts = path.split("--")
+    if len(parts) < 2:
+        return ""
+    raw = parts[-2].replace("-", " ").strip()
+    if not raw:
+        return ""
+    readable = raw.title()
+    return _JOBLEADS_ORT_FIX.get(readable.lower(), readable)
+
+
+def _jobleads_description(url: str, user_agent: str | None) -> str:
+    """Volltext aus dem ``JobPosting``-JSON-LD der Detailseite.
+
+    Bei HTTP 429 wird mit wachsendem Abstand erneut versucht — Cloudflare
+    drosselt nur kurzfristig, ein einzelner Fehlversuch würde den Volltext
+    sonst stillschweigend verlieren und die Stelle zu schwach bewerten.
+    """
+    for versuch in range(_JOBLEADS_RETRIES):
+        try:
+            r = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
+            if r.status_code == 429:
+                time.sleep(_JOBLEADS_BACKOFF * (2 ** versuch))
+                continue
+            r.raise_for_status()
+        except requests.RequestException:
+            return ""
+        match = _JOBLEADS_LD_RE.search(r.text)
+        if not match:
+            return ""
+        try:
+            data = json.loads(match.group(1))
+        except ValueError:
+            return ""
+        return _texts(data.get("description") or "")
+    return ""
+
+
+def jobleads(list_url: str, firma: str = "JobLeads", *,
+             user_agent: str | None = None,
+             only_near_munich: bool = True,
+             with_description: bool = True,
+             max_jobs: int = 100) -> list[dict]:
+    """JobLeads-Suchergebnisseite (serverseitig gerendert, ohne Login).
+
+    Die Trefferliste steht vollständig im HTML: jede Stelle ist eine
+    ``div.search-job-card`` mit ``data-testid``-Markern für Titel, Firma,
+    Gehalt und Datum; der Ort steckt im Slug der Anzeigen-URL. Die Detailseite
+    liefert den Volltext als ``JobPosting``-JSON-LD — ebenfalls ohne Login.
+
+    Anders als bei den ATS-Quellen ist die Firma hier **der Arbeitgeber aus der
+    Anzeige**, nicht JobLeads selbst: sonst landen alle Treffer unter einem
+    Namen und der Firmenfilter im Dashboard wird unbrauchbar.
+    """
+    r = requests.get(list_url, headers=_ua(user_agent), timeout=_TIMEOUT)
+    r.raise_for_status()
+
+    entries = []
+    seen: set[str] = set()
+    for card in _jobleads_cards(r.text):
+        link = _JOBLEADS_LINK_RE.search(card)
+        if not link:
+            continue
+        href = link.group(1).strip()
+        title = clean_html(link.group(2))
+        if not href or not title:
+            continue
+        url = href if href.startswith("http") else f"https://www.jobleads.com{href}"
+        if url in seen:
+            continue
+        company = _JOBLEADS_COMPANY_RE.search(card)
+        salary = _JOBLEADS_SALARY_RE.search(card)
+        firma = clean_html(company.group(1)) if company else ""
+        # Mancherorts steht die Firma zusätzlich im Linktext
+        # („tracetronic GmbH: Key Account Manager …") — sonst erscheint sie im
+        # Dashboard doppelt.
+        if firma and title.lower().startswith(firma.lower() + ":"):
+            title = title[len(firma) + 1:].strip()
+        entries.append({
+            "titel": title,
+            "firma": firma,
+            "ort": _jobleads_location(url),
+            "url": url,
+            "gehalt": clean_html(salary.group(1)) if salary else "",
+        })
+        seen.add(url)
+
+    if only_near_munich:
+        entries = [e for e in entries if is_near_munich(e["ort"])]
+    entries = entries[:max_jobs]
+    if not entries:
+        return []
+
+    descriptions: list[str] = [""] * len(entries)
+    if with_description:
+        with concurrent.futures.ThreadPoolExecutor(
+                max_workers=_JOBLEADS_WORKERS) as pool:
+            descriptions = list(pool.map(
+                lambda e: _jobleads_description(e["url"], user_agent), entries))
+
+    jobs: list[dict] = []
+    for entry, desc in zip(entries, descriptions):
+        job = _job(firma=entry["firma"] or firma, titel=entry["titel"],
+                   ort=entry["ort"], url=entry["url"], beschreibung=desc)
+        # Eigene Quelle: JobLeads ist weder Portal-Suche noch Arbeitgeber-ATS,
+        # und nur so lässt sich im Dashboard nachvollziehen, woher die Stelle kam.
+        job["quelle"] = "JobLeads"
+        if entry["gehalt"]:
+            job["gehalt"] = entry["gehalt"]
+            job["gehalt_quelle"] = "Anzeige"
+        jobs.append(job)
+    return jobs
+
+
+# --------------------------------------------------------------------------
 # SAP SuccessFactors „Jobs2Web" (tile-search-results, HTML statt JSON)
 # --------------------------------------------------------------------------
 _TILE_RE = re.compile(
@@ -655,6 +882,22 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                     user_agent=user_agent,
                     only_near_munich=only_near_munich,
                     max_jobs=entry.get("max_jobs", 500),
+                )
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "jobleads":
+            list_url = str(entry.get("list_url") or "").strip()
+            if not list_url:
+                errors.append(f"ats (jobleads: list_url fehlt)")
+                continue
+            try:
+                found = jobleads(
+                    list_url, firma,
+                    user_agent=user_agent,
+                    only_near_munich=only_near_munich,
+                    with_description=entry.get("with_description", True),
+                    max_jobs=entry.get("max_jobs", 100),
                 )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")

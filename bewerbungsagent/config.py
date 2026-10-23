@@ -72,6 +72,15 @@ DEFAULT_CONFIG: dict = {
         # JobLeads wendet ``minSalary`` nur auf das Ranking an, nicht als harte
         # Grenze (60.000–80.000 kam trotz minSalary=80000 durch). Bleibt aus.
         "jobleads_min_salary": 0,
+        # XING und Indeed rendern nur im Browser (XING: 0 Anzeigen im HTML;
+        # Indeed: HTTP 403 für einfache Clients). Beide bekommen die ganze
+        # Begriffsliste in **einer** Browsersitzung, weil jeder Start ~1 s kostet.
+        # ``xing_terms``/``indeed_terms`` übersteuern ``query_terms`` bei Bedarf.
+        "xing_max_results": 25,
+        "indeed_max_results": 25,
+        # jobs.labo.de ist serverseitig gerendert, braucht aber je Begriff eine
+        # eigene Anfrage (keine begriffsübergreifende Suche).
+        "labo_max_jobs": 120,
     },
     # Stellen mit längerem Pendelweg (Auto, ab Wohnadresse) werden gar nicht erst
     # angelegt: keine Unterlagen, keine Anzeige im Dashboard. Unbekannte

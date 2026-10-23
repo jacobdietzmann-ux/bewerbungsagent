@@ -10,7 +10,11 @@
       "stepstone",
       "jobspy",
       "ats",
-      "arbeitnow"
+      "arbeitnow",
+      "jobleads",
+      "xing",
+      "indeed",
+      "labo"
     ],
     "jobspy_max_terms": 4,
     "ats_boards": [
@@ -29,6 +33,20 @@
     "arbeitnow_pages": 3,
     "jobleads_searches": [],
     "jobleads_min_salary": 0,
+    "jobleads_max_terms": 6,
+    "xing_terms": [
+      "Testingenieur", "Test Engineer", "Integrationsingenieur",
+      "Integration Engineer", "Systemtestingenieur", "System Test Engineer",
+      "Software Test Engineer", "HiL Test Engineer"
+    ],
+    "indeed_terms": [
+      "Testingenieur", "Test Engineer", "Integrationsingenieur",
+      "Integration Engineer", "Systemtestingenieur", "System Test Engineer",
+      "Software Test Engineer", "HiL Test Engineer"
+    ],
+    "xing_max_results": 25,
+    "indeed_max_results": 25,
+    "labo_max_jobs": 120,
     "location": "München",
     "query_terms": [
       "Testingenieur",

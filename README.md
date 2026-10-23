@@ -351,6 +351,31 @@ Die freie Websuche ist bewusst **pluggable**:
 - **Arbeitnow** ist eine kostenlose Job-Board-API ohne Schlüssel (`search.arbeitnow_pages`,
   Standard 3). Sie liefert 300 Stellen pro Seite **ohne serverseitigen Filter** — der Ort wird
   lokal gefiltert, und es kommt nur eine Kurzfassung mit, der Volltext muss per `fetch` nach.
+- **XING** (`xing`) und **Indeed** (`indeed`) rendern ihre Treffer nur im Browser und werden
+  deshalb mit Headless-Chromium gelesen (`search/browser.py`). Beide bekommen die ganze
+  Begriffsliste in **einer** Sitzung, weil jeder Browserstart ~1 s kostet; über
+  `search.xing_terms` / `search.indeed_terms` lässt sich die Liste eingrenzen.
+  - **XING** antwortet per HTTP 200, aber das HTML enthält **keine** Anzeige (reine
+    JS-Hülle): kein RSS, keine offene JSON-API, GraphQL-Introspection in Produktion gesperrt.
+    Firma und Ort werden **relativ zum Titel** aus dem Kartentext gelesen — davor steht
+    optional ein Badge („Urgently hiring"), eine Suche nach „erste Zeile in Title-Case"
+    machte daraus „Dringend gesucht" als Ort. Der Volltext steht in
+    `[data-testid="expandable-content"]` und ist sofort vollständig („Show more" ändert nur
+    die Anzeige). Paginierung über „Show more", 20 Treffer je Klick.
+  - **Indeed** beantwortet einfache HTTP-Anfragen mit Cloudflare-HTTP 403 — auch die alte
+    RSS-Schnittstelle und `python-jobspy`. Im Browser lädt die Liste; der Consent-Hinweis muss
+    weggeklickt werden. Die Trefferliste enthält **keinen** Anzeigentext, und direkte
+    `/viewjob?jk=…`-Aufrufe enden nach wenigen Anfragen in „Sign In" oder im Cloudflare-Check
+    (im Test 0 von 3). Der Text wird deshalb über den **Klick auf den Titel** geholt: das
+    öffnet die Master-Detail-Ansicht (`…&vjk=<jk>`), die auf der Trefferliste bleibt — im
+    Test 3 von 3 mit Volltext.
+- **jobs.labo.de** (`labo`) ist eine Fach-Jobbörse (Medizin/Labor/Technik) mit serverseitig
+  gerendertem HTML, kein Browser nötig. Suche über `/suchergebnis?jsjr=<Begriff>&jsjo=<Ort>`;
+  jede Anzeige ist ein `div.jwtpl-hili-item`. Drei Eigenheiten: Bei `itemCompany` stehen
+  `data-*`-Attribute **vor** `class` (ein Regex auf `class` direkt nach dem Tag-Namen findet
+  die Firma nicht), Titel enthalten weiche Trennzeichen (`&shy;`), und die Detailseite hat
+  **kein** JSON-LD — der Text steht in `div.jwtpl-jobaded-dataTextField`-Blöcken. Die
+  Folge-Seite muss über die Knopf-URL geladen werden (sie enthält eine Sitzungs-ID).
 - **JobLeads** (`jobleads`) liefert die Trefferliste serverseitig gerendert, ohne Login: jede
   Stelle ist eine `div.search-job-card` mit `data-testid`-Markern für Titel, Firma, Gehalt und
   Datum, der Ort steckt im Slug der Anzeigen-URL (`…--munchen--hash`). Die Detailseite enthält
@@ -479,8 +504,13 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 
 - `profile_json` – Pfad zur Profil-Datenbank (Standard: die bestehende Datei).
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
-  (verfügbar: `manual`, `stepstone`, `jobspy`, `ats`, `arbeitnow`, `jobleads`, `duckduckgo`,
-  `bing`).
+  (verfügbar: `manual`, `stepstone`, `jobspy`, `ats`, `arbeitnow`, `jobleads`, `xing`,
+  `indeed`, `labo`, `duckduckgo`, `bing`).
+- `search.xing_terms` / `search.indeed_terms` – eigene Begriffslisten für die beiden
+  Browser-Provider (Standard: `search.query_terms`). Sinnvoll, weil jeder Begriff dort einen
+  Seitenaufruf plus bis zu 25 Detailseiten kostet.
+- `search.xing_max_results` / `search.indeed_max_results` – Obergrenze je Lauf (Standard 25).
+- `search.labo_max_jobs` – Obergrenze für jobs.labo.de (Standard 120).
 - `search.ats_boards` – Karriereseiten für die ATS-Abfrage. Greenhouse/Lever/Ashby nutzen
   `board`, Workday `tenant`+`site`, Eightfold `host`+`domain`, SuccessFactors „Jobs2Web" nur
   `host`, SmartRecruiters `company`, Oracle Cloud `host`+`site`, TYPO3 `list_url`. Für

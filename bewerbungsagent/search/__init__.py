@@ -8,7 +8,8 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
-from . import arbeitnow, ats, bing, duckduckgo, jobspy, manual, stepstone
+from . import (arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual,
+               stepstone, xing)
 
 
 def _clean_url(url: str) -> str:
@@ -93,7 +94,33 @@ def _existing_jobs(config: Config) -> list[dict]:
 # roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
 # von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
-                   "ATS", "Arbeitnow", "JobLeads"}
+                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo"}
+
+# Provider, die einen echten Browser brauchen. Sie liegen in eigenen Modulen und
+# erwarten eine **Liste** von Begriffen statt einem einzelnen.
+_BROWSER_PROVIDERS = {"xing", "indeed"}
+
+
+def _terms_for_provider(s: dict, name: str) -> list[str]:
+    """Suchbegriffe für Provider ohne begriffsübergreifende Suche.
+
+    ``search.query_terms`` ist die gemeinsame Liste; ``search.<name>_terms``
+    kann sie für einen Provider übersteuern (z. B. wenn ein Portal mit einem
+    Begriff nichts findet). Doppelte werden entfernt, die Reihenfolge bleibt.
+    """
+    roh = s.get(f"{name}_terms")
+    if roh is None:
+        roh = s.get("query_terms") or []
+    gesehen: set[str] = set()
+    begriffe: list[str] = []
+    for term in roh:
+        text = str(term or "").strip()
+        key = text.lower()
+        if not text or key in gesehen:
+            continue
+        gesehen.add(key)
+        begriffe.append(text)
+    return begriffe
 
 
 def run_search(config: Config, profile: Profile,
@@ -154,12 +181,51 @@ def run_search(config: Config, profile: Profile,
             provider = {"duckduckgo": duckduckgo, "bing": bing,
                         "stepstone": stepstone, "jobspy": jobspy,
                         "ats": ats, "arbeitnow": arbeitnow,
-                        "jobleads": ats}.get(name)
+                        "jobleads": ats, "xing": xing, "indeed": indeed,
+                        "labo": labo}.get(name)
             if provider is None:
                 errors.append(f"Unbekannter Provider: {name}")
                 continue
 
-            if name == "ats":
+            if name in _BROWSER_PROVIDERS:
+                # XING und Indeed rendern nur im Browser und blocken einfache
+                # HTTP-Clients (XING: 0 Anzeigen im HTML; Indeed: HTTP 403).
+                # Beide bekommen die ganze Begriffsliste, damit **ein**
+                # Browserstart für alle Begriffe reicht.
+                if not provider.available():
+                    errors.append(f"{name}: Playwright/Chromium fehlt")
+                    continue
+                terms = _terms_for_provider(s, name)
+                if not terms:
+                    continue
+                try:
+                    for job in provider.search(
+                        terms,
+                        location=s.get("location", "München"),
+                        max_results=s.get(f"{name}_max_results",
+                                          s.get("max_results_per_provider", 25)),
+                        with_description=s.get(f"{name}_with_description", True),
+                    ):
+                        add(job)
+                except Exception as exc:
+                    errors.append(f"{name}: {exc}")
+            elif name == "labo":
+                # jobs.labo.de ist serverseitig gerendert (kein Browser nötig),
+                # hat aber wie die Browser-Portale keine begriffsübergreifende
+                # Suche: jeder Begriff ist eine eigene Anfrage.
+                terms = _terms_for_provider(s, name)
+                try:
+                    for job in provider.search(
+                        terms,
+                        location=s.get("location", "München"),
+                        user_agent=s.get("user_agent", "Mozilla/5.0"),
+                        with_description=s.get("labo_with_description", True),
+                        max_jobs=s.get("labo_max_jobs", 120),
+                    ):
+                        add(job)
+                except Exception as exc:
+                    errors.append(f"{name}: {exc}")
+            elif name == "ats":
                 # Karriereseiten der Zielunternehmen. Die Board-Liste steht in
                 # ``search.ats_boards``; fehlt sie, wird sie aus den vorhandenen
                 # Anzeigen abgeleitet — dann braucht keine Firma Pflege.

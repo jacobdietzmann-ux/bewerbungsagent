@@ -99,10 +99,19 @@ mit aufgeräumten PDF-Ordnern (nur Hinweis).
 1. **Provider-Gesundheit:** Erfolgs-/403-/Rate-Limit-Statistik pro Quelle in
    SQLite; Auto-Deaktivierung nach N Fehlläufen in Folge, manuelle
    Reaktivierung. Priorität ATS > StepStone > Arbeitnow > Rest.
-2. **Suchprofile erweitern** (Config): Testingenieur/System Test,
-   Testmanager, Test & Verification, E/E-Integration, ADAS, HiL/SiL,
-   Teilprojektleiter Funktionsintegration. Danach ein Lauf mit Messung von
-   Noise/Coverage — nicht alle Profile gleichzeitig scharf schalten.
+   *Snapshot 25.10.2026:* ATS-Boards fehlerfrei (9 Firmen, 2.772 Treffer,
+   202 im Umkreis), StepStone 109, Arbeitnow 85, JobLeads 66, XING 19,
+   Indeed 13; JobSpy/Google/Indeed weiter 403 bzw. „no job data“ (erwartet,
+   trägt den Lauf nicht). 2 Pendelwege nicht ermittelbar.
+2. **Suchprofile** ✅ gemessen (25.10.2026): Ausgangslage 23 Begriffe, ergänzt
+   um Testmanager, Testleiter, Software-in-the-Loop, Hardware-in-the-Loop;
+   „Teilprojektleiter Funktionsintegration“ nach der Messung wieder entfernt.
+   Lauf: 677 Funde (vorher 659), **27 neue Einträge** — 25 unter 50 % Fit,
+   2 bei 62 % (Orizon „Softwareentwickler Testsysteme“, DEKRA
+   „Softwaretestingenieur“), **0 über 65 %**. Der lange Begriff zog
+   StepStone-Rauschen (SAP- und Bau-Projektleiter); die kurzen bleiben.
+   Lehre: mehr Begriffe ≠ mehr passende Stellen — der Hebel ist der
+   Anzeigentext (Beschreibungen nachladen), nicht die Begriffsliste.
 3. **Company-Node** nach `match`, vor `generate`: Unternehmen, Abteilung,
    Projekte nur für die Top-Kandidaten nachladen (Kostenbegrenzung).
 

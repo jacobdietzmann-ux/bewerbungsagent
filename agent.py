@@ -34,6 +34,7 @@ from bewerbungsagent.pipeline import (
     run_search,
 )
 from bewerbungsagent.quality import run_quality
+from bewerbungsagent.followup import run_followup
 from bewerbungsagent.saved_searches import (
     find_saved_search,
     load_saved_searches,
@@ -85,6 +86,11 @@ def main(argv=None) -> int:
     sub.add_parser("import-old", help="Inhalt des alten Dashboards übernehmen")
     sub.add_parser("enrich", help="Pendelweg + Gehalt + Bereinigung (FIT-Filter) + Auto-Bewerbung")
     sub.add_parser("quality", help="Erzeugte Unterlagen unabhängig prüfen (Fakten, Pflichtteile, PDF)")
+    fo = sub.add_parser("followup", help="Fällige Nachfassen anzeigen (optional Texte schreiben)")
+    fo.add_argument("--days", type=int, default=None,
+                    help="Wartezeit in Tagen (Standard: aus config.json, sonst 14)")
+    fo.add_argument("--write", action="store_true",
+                    help="Follow-up-Text in den jeweiligen Bewerbungsordner schreiben")
     cln = sub.add_parser("cleanup", help="Alte Bewerbungsordner aufräumen")
     cln.add_argument("--dry-run", action="store_true", help="nur anzeigen, nichts verschieben")
     cln.add_argument("--days", type=int, default=60, help="Altersgrenze in Tagen (Standard 60)")
@@ -253,6 +259,17 @@ def main(argv=None) -> int:
             print(f"  - {d['firma']} — {d['titel']}")
             for b in d["befunde"]:
                 print(f"      {b}")
+
+    elif args.command == "followup":
+        result = run_followup(config, profile, after_days=args.days, write=args.write)
+        print(f"Nachfassen fällig (nach {result['after_days']} Tagen): "
+              f"{len(result['due'])} Bewerbung(en).")
+        for d in result["due"]:
+            print(f"  - {d['firma']} — {d['titel']} ({d['tage']} Tage)")
+        if result["written"]:
+            print(f"Texte geschrieben: {len(result['written'])}")
+            for p in result["written"]:
+                print(f"  {p}")
 
     elif args.command == "cleanup":
         result = run_cleanup(config, dry_run=args.dry_run, max_age_days=args.days)

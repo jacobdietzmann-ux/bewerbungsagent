@@ -916,3 +916,34 @@ Zeitraum, fehlende Anrede/Grußformel, Arbeitgeber außerhalb des Profils,
 Arbeitgeber im Bullet/Stellentitel, Lücke ohne Transparenz, Anforderungs-
 Hinweis, PDF-Prüfungen (fehlt, kein PDF, zu viele Seiten), Zusammenfassung
 fürs Dashboard.
+
+## ADR-033 – Nachfassen als eigene Stufe, ohne Automatik
+
+Der Bestand zeigt die Lücke: 120 versendete Bewerbungen, 8 Interviews, und
+bis zuletzt keine Erinnerung an offene Fälle. Die Pipeline endete mit dem
+Versand — der Teil, der über Antwortquoten entscheidet, fehlte.
+
+**Entscheidung.**
+
+1. `followup.py` bestimmt deterministisch fällige Bewerbungen: `sent` mit
+   `sentAt` ≥ `followup.after_days` (Standard 14) oder `followup` mit
+   `statusChangedAt` ≥ N Tagen (zweite Nachfrage). `interviewDate` schließt
+   aus (es gab eine Reaktion), fehlende Daten führen zu keiner Fälligkeit.
+2. Das Dashboard zeigt die Fälligkeit in der Status-Spalte, einen Filter und
+   eine KPI-Karte. `agent.py followup [--days] [--write]` listet die Fälle;
+   `--write` legt einen Text neben die Unterlagen (`Follow-up_de.txt`).
+3. **Kein automatischer Versand, kein Statuswechsel.** Ob eine Nachfrage
+   rausgeht, entscheidet der Nutzer; der Statuswechsel auf `followup` ist die
+   Bestätigung, dass sie rausging — und startet die Frist für die zweite.
+
+**Warum Textdatei statt PDF:** Eine Nachfrage ist eine E-Mail, kein Anhang.
+Der Text wird in den Ordner gelegt, damit er neben dem Anschreiben liegt und
+kopiert werden kann; ein PDF würde eine formelle Bewerbung suggerieren.
+
+**Grenzen.** Die Frist ist eine Konvention (14 Tage), keine Norm — sie ist
+per `followup.after_days` änderbar. Bewerbungen ohne `sentAt` werden nicht
+geschätzt; sie erscheinen erst, wenn der Versand im Dashboard erfasst ist.
+
+**Testabdeckung.** `test_followup.py`: Fristen (14/13 Tage), zweite
+Nachfrage, Interview-Ausschluss, Löschung, Sortierung, DE/EN-Text,
+Schreiben neben die Unterlagen, Dashboard-Flag und Filter.

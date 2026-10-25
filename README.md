@@ -171,6 +171,8 @@ python agent.py match           # Präzises Fit-Scoring gegen das Skill-Profil
 python agent.py generate --all  # Dokumente für alle passenden Stellen
 python agent.py generate --ids 1,2,3   # nur bestimmte Stellen
 python agent.py quality         # erzeugte Unterlagen prüfen (Fakten, Pflichtteile, PDF)
+python agent.py followup        # fällige Nachfassen anzeigen
+python agent.py followup --write  # Follow-up-Texte in die Bewerbungsordner legen
 python agent.py dashboard       # HTML-Dashboard (neu) erzeugen
 python agent.py status          # aktuelle Stellen anzeigen
 

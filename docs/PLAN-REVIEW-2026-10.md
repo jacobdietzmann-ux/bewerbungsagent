@@ -113,8 +113,9 @@ mit aufgeräumten PDF-Ordnern (nur Hinweis).
    abgebrochenes `generate`, unterbrochener Tageslauf.
 2. **Doku vereinheitlichen:** Diagramm in `ARCHITECTURE.md` auf SQLite-first,
    Matching-Gewichte ins README, ADR für die neuen Dimensionen.
-3. **Career-Agent zuletzt:** Follow-up- und Interview-Vorlagen als Templates,
-   nicht als Automatisierung.
+3. **Career:** ✅ Nachfassen umgesetzt (`followup.py`, Dashboard-Filter +
+   KPI, `agent.py followup --write`). ⏳ Offen: Interview-Vorbereitung
+   (Briefing-Vorlage, Fragenkatalog) — als Templates, nicht als Automatisierung.
 
 ## Nicht-Ziele
 

@@ -34,6 +34,7 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | `commute.py` | Pendelweg (Nominatim + OSRM), mit Cache; Obergrenze `max_pendelzeit_min` | ⚠️ Netzwerk |
 | `documents.py` | Anschreiben + Lebenslauf als PDF (ReportLab-Vorlagen oder eigene DOCX-Vorlage) | ✅ deterministisch |
 | `quality.py` | Prüft erzeugte Unterlagen gegen Profil, Anzeige und Datei (P0b) | ✅ deterministisch |
+| `followup.py` | Fällige Nachfassen erkennen und Texte erzeugen | ✅ deterministisch |
 | `dashboard.py` | HTML-Dashboard rendern (Template + Daten) | ✅ deterministisch |
 | `scripts/build_agent_map.py` | Agenten-Map erzeugen (Ablauf- + Geografie-Karte) | ✅ deterministisch |
 | `pipeline.py` | Orchestrierung der Stufen, State-Merge | teils |
@@ -254,6 +255,23 @@ Knoten `qualitaet` im Ablauf-Graph (nach `generate`, vor `review`) und per
 Dokumente — er schreibt nur Befunde in die Datenbank. Fehlende PDFs bei
 versendeten/abgeschlossenen Bewerbungen sind ein *Hinweis* (Ordner wurde
 aufgeräumt), bei offenen Bewerbungen ein *Fehler*.
+
+## Nachfassen (`followup.py`)
+
+Eine versendete Bewerbung ohne Reaktion ist kein Ergebnis. `followup.py`
+beantwortet deterministisch, welche Bewerbung eine Nachfrage verdient:
+
+- **Fällig:** Status `sent` mit `sentAt` ≥ `followup.after_days` Tagen
+  (Standard 14) oder Status `followup` mit `statusChangedAt` ≥ N Tagen
+  (zweite Nachfrage).
+- **Nicht fällig:** mit `interviewDate` (es gab eine Reaktion), gelöschte
+  Einträge, nie versendete. Fehlt das Datum, wird nichts geraten.
+
+Das Dashboard zeigt „⏰ Nachfassen fällig (N T.)“ in der Status-Spalte, einen
+Filter „Nur Nachfassen fällig“ und eine KPI-Karte. `python agent.py followup
+[--days N] [--write]` listet die Fälle; `--write` legt `Follow-up_de.txt`
+(oder `_en.txt`) in den Bewerbungsordner. Versendet wird nichts automatisch —
+der Statuswechsel auf `followup` bleibt eine Entscheidung im Dashboard.
 
 ## Evaluation (`eval/`)
 

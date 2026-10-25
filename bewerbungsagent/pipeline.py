@@ -16,6 +16,7 @@ from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard, dashboard_applications, documented_applications
 from .db import USER_DELETE_REASON, Store
 from .dimensions import score_dimensions
+from .followup import DEFAULT_AFTER_DAYS
 from .documents import (
     DEFAULT_CV_TEMPLATE,
     generate_anschreiben,
@@ -614,6 +615,11 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     # 6) Unterlagen im Mittelband zurücknehmen: ein 55-%-Treffer bekommt keine
     #    Bewerbung. Die Dateien bleiben liegen (nichts wird gelöscht), nur der
     #    Status wird ehrlich — ``docs`` heißt „hier liegt eine Bewerbung".
+    #
+    #    Ausnahme: ``unterlagen_gewuenscht``. Wer für eine Research-Stelle
+    #    ausdrücklich Unterlagen anfordert, will sie behalten — ohne diese Sperre
+    #    setzte der nächste Lauf den Status still auf ``research`` zurück und die
+    #    Anforderung wäre nach einem Tag wieder aufgehoben.
     schwellenwert = _fit_fuer_unterlagen(config)
     zurueckgenommen = []
     for a in apps:
@@ -621,6 +627,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             continue
         if a.get("sentAt") or a.get("interviewDate"):
             continue                     # echte Aktivität, nicht anfassen
+        if a.get("unterlagen_gewuenscht"):
+            continue                     # ausdrücklicher Wunsch, bleibt stehen
         if _fit_value(a) >= schwellenwert:
             continue
         a["status"] = "research"
@@ -703,7 +711,9 @@ def run_import_old(config: Config) -> dict:
 def run_dashboard(config: Config) -> dict:
     state = _store(config).load_state()
     path = build_dashboard(state, config.dashboard_path, _commute_limit_minutes(config),
-                           letzter_fund_meta(config))
+                           letzter_fund_meta(config),
+                           followup_days=int((config.data.get("followup") or {}).get("after_days")
+                                             or DEFAULT_AFTER_DAYS))
     all_applications = state.get("applications", [])
     documented = documented_applications(all_applications)
     applications = dashboard_applications(all_applications, _commute_limit_minutes(config))

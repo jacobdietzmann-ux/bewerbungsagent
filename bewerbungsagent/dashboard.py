@@ -34,6 +34,7 @@ from pathlib import Path
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
+from .followup import DEFAULT_AFTER_DAYS, days_waiting, is_due
 from .matching import fit_value
 from .statuses import ORDER, STATUS, normalize_status
 from .storage import now_iso
@@ -353,7 +354,8 @@ def _quality_summary(quality: dict | None) -> dict | None:
     }
 
 
-def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
+def _to_data(app: dict, letzter_fund: dict | None = None,
+             followup_days: int = DEFAULT_AFTER_DAYS) -> dict:
     fit = fit_value(app)
 
     docs = []
@@ -393,6 +395,8 @@ def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
         "fit": fit,
         "dim": _dim_summary(app.get("dimensionen")),
         "quality": _quality_summary(app.get("qualitaet")),
+        "followupDue": is_due(app, after_days=followup_days),
+        "followupDays": (days_waiting(app) or 0) if is_due(app, after_days=followup_days) else 0,
         "salary": app.get("gehalt", "") or "",
         "salarySource": app.get("gehalt_quelle", "") or "",
         "commute": app.get("pendelzeit_min"),
@@ -426,7 +430,8 @@ def _last_run_label(letzter_fund: dict | None) -> str:
 
 def build_dashboard(state: dict, output_path: Path,
                     commute_limit: int = MAX_COMMUTE_MINUTES,
-                    letzter_fund: dict | None = None) -> Path:
+                    letzter_fund: dict | None = None,
+                    followup_days: int = DEFAULT_AFTER_DAYS) -> Path:
     apps = state.get("applications", []) if isinstance(state, dict) else []
     # Der komplette Bestand wird eingebettet, damit der Wochenverlauf auch
     # frühere Bewerbungen ohne Dokumente zeigt: die Tabelle sowie die
@@ -435,7 +440,7 @@ def build_dashboard(state: dict, output_path: Path,
     # Historie ohne „Research"-Funde. Deshalb bekommt jede Zeile ein
     # ``visible``-Flag statt den Bestand vorab zu filtern.
     visible_keys = {_app_id(a) for a in dashboard_applications(apps, commute_limit)}
-    data = [_to_data(a, letzter_fund) for a in apps]
+    data = [_to_data(a, letzter_fund, followup_days=followup_days) for a in apps]
     for row in data:
         # Neu gefundene Stellen sind noch unbewertet und haben keine Unterlagen —
         # ohne diese Ausnahme wäre das „neu gefunden"-Label nie zu sehen. Sie
@@ -451,6 +456,7 @@ def build_dashboard(state: dict, output_path: Path,
                                                     ensure_ascii=False))
                 .replace("__LAST_FUND_ANZAHL__", str(int((letzter_fund or {}).get("anzahl") or 0)))
                 .replace("__COMMUTE_LIMIT__", str(int(commute_limit)))
+                .replace("__FOLLOWUP_DAYS__", str(int(followup_days)))
                 .replace("__GENERATED__", now_iso()))
 
     output_path.write_text(html_doc, encoding="utf-8")
@@ -605,6 +611,9 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
         <input type="checkbox" id="neuFilter" /> Nur neu gefundene
       </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
+        <input type="checkbox" id="followupFilter" /> Nur Nachfassen fällig
+      </label>
       <span id="neuInfo" class="sub" style="font-size:11px"></span>
     </div>
 
@@ -659,6 +668,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
       <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
       <strong>Prüfung:</strong> Qualitätsprüfung der erzeugten Unterlagen — <span style="color:#22c55e">✓ bestanden</span>, <span style="color:#fbbf24">⚠ nur Hinweise</span>, <span style="color:#fca5a5">✗ Fehler</span>. Der Tooltip nennt die Befunde (Behauptung ohne Profil-Beleg, falscher Zeitraum, fehlender Pflichtteil, PDF-Problem).<br>
+      <strong>Nachfassen:</strong> <span style="color:#f59e0b">⏰ Nachfassen fällig</span> erscheint bei versendeten Bewerbungen ohne Reaktion seit ≥ __FOLLOWUP_DAYS__ Tagen (Filter oben). Die Nachfrage-Texte erzeugt <code>python agent.py followup --write</code>; versendet wird nichts automatisch.<br>
       <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
       <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
       <strong>Aktion (🗑):</strong> Entfernt den Eintrag aus dem Dashboard (nach Bestätigung); rückgängig nur über „Auf Standard zurücksetzen".
@@ -972,6 +982,11 @@ function sentAtHint(r) {
   if (!ts) return "";
   return `<div class="hint">Versendet: ${formatISOToDE(r.sentAt)} (vor ${daysSince(ts)} Tagen)</div>`;
 }
+function followupBadge(r) {
+  // Fällig: versendet/followup, seit ≥ __FOLLOWUP_DAYS__ Tagen ohne Reaktion.
+  if (!r.followupDue) return "";
+  return `<div class="hint" style="color:#f59e0b;font-weight:600">⏰ Nachfassen fällig (${r.followupDays} T.)</div>`;
+}
 
 // Zentrale Aktualisierung aller Ansichten. Tabellen- und Statistik-Ansicht
 // dürfen nie auseinanderlaufen — jede Änderung (Status, Löschen, Datum) muss
@@ -1004,12 +1019,14 @@ function renderKpis() {
 
   const ivRows = rows.filter(r => r.status === "interview");
   const fitAvg = ivRows.length ? (ivRows.reduce((a,r)=>a+(+r.fit||0),0)/ivRows.length) : 0;
+  const dueCount = rows.filter(r => r.followupDue).length;
 
   const cards = [
     { label:"Versand-Quote", value:versandQuote+"%", target:"Ziel ≥ 90%", c:cls(versandQuote,90,60) },
     { label:"Interview-Quote", value:interviewQuote+"%", target:`${interviews} von ${decided} entschieden`, c:cls(interviewQuote,15,8) },
     { label:"Ø Profil-Fit (Interviews)", value:(fitAvg?Math.round(fitAvg):"–")+" <small>%</small>", target:"Ziel ≥ 70%", c:fitAvg>=80?"good":(fitAvg>=65?"warn":(fitAvg?"bad":"")) },
     { label:"Aktiv im Prozess", value:sentPlus+" <small>/ "+total+"</small>", target:"Versendet o. weiter", c:"" },
+    { label:"Nachfassen fällig", value:dueCount, target:`≥ __FOLLOWUP_DAYS__ Tage ohne Reaktion`, c:dueCount?"warn":"good" },
   ];
   document.getElementById("kpis").innerHTML = cards.map(k => `
     <div class="kpi">
@@ -1223,6 +1240,7 @@ function renderRows() {
     if (hiddenStatuses.has(r.status)) return;
     if (minFit && (+r.fit || 0) < minFit) return;
     if (document.getElementById("neuFilter")?.checked && !r.neuImLauf) return;
+    if (document.getElementById("followupFilter")?.checked && !r.followupDue) return;
     if (q) {
       const hay = `${r.company} ${r.position} ${r.branch} ${r.location}`.toLowerCase();
       if (!hay.includes(q)) return;
@@ -1255,6 +1273,7 @@ function renderRows() {
         <div style="margin-top:6px"><select autocomplete="off" data-i="${i}" data-k="status">${statusOpts}</select></div>
         ${statusAgeHint(r)}
         ${sentAtHint(r)}
+        ${followupBadge(r)}
         ${(r.status === "interview" || r.status === "followup") ? `<div style="margin-top:6px"><input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)" style="width:118px"></div>` : ""}
       </td>
       <td class="center">${fitBadge(r.fit)}${dimBadge(r.dim)}</td>

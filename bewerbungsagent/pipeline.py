@@ -55,15 +55,6 @@ def _fit_fuer_unterlagen(config: Config) -> int:
     name = config.data["documents"].get("min_fit_for_generation", "hoch")
     return FIT_RANK.get(name, FIT_BAND_UNTERLAGEN)
 
-# Dateinamen analog zu den bestehenden Bewerbungsordnern in 01_Bewerbungen/.
-_DOC_NAMES = {
-    "de": {"anschreiben": "Anschreiben_Jacob_Dietzmann.pdf",
-           "lebenslauf": "Lebenslauf_Jacob_Dietzmann.pdf"},
-    "en": {"anschreiben": "Cover_Letter_Jacob_Dietzmann_EN.pdf",
-           "lebenslauf": "CV_Jacob_Dietzmann_EN.pdf"},
-}
-
-
 def load_config_and_profile(config_path: Path | None = None):
     config = Config(config_path)
     if not config.profile_path.exists():
@@ -776,7 +767,7 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     languages = config.data["documents"].get("languages", ["de"])
     files: dict[str, str] = {}
     for lang in languages:
-        names = _DOC_NAMES.get(lang, _DOC_NAMES["de"])
+        names = config.doc_names(lang)
         ans = generate_anschreiben(profile, job, match, folder / names["anschreiben"], config.data, lang)
         # Eigene DOCX-Vorlage bevorzugen (mit pro-Stelle angepasstem Profil-Absatz);
         # bei fehlender Vorlage fällt die Funktion intern auf ReportLab zurück.

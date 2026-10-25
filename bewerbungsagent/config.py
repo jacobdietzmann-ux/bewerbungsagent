@@ -14,6 +14,24 @@ from pathlib import Path
 PACKAGE_DIR = Path(__file__).resolve().parent
 AGENT_ROOT = PACKAGE_DIR.parent
 
+# Fallback-Werte für persönliche Dokumentendaten (wenn config.json keine Werte liefert).
+# Diese Konstanten vermeiden einen Import von documents.py (welches reportlab benötigt).
+DEFAULT_HEADLINE_DE = "Testingenieur · Testkoordinator · HiL / XiL · ADAS · Domaincontroller"
+DEFAULT_HEADLINE_EN = "Test Engineer · Test Coordinator · HiL / XiL · ADAS · Domain Controller"
+DEFAULT_HEADLINE_CHIP_DE = "Hardware- & Embedded-Ingenieur · Elektronik / ECU · Test & Integration"
+DEFAULT_HEADLINE_CHIP_EN = "Hardware & Embedded Engineer · Electronics / ECU · Test & Integration"
+
+DEFAULT_DOC_NAMES = {
+    "de": {
+        "anschreiben": "Anschreiben_Jacob_Dietzmann.pdf",
+        "lebenslauf": "Lebenslauf_Jacob_Dietzmann.pdf",
+    },
+    "en": {
+        "anschreiben": "Cover_Letter_Jacob_Dietzmann_EN.pdf",
+        "lebenslauf": "CV_Jacob_Dietzmann_EN.pdf",
+    },
+}
+
 DEFAULT_CONFIG: dict = {
     "profile_json": "../02_Profil-und-Assets/Profil-Datenbank.json",
     "data_dir": "data",
@@ -122,6 +140,19 @@ DEFAULT_CONFIG: dict = {
             "de": "../02_Profil-und-Assets/Vorlage-Aktuell/Lebenslauf_Jacob_Dietzmann.docx",
             "en": "../02_Profil-und-Assets/Vorlage-Aktuell/CV_Jacob_Dietzmann_EN.docx",
         },
+        # Persönliche Daten für Dokumente (Name, Headlines, Dateinamen).
+        # Diese Werte gehören nicht in den Quelltext, sondern in die lokale config.json.
+        # Leere Defaults hier; die lokale config.json liefert die echten Werte.
+        "personal": {
+            "name": "",
+            "headline_de": "",
+            "headline_en": "",
+            "headline_chip_de": "",
+            "headline_chip_en": "",
+        },
+        # Dokument-Dateinamen mit Platzhaltern {firstname}, {lastname}, {name}.
+        # Beispiel: {"de": {"anschreiben": "Anschreiben_{firstname}_{lastname}.pdf", ...}}
+        "doc_names": {},
     },
 }
 
@@ -171,6 +202,53 @@ class Config:
     @property
     def dashboard_path(self) -> Path:
         return self.resolve(self.data["dashboard_file"])
+
+    # ---- Persönliche Daten für Dokumente ------------------------------
+
+    def personal_name(self) -> str:
+        """Liefert den vollständigen Namen aus config oder leeren String."""
+        return str(self.data["documents"].get("personal", {}).get("name", ""))
+
+    def _personal_first_last(self) -> tuple[str, str]:
+        """Zerlegt den Namen in Vor- und Nachname (erstes Leerzeichen)."""
+        name = self.personal_name()
+        parts = name.split(" ", 1)
+        if len(parts) == 2:
+            return parts[0], parts[1]
+        return parts[0] if parts else "", ""
+
+    def headline(self, lang: str = "de", chip: bool = False) -> str:
+        """Liefert die passende Kopfzeile für Dokumente.
+
+        Liest zuerst aus config ``documents.personal.headline_<lang>[_chip]``.
+        Fallback auf die hardkodierten Module-Konstanten (für Abwärtskompatibilität).
+        """
+        personal = self.data["documents"].get("personal", {})
+        key = f"headline_{'chip_' if chip else ''}{lang}"
+        value = personal.get(key, "")
+        if value:
+            return value
+        # Fallback auf hardkodierte Defaults (direkt definiert, um reportlab-Abhängigkeit zu vermeiden)
+        if chip:
+            return DEFAULT_HEADLINE_CHIP_DE if lang == "de" else DEFAULT_HEADLINE_CHIP_EN
+        return DEFAULT_HEADLINE_DE if lang == "de" else DEFAULT_HEADLINE_EN
+
+    def doc_names(self, lang: str = "de") -> dict:
+        """Liefert Dokument-Dateinamen für die gegebene Sprache.
+
+        Liest aus config ``documents.doc_names.<lang>`` mit Platzhaltern
+        {firstname}, {lastname}, {name}. Fallback auf hardkodierte Defaults.
+        """
+        doc_names = self.data["documents"].get("doc_names", {}).get(lang, {})
+        if doc_names:
+            firstname, lastname = self._personal_first_last()
+            name = self.personal_name()
+            return {
+                k: v.format(firstname=firstname, lastname=lastname, name=name)
+                for k, v in doc_names.items()
+            }
+        # Fallback auf hardkodierte Defaults (direkt definiert, um reportlab-Abhängigkeit zu vermeiden)
+        return DEFAULT_DOC_NAMES.get(lang, DEFAULT_DOC_NAMES["de"])
 
     def jobs_path(self) -> Path:
         return self.data_dir / "jobs.json"

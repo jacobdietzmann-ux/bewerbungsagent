@@ -102,6 +102,23 @@
       "en": "../02_Profil-und-Assets/Vorlage-Aktuell/CV_Jacob_Dietzmann_EN.docx"
     },
     "anschreiben_quellen": true,
-    "anschreiben_luecken": true
+    "anschreiben_luecken": true,
+    "personal": {
+      "name": "Vorname Nachname",
+      "headline_de": "Testingenieur · Testkoordinator",
+      "headline_en": "Test Engineer · Test Coordinator",
+      "headline_chip_de": "Hardware- & Embedded-Ingenieur",
+      "headline_chip_en": "Hardware & Embedded Engineer"
+    },
+    "doc_names": {
+      "de": {
+        "anschreiben": "Anschreiben_{firstname}_{lastname}.pdf",
+        "lebenslauf": "Lebenslauf_{firstname}_{lastname}.pdf"
+      },
+      "en": {
+        "anschreiben": "Cover_Letter_{firstname}_{lastname}_EN.pdf",
+        "lebenslauf": "CV_{firstname}_{lastname}_EN.pdf"
+      }
+    }
   }
 }

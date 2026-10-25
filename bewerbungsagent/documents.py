@@ -71,8 +71,18 @@ _CHIP_HINTS = (
 )
 
 
-def _headline(job: dict, match: dict, lang: str) -> str:
-    """Wählt die passende Profil-Headline (Test vs. Hardware/Embedded)."""
+def _headline(job: dict, match: dict, lang: str, config: dict | None = None) -> str:
+    """Wählt die passende Profil-Headline (Test vs. Hardware/Embedded).
+
+    Liest zuerst aus ``config["documents"]["personal"]["headline_<lang>[_chip]"]``.
+    Fallback auf die hardkodierten Module-Konstanten (Abwärtskompatibilität).
+    """
+    if config is not None:
+        personal = config.get("documents", {}).get("personal", {})
+        key = f"headline_{'chip_' if _is_chip_role(job, match) else ''}{lang}"
+        value = personal.get(key, "")
+        if value:
+            return value
     if _is_chip_role(job, match):
         return PROFESSIONAL_HEADLINE_CHIP_EN if lang == "en" else PROFESSIONAL_HEADLINE_CHIP_DE
     return PROFESSIONAL_HEADLINE_EN if lang == "en" else PROFESSIONAL_HEADLINE_DE
@@ -1297,7 +1307,7 @@ def _cv_story_modern(profile: Profile, job: dict, match: dict, config: dict, lan
     # Kopf-Banner: Name + Headline auf Akzentfarbe, Foto rechts daneben.
     banner_name = Paragraph(
         f'<font color="#FFFFFF"><b>{esc(personal.get("name", ""))}</b></font><br/>'
-        f'<font color="#D7E6F2">{esc(_headline(job, match, lang))}</font>',
+        f'<font color="#D7E6F2">{esc(_headline(job, match, lang, config))}</font>',
         ParagraphStyle("mname", parent=st["name"], fontSize=17, leading=21,
                        textColor=HexColor("#FFFFFF")),
     )
@@ -1371,7 +1381,7 @@ def _cv_story_functional(profile: Profile, job: dict, match: dict, config: dict,
 
     story: list = []
     story.append(Paragraph(esc(personal.get("name", "")), st["name"]))
-    story.append(Paragraph(esc(_headline(job, match, lang)), st["headline"]))
+    story.append(Paragraph(esc(_headline(job, match, lang, config)), st["headline"]))
     contact = " · ".join(x for x in [
         personal.get("address"), personal.get("phone"), personal.get("email"), LINKEDIN_URL
     ] if x)

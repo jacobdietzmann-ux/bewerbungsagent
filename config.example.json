@@ -82,6 +82,32 @@
     "fit_max": 70,
     "commute_grace_min": 10
   },
+  "matching": {
+    "dimensions": {
+      "gewichte": {
+        "kompetenz": 0.30,
+        "aufgaben": 0.20,
+        "senioritaet": 0.15,
+        "technologie": 0.10,
+        "gehalt": 0.10,
+        "arbeitsmodell": 0.10,
+        "entwicklung": 0.05
+      },
+      "gehalt_ziel_tsd": 65,
+      "ko_gehalt_min_tsd": 55,
+      "ko_senioritaet": [],
+      "ziel_branchen": [
+        "Automotive",
+        "Luft- und Raumfahrt",
+        "Defense",
+        "Halbleiter",
+        "Robotik",
+        "Energie",
+        "Engineering-Dienstleister"
+      ],
+      "ko_blockiert_generierung": true
+    }
+  },
   "commute": {
     "home_address": "Musterstraße 1, 12345 Musterstadt",
     "contact_email": "vorname.nachname@example.com",

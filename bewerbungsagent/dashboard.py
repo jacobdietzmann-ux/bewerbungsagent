@@ -324,6 +324,21 @@ def _availability(app: dict) -> bool | None:
     return None if value is None else bool(value)
 
 
+def _dim_summary(dims: dict | None) -> dict | None:
+    """Kompakte Anzeigeform der mehrdimensionalen Bewertung (Dashboard-Tooltip)."""
+    if not isinstance(dims, dict) or dims.get("gesamt") is None:
+        return None
+    werte = dims.get("werte") or {}
+    order = ("kompetenz", "aufgaben", "senioritaet", "technologie",
+             "gehalt", "arbeitsmodell", "entwicklung")
+    detail = " · ".join(f"{k} {werte[k]}" for k in order if k in werte)
+    return {
+        "gesamt": int(dims.get("gesamt") or 0),
+        "ko": [str(k.get("grund") or "") for k in (dims.get("ko") or [])],
+        "detail": detail,
+    }
+
+
 def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
     fit = fit_value(app)
 
@@ -362,6 +377,7 @@ def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
         "date": _fmt_date(app),
         "status": normalize_status(app.get("status")),
         "fit": fit,
+        "dim": _dim_summary(app.get("dimensionen")),
         "salary": app.get("gehalt", "") or "",
         "salarySource": app.get("gehalt_quelle", "") or "",
         "commute": app.get("pendelzeit_min"),
@@ -853,6 +869,16 @@ function fitBadge(fit) {
   const bg = f >= 80 ? "#15803d33" : (f >= 65 ? "#b4530933" : "#7f1d1d33");
   return `<span class="badge" style="background:${bg};color:${color};border:1px solid ${color}55">${f}%</span>`;
 }
+function dimBadge(d) {
+  // Mehrdimensionale Bewertung (berichtend): Gesamtwert + K.O.-Marker.
+  // Der Tooltip nennt alle sieben Teilwerte — der Fit-Wert bleibt unverändert.
+  if (!d) return "";
+  const ko = (d.ko && d.ko.length)
+    ? ` <span title="${esc(d.ko.join('; '))}" style="color:#fca5a5;cursor:help">⛔</span>`
+    : "";
+  return `<div style="margin-top:4px;font-size:10px;color:#94a3b8;cursor:help"
+    title="Mehrdimensionale Bewertung (berichtend): ${esc(d.detail)}">Dim ${d.gesamt}%${ko}</div>`;
+}
 function salaryBadge(s, source) {
   if (!s) return '<span style="color:#64748b">k. A.</span>';
   const hint = source === "Schätzung" ? ' <span style="font-size:10px;opacity:.7" title="geschätzt, keine Angabe in der Anzeige">(gesch.)</span>' : "";
@@ -1203,7 +1229,7 @@ function renderRows() {
         ${sentAtHint(r)}
         ${(r.status === "interview" || r.status === "followup") ? `<div style="margin-top:6px"><input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)" style="width:118px"></div>` : ""}
       </td>
-      <td class="center">${fitBadge(r.fit)}</td>
+      <td class="center">${fitBadge(r.fit)}${dimBadge(r.dim)}</td>
       <td class="center">${salaryBadge(r.salary, r.salarySource)}</td>
       <td class="center">${linkBadge(r)}${docLinks ? "<br>" + docLinks : ""}${openBtn}</td>
       <td class="center"><button class="row-delete" data-i="${i}" title="Eintrag aus dem Dashboard entfernen">🗑</button></td>

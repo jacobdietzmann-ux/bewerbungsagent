@@ -115,6 +115,32 @@ DEFAULT_CONFIG: dict = {
         "fit_max": 70,
         "commute_grace_min": 10,  # „leicht über der Pendelgrenze“ = Grenze + 10
     },
+    # Mehrdimensionale Bewertung (P0a). Läuft **berichtend**: `score` bleibt
+    # unverändert, bis die Dimensionen die Keyword-Baseline auf den harten
+    # Labels schlagen (ADR-031). Hart ist nur die K.O.-Liste — sie blockiert
+    # die automatische Unterlagenerzeugung, nicht die Anzeige.
+    "matching": {
+        "dimensions": {
+            "gewichte": {
+                "kompetenz": 0.30,
+                "aufgaben": 0.20,
+                "senioritaet": 0.15,
+                "technologie": 0.10,
+                "gehalt": 0.10,
+                "arbeitsmodell": 0.10,
+                "entwicklung": 0.05,
+            },
+            "gehalt_ziel_tsd": 65,
+            "ko_gehalt_min_tsd": 55,
+            # Leer = keine Senioritäts-K.O. Beispiel: ["head of"]
+            "ko_senioritaet": [],
+            "ziel_branchen": [
+                "Automotive", "Luft- und Raumfahrt", "Defense", "Halbleiter",
+                "Robotik", "Energie", "Engineering-Dienstleister",
+            ],
+            "ko_blockiert_generierung": True,
+        },
+    },
     # Persönliche Angaben gehören nicht in den Quelltext: Die Wohnadresse steht
     # hier (bzw. in der lokalen config.json) und wird für Pendelweg-Geocoding
     # benötigt. Beispiel: "Musterstraße 1, 12345 Musterstadt".

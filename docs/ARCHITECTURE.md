@@ -107,7 +107,8 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
 
 - **Deterministisches Scoring** statt LLM: nachvollziehbar, reproduzierbar,
   testbar. Der Fit-Wert ist eine transparente Summe aus Treffern
-  (Titel ×7, Text ×3, Inhaltswort ×1, Standort +10).
+  (Titel ×6, Text ×4, Inhaltswort ×2, Standort +10). Die Faktoren 6/4/2
+  mildern die Titel-Dominanz gegenüber dem früheren 7/3/1.
 - **HTML als Datei + lokaler Server**: Das Dashboard funktioniert als
   statische Datei *und* live (Status-Änderungen via `POST /state`).
 - **ReportLab** statt HTML→PDF: keine externen Abhängigkeiten, exakte
@@ -193,6 +194,36 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   dokumentiert und enthält bewusst `integration`/`mechatronik`, damit
   „Payload Integration Engineer" nicht blockiert wird. Der **manuelle** Auftrag
   (`run_generate --ids`) ist nicht betroffen und erzeugt weiterhin alles.
+
+### Mehrdimensionale Bewertung (`dimensions.py`, ADR-031)
+
+Der Keyword-Fit beantwortet nur „wie viel Profil-Vokabular steht in der
+Anzeige“. `dimensions.py` bewertet dieselbe Stelle zusätzlich in sieben
+Dimensionen (0–100), jeweils mit Belegen:
+
+| Dimension | Startgewicht | Grundlage |
+|---|---:|---|
+| Fachliche Kompetenz | 30 % | Profil-Keyword-Treffer (Titel doppelt gewichtet) |
+| Aufgaben/Tätigkeiten | 20 % | Tätigkeitsfamilien im Anzeigentext |
+| Seniorität/Verantwortung | 15 % | Rollenstufe (Junior … Head) vs. Profilrollen |
+| Technologie/Branche | 10 % | Branchenzuordnung (`industry.py`) |
+| Gehalt | 10 % | Anzeigen-Spanne vs. Zielgehalt (Schätzungen zählen nicht) |
+| Arbeitsmodell/Standort | 10 % | Pendelzeit / Remote / Homeoffice |
+| Entwicklungspotenzial | 5 % | Weiterbildungs-/Aufstiegssignale |
+
+**Berichtend, nicht entscheidend.** `score` bleibt unverändert. Die Dimensionen
+entstehen in `run_enrich` (dort sind Gehalt, Pendelweg und Homeoffice bekannt)
+und werden in SQLite gespeichert; das Dashboard zeigt „Dim NN %“ mit Tooltip
+unter dem Fit-Wert. Erst wenn `eval/run_dimensions_eval.py` auf den harten
+Labels einen Vorsprung zeigt, werden sie zur Bewertung (ADR-014/016,
+Baseline AUC 0,715).
+
+**Harte K.O.-Liste.** Sie ist nicht durch Teilwerte kompensierbar: ein
+Anzeigen-Gehalt, dessen **oberes** Ende unter `ko_gehalt_min_tsd` liegt
+(Standard 55 T€), und optional Titel-Muster aus `ko_senioritaet` (Standard
+leer). Eine K.O. blockiert nur die *automatische* Unterlagenerzeugung — die
+Stelle bleibt im Dashboard sichtbar und per `--ids` bedienbar. Schätzungen
+(„Xing-Schätzung“) zählen nie als Anzeigen-Gehalt.
 
 ## Evaluation (`eval/`)
 

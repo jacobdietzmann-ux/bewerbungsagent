@@ -15,6 +15,7 @@ from .commute import (
 from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard, dashboard_applications, documented_applications
 from .db import USER_DELETE_REASON, Store
+from .dimensions import score_dimensions
 from .documents import (
     DEFAULT_CV_TEMPLATE,
     generate_anschreiben,
@@ -122,6 +123,20 @@ def safe_name(value: str) -> str:
 def _fit_value(job: dict) -> int:
     """Einheitlicher Fit-Wert — siehe :func:`matching.fit_value`."""
     return fit_value(job)
+
+
+def _dimensionen_blockieren(config: Config, dims: dict) -> bool:
+    """True, wenn eine K.O. die *automatische* Unterlagenerzeugung blockiert.
+
+    Die K.O.-Liste aus ``dimensions.py`` ist nur dann hart, wenn
+    ``matching.dimensions.ko_blockiert_generierung`` nicht ausdrücklich
+    abgeschaltet wurde. Sie löscht nichts: Die Stelle bleibt im Dashboard
+    sichtbar und kann per ``--ids`` weiterhin bewusst bedient werden.
+    """
+    if not isinstance(dims, dict) or not dims.get("blockiert"):
+        return False
+    opts = (config.data.get("matching") or {}).get("dimensions") or {}
+    return bool(opts.get("ko_blockiert_generierung", True))
 
 
 # --------------------------------------------------------------------------
@@ -360,12 +375,21 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     # Nur beim Mengenlauf (``--all``) wird übersprungen; ``--ids`` ist ein
     # ausdrücklicher Wunsch und erzeugt weiter neu.
     bereits_dokumentiert: set[str] = set()
+    ko_blockiert: dict[str, str] = {}
     if job_ids is None:
         for a in _store(config).load_state().get("applications", []):
+            key = a.get("key") or _job_key(a)
+            if not key:
+                continue
             if a.get("dokumente"):
-                key = a.get("key") or _job_key(a)
-                if key:
-                    bereits_dokumentiert.add(key)
+                bereits_dokumentiert.add(key)
+            # Harte K.O.-Kriterien aus der mehrdimensionalen Bewertung (P0a).
+            # Nur der Mengenlauf ist betroffen: ``--ids`` ist ein ausdrücklicher
+            # Wunsch und erzeugt weiterhin alles.
+            dims = a.get("dimensionen") or {}
+            if _dimensionen_blockieren(config, dims):
+                gruende = "; ".join(str(k.get("grund") or "") for k in dims.get("ko") or [])
+                ko_blockiert[key] = gruende or "K.O."
 
     selected = []
     skipped_commute = []
@@ -373,6 +397,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     skipped_technician = []
     skipped_existing = []
     skipped_role = []
+    skipped_ko = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
@@ -395,6 +420,13 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         if _commute_blocked(config, m):
             skipped_commute.append(m)
             continue
+        # K.O.-Kriterium (z. B. Gehalt unter Schwelle): Ein hoher Keyword-Fit
+        # kompensiert das nicht. Nur der Mengenlauf ist betroffen.
+        if job_ids is None and ((m.get("key") or _job_key(m)) in ko_blockiert):
+            key = m.get("key") or _job_key(m)
+            skipped_ko.append({"firma": m.get("firma"), "titel": m.get("titel"),
+                               "fit": _fit_value(m), "grund": ko_blockiert[key]})
+            continue
         # Wie in ``run_enrich``: ein hoher Fit entsteht auch bei Software-Rollen
         # über generische Technologie-Treffer. Beim Mengenlauf wird nur
         # beworben, wenn der Titel eine Test-/Absicherungsrolle belegt.
@@ -411,7 +443,7 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
 
     return {"generated": created, "jobs_processed": len(selected),
             "skipped_commute": skipped_commute, "skipped_student": skipped_student,
-            "skipped_technician": skipped_technician,
+            "skipped_technician": skipped_technician, "skipped_ko": skipped_ko,
             "skipped_role": skipped_role, "skipped_existing": len(skipped_existing)}
 
 
@@ -443,6 +475,17 @@ def run_enrich(config: Config, profile: Profile) -> dict:
 
     # 2) Gehaltsschätzung
     salary_stats = enrich_salary(apps)
+
+    # 2b) Mehrdimensionale Bewertung (berichtend — `score` bleibt unverändert,
+    #     siehe dimensions.py / ADR-031). Braucht Gehalt, Pendelweg und
+    #     Homeoffice und läuft deshalb hier, nicht im Match-Schritt. Ohne Profil
+    #     (z. B. in Tests, die nur die Filterlogik prüfen) entfällt sie.
+    dim_blockiert = 0
+    if profile is not None:
+        for a in apps:
+            a["dimensionen"] = score_dimensions(profile, a, config=config.data)
+        dim_blockiert = sum(1 for a in apps
+                            if (a.get("dimensionen") or {}).get("blockiert"))
 
     # 3) research-Stellen prüfen: Fit ist bereits gespeichert; wir protokollieren sie.
     research_checked = []
@@ -619,6 +662,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     return {
         "commute": commute_stats,
         "salary": salary_stats,
+        "dimensionen_ko": dim_blockiert,
         "research_checked": research_checked,
         "deleted_fit_under_50": deleted_count,
         "deleted_commute": deleted_commute,
@@ -694,7 +738,8 @@ def _merge_state(existing: dict, matches: list[dict],
     score_fields = ("score", "fit_geschaetzt", "begruendung", "matched_skills",
                     "title_hits", "body_hits", "location_bonus", "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
-                    "pendelzeit_min", "pendeldistanz_km", "homeoffice")
+                    "pendelzeit_min", "pendeldistanz_km", "homeoffice",
+                    "dimensionen")
 
     result = []
     seen: set[str] = set()

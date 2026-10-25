@@ -823,3 +823,44 @@ gewollte Treffer), während die Berufsbezeichnungen ausscheiden.
 
 **Testabdeckung.** `test_matching.py`: 6 Berufsbezeichnungen ohne Signal,
 5 Domänenwort-Titel mit Signal.
+
+## ADR-031 – Mehrdimensionale Bewertung berichtend, K.O. nur als Gate
+
+Der Review vom 25.10.2026 kritisiert zu Recht, dass ein Fit von 80 % eine
+unpassende Stelle nicht ausschließt: Der Keyword-Fit misst Vokabular, nicht
+Verantwortungsniveau, Gehalt oder Arbeitsmodell. Andererseits gilt ADR-014/016:
+Ein neues Verfahren wird erst eingebaut, wenn es die Baseline (AUC 0,715) auf
+den harten Labels schlägt. Beides zusammen ergibt zwei getrennte Stufen.
+
+**Entscheidung.**
+
+1. `dimensions.py` bewertet sieben Dimensionen (Kompetenz, Aufgaben,
+   Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell, Entwicklung) mit
+   Belegen. Die Gewichte (30/20/15/10/10/10/5) sind Startwerte aus dem Review,
+   ausdrücklich Hypothesen.
+2. Die Dimensionen laufen **berichtend**: `score` bleibt der Keyword-Fit;
+   `dimensionen` wird in `run_enrich` berechnet, in SQLite gespeichert und im
+   Dashboard als „Dim NN %“ mit Tooltip angezeigt.
+3. Hart ist nur die **K.O.-Liste** — ein Anzeigen-Gehalt, dessen oberes Ende
+   unter `ko_gehalt_min_tsd` (Standard 55 T€) liegt, plus optional
+   Titel-Muster (`ko_senioritaet`, Standard leer). K.O. blockiert nur die
+   automatische Unterlagenerzeugung; die Stelle bleibt sichtbar und per
+   `--ids` bedienbar. Eine falsch gesetzte Schwelle darf keine Stellen
+   verschwinden lassen.
+4. Schätzungen („Xing-Schätzung“) zählen nicht als Anzeigen-Gehalt — sonst
+   entstünde eine K.O. aus einer fremden Schätzung.
+
+**Begründung der Stufen.** Die K.O.-Logik ist unabhängig von der Gewichtung
+validierbar („wäre diese Stelle trotz gutem Fit nie gewollt?“), die Gewichte
+nicht. Deshalb zuerst das Gate, dann die Messung.
+
+**Grenzen (Stand 25.10.2026).** `eval/labels.csv` enthält 20 manuelle Labels,
+von denen 13 noch einen Bestandseintrag treffen; auf dieser Basis trennt der
+Keyword-Fit (AUC 100 %) nicht schlechter als die Dimensionen (98,8 %). Das ist
+kein Beleg für die Dimensionen — es ist ein zu kleiner Datensatz. Die
+Dimensionen bleiben berichtend, bis ≥ 50 Labels je Klasse vorliegen.
+
+**Testabdeckung.** `test_dimensions.py`: Gewichte/Normalisierung, sieben
+Dimensionen mit Belegen, Senioritätsstufen, Gehalts-Parsing, K.O. (Gehalt,
+Xing-Schätzung, konfigurierte Seniorität), Merge in den Bestand,
+Dashboard-Zusammenfassung.

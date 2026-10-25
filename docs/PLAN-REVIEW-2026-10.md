@@ -9,7 +9,7 @@ ADRs — Entscheidungen werden weiterhin in `docs/DECISIONS.md` festgehalten.
 
 | Review-Punkt | Befund im Code |
 |---|---|
-| Matching „eindimensional“ | Bestätigt: `fit_value` = Titel ×7 + Text ×3 + Inhaltswort ×1 + Standort-Bonus (≤10 aus Pendelzeit). Keine Senioritäts-, Gehalts- oder Arbeitsmodell-Dimension. Harte Ausschlüsse nur Rolle/Student/Techniker/Pendel. |
+| Matching „eindimensional“ | Bestätigt: `fit_value` = Titel ×6 + Text ×4 + Inhaltswort ×2 + Standort-Bonus (≤10 aus Pendelzeit). Keine Senioritäts-, Gehalts- oder Arbeitsmodell-Dimension. Harte Ausschlüsse nur Rolle/Student/Techniker/Pendel. |
 | Pendelzeit-Doku widersprüchlich | Bestätigt und behoben: `ARCHITECTURE.md` nannte Standard 90, Code/README/Config 30. |
 | Kein Qualitäts-Check der Dokumente | Bestätigt: `documents.py` erzeugt deterministisch; `knoten_review` ist ein reiner Durchlauf. Es gibt `_claim_signature`/`gap_terms`, aber keine unabhängige Prüfstufe. |
 | Zu wenige Integrationstests | Bestätigt: 946 Tests, überwiegend Unit-Tests der deterministischen Module; keine Pipeline-Fehlerszenarien. |
@@ -40,26 +40,36 @@ Nicht übernommen, weil im Repo neuer: `requirements.txt` (python-docx),
 
 Stand: 946 Tests grün. Commits `b9be532`, `f37d201`, `a7b210b`.
 
-## P0a — Matching: Dimensionen + harte K.O.-Kriterien
+## P0a — Matching: Dimensionen + harte K.O.-Kriterien ✅ (Stand 25.10.2026)
 
 **Ziel:** Ein hoher Fit darf eine unpassende Stelle nicht mehr kompensieren.
 
-1. `matching.py`: `score_dimensions(profile, job)` liefert sieben Teilwerte
-   (Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell/
-   Standort, Entwicklung) — jeweils mit Belegliste (welche Treffer zählen).
-2. `fit_value` bleibt der Default-Score. Die Dimensionen laufen zuerst
-   **berichtend** mit (Dashboard/DB), ohne den Fit zu verändern.
-3. Harte K.O.-Prüfung als eigene Stufe, nicht als Gewicht: explizites Gehalt
-   unter Schwelle, Senioritäts-Mismatch, bestehende Rollen-/Pendel-Ausschlüsse.
-   K.O. ist nicht durch andere Teilwerte kompensierbar.
-4. Erst wenn die Dimensionen auf den harten Labels den Keyword-Fit schlagen
-   (AUC 0,715), werden sie zur Bewertung — sonst bleiben sie Diagnose.
-5. Gewichte in `config.json`, Tests in `tests/test_matching.py`.
+Umgesetzt in `bewerbungsagent/dimensions.py` (ADR-031):
 
-**Voraussetzung:** `eval/labels.csv` hat aktuell 21 Zeilen. Für eine
-belastbare Neugewichtung erst Ground Truth auf 50–100 Labels erweitern
-(`eval/label_tool.py`) — sonst ist jede Gewichtsanpassung Overfitting
-(ADR-014/016).
+1. `score_dimensions(profile, job)` liefert sieben Teilwerte (Kompetenz,
+   Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell,
+   Entwicklung), jeweils mit Belegliste.
+2. `fit_value` bleibt der Default-Score. Die Dimensionen laufen **berichtend**
+   mit: `run_enrich` berechnet sie, SQLite speichert sie, das Dashboard zeigt
+   „Dim NN %“ mit Tooltip unter dem Fit-Wert.
+3. Harte K.O.-Liste als eigene Stufe: Anzeigen-Gehalt, dessen **oberes** Ende
+   unter `ko_gehalt_min_tsd` (Standard 55 T€) liegt; optional Titel-Muster aus
+   `ko_senioritaet` (Standard leer). K.O. blockiert nur die automatische
+   Unterlagenerzeugung, nicht die Anzeige. Schätzungen („Xing-Schätzung“)
+   zählen nicht.
+4. Gewichte und Schwellen in `matching.dimensions` (`config.py` /
+   `config.example.json`), Tests in `tests/test_dimensions.py` (33 Tests).
+
+**Messung (`eval/run_dimensions_eval.py`, 25.10.2026):** 14 gelabelte Fälle,
+davon 13 manuelle. AUC (manuell): Keyword-Fit 100,0 %, Dimensionen gesamt
+98,8 %. Kein Vorsprung — die Dimensionen bleiben berichtend. Ergebnis ist
+**vorläufig**: 20 Labels in `labels.csv`, davon 7 ohne Bestandseintrag; für
+eine Entscheidung sind ≥ 50 je Klasse nötig.
+
+**K.O. auf den Realdaten:** 0 von 295 sichtbaren Stellen (Schwelle 55 T€).
+Zum Vergleich: 58 T€ trifft 0, 60 T€ trifft 2, 65 T€ trifft 3 Anzeigen mit
+echter Gehaltsspanne. Die Schwelle ist eine persönliche Entscheidung und in
+`config.json` änderbar.
 
 ## P0b — Quality-Knoten (`qualitaet`) vor `review`
 

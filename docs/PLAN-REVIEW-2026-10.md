@@ -1,0 +1,113 @@
+# Plan aus dem externen Review — Oktober 2026
+
+Grundlage: Architektur-/Konzeptreview eines externen Agenten vom 25.10.2026
+(GitHub-Repo-Ansicht + README/AGENTS.md/ARCHITECTURE.md). Dieses Dokument
+übersetzt das Review in einen verifizierten Arbeitsplan. Es ersetzt keine
+ADRs — Entscheidungen werden weiterhin in `docs/DECISIONS.md` festgehalten.
+
+## Verifizierter Ist-Stand (25.10.2026)
+
+| Review-Punkt | Befund im Code |
+|---|---|
+| Matching „eindimensional“ | Bestätigt: `fit_value` = Titel ×7 + Text ×3 + Inhaltswort ×1 + Standort-Bonus (≤10 aus Pendelzeit). Keine Senioritäts-, Gehalts- oder Arbeitsmodell-Dimension. Harte Ausschlüsse nur Rolle/Student/Techniker/Pendel. |
+| Pendelzeit-Doku widersprüchlich | Bestätigt und behoben: `ARCHITECTURE.md` nannte Standard 90, Code/README/Config 30. |
+| Kein Qualitäts-Check der Dokumente | Bestätigt: `documents.py` erzeugt deterministisch; `knoten_review` ist ein reiner Durchlauf. Es gibt `_claim_signature`/`gap_terms`, aber keine unabhängige Prüfstufe. |
+| Zu wenige Integrationstests | Bestätigt: 946 Tests, überwiegend Unit-Tests der deterministischen Module; keine Pipeline-Fehlerszenarien. |
+| Zu viele Provider | Bestätigt: 13 Provider; Indeed/JobSpy real 403, ATS-Rate-Limits real (Qualcomm). |
+| Orchestrator fehlt | Falsch: `orchestrator.py` hat bereits einen Knoten-DAG (suche → triage → beschreibung → match → enrich → generate → review → dashboard). |
+| JSON vs. SQLite | Halb richtig: Text ist SQLite-first; nur das ASCII-Diagramm zeigt noch JSON-Zwischenstufen. Kosmetik (P2). |
+| `/agents`-Ansicht | Irrelevant: Es gibt kein `agents/`- oder `.github/agents/`-Verzeichnis. Die URL lief deshalb leer. |
+
+## Schritt 0 — Sync zwischen Repo und Live-Ordner (erledigt 25.10.2026)
+
+Der Live-Ordner war bei mehreren Dateien neuer als das Repo, das Repo bei
+anderen. Übernommen wurden ausschließlich die echten Live-Neuerungen:
+
+- `bewerbungsagent/config.py`, `documents.py`, `pipeline.py` — persönliche
+  Dokumentdaten (Name, Headlines, Dateinamen) aus `documents.personal` /
+  `documents.doc_names` in der `config.json`, mit Fallback-Konstanten.
+- `server.py` — Pfad-Traversal über URL-encoded Backslashes blockiert.
+- `scripts/jobwatch.py`, `wochenlauf.sh`, `migrate_state_to_db.py`,
+  `repair_fehllauf.py` — liefen bisher nur im Live-Ordner.
+- `scripts/tageslauf.sh` — Default `AGENT_DIR` ist jetzt `~/git/bewerbungsagent`
+  (kein SQLite-WAL auf dem Sync-Mount).
+- `tests/test_config_bug5.py` — Funktionstests für die neuen Config-Methoden.
+- `GIT-REPO.md`, `config.example.json` (neue Schlüssel dokumentiert).
+
+Nicht übernommen, weil im Repo neuer: `requirements.txt` (python-docx),
+`config.example.json` (Provider-Liste), `docs/BACKUP.md` (Dashboard-Pfad),
+`tests/test_profile.py` (Docstrings), `profile.py` (nur Zeilenenden).
+
+Stand: 946 Tests grün. Commits `b9be532`, `f37d201`, `a7b210b`.
+
+## P0a — Matching: Dimensionen + harte K.O.-Kriterien
+
+**Ziel:** Ein hoher Fit darf eine unpassende Stelle nicht mehr kompensieren.
+
+1. `matching.py`: `score_dimensions(profile, job)` liefert sieben Teilwerte
+   (Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell/
+   Standort, Entwicklung) — jeweils mit Belegliste (welche Treffer zählen).
+2. `fit_value` bleibt der Default-Score. Die Dimensionen laufen zuerst
+   **berichtend** mit (Dashboard/DB), ohne den Fit zu verändern.
+3. Harte K.O.-Prüfung als eigene Stufe, nicht als Gewicht: explizites Gehalt
+   unter Schwelle, Senioritäts-Mismatch, bestehende Rollen-/Pendel-Ausschlüsse.
+   K.O. ist nicht durch andere Teilwerte kompensierbar.
+4. Erst wenn die Dimensionen auf den harten Labels den Keyword-Fit schlagen
+   (AUC 0,715), werden sie zur Bewertung — sonst bleiben sie Diagnose.
+5. Gewichte in `config.json`, Tests in `tests/test_matching.py`.
+
+**Voraussetzung:** `eval/labels.csv` hat aktuell 21 Zeilen. Für eine
+belastbare Neugewichtung erst Ground Truth auf 50–100 Labels erweitern
+(`eval/label_tool.py`) — sonst ist jede Gewichtsanpassung Overfitting
+(ADR-014/016).
+
+## P0b — Quality-Knoten (`qualitaet`) vor `review`
+
+**Ziel:** Keine erfundenen Kompetenzen, keine falschen Zeiträume, keine
+unbelegten Behauptungen in versandfertigen Unterlagen.
+
+1. Deterministische Prüfungen zuerst: jede Aussage im Anschreiben gegen das
+   Profil mappen (Tätigkeiten, Zeiträume, Arbeitgeber, Technologien),
+   `_claim_signature` wiederverwenden, Anzeigen-Anforderungen gegen die
+   Absätze prüfen, PDF-Sanity (Seiten, Fonts, `_sanitize`).
+2. Ergebnis in SQLite + Dashboard-Spalte („Prüfung: ok / N Befunde“).
+3. LLM-Prüfung optional und gated: nur für Jobs, die in `generate` gehen.
+4. Tests mit injizierter erfundener Kompetenz und falschem Zeitraum.
+
+## P1 — Research und Company
+
+1. **Provider-Gesundheit:** Erfolgs-/403-/Rate-Limit-Statistik pro Quelle in
+   SQLite; Auto-Deaktivierung nach N Fehlläufen in Folge, manuelle
+   Reaktivierung. Priorität ATS > StepStone > Arbeitnow > Rest.
+2. **Suchprofile erweitern** (Config): Testingenieur/System Test,
+   Testmanager, Test & Verification, E/E-Integration, ADAS, HiL/SiL,
+   Teilprojektleiter Funktionsintegration. Danach ein Lauf mit Messung von
+   Noise/Coverage — nicht alle Profile gleichzeitig scharf schalten.
+3. **Company-Node** nach `match`, vor `generate`: Unternehmen, Abteilung,
+   Projekte nur für die Top-Kandidaten nachladen (Kostenbegrenzung).
+
+## P2 — Integrationstests, Doku, Career
+
+1. **Integrationstests:** gemockte Provider mit kaputten Daten, Dubletten-
+   Import, verschwindende/geänderte Anzeige, fehlgeschlagene Migration,
+   abgebrochenes `generate`, unterbrochener Tageslauf.
+2. **Doku vereinheitlichen:** Diagramm in `ARCHITECTURE.md` auf SQLite-first,
+   Matching-Gewichte ins README, ADR für die neuen Dimensionen.
+3. **Career-Agent zuletzt:** Follow-up- und Interview-Vorlagen als Templates,
+   nicht als Automatisierung.
+
+## Nicht-Ziele
+
+- **Kein 6-Agenten-Rebuild.** Der Knoten-DAG bleibt die Struktur; die
+  „Agenten“ des Reviews (Research, Matching, Application, Quality, Company,
+  Career) werden als Dokumentationsschicht auf die Knoten abgebildet.
+- **Keine unvalidierten Gewichte.** Die 30/20/15/10/10/10/5-Tabelle des
+  Reviews ist eine Hypothese; sie wird erst nach Messung übernommen.
+
+## Offene Entscheidungen
+
+1. Labels auf 50–100 erweitern (Voraussetzung für P0a-Schritt 4).
+2. LLM im Quality-Check: gated auf `generate`-Kandidaten oder rein
+   deterministisch starten?
+3. Auto-Deaktivierung von Providern: Schwelle (z. B. 3 Fehlläufe in Folge)?
+4. Company-Research: Quelle und Tagesbudget.

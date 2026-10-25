@@ -16,7 +16,7 @@ Dashboard als Lese-/Schreib-Oberfläche:
 
 SQLite (`data/jobs.db`) ist die Quelle der Wahrheit; `state.json` ist ein
 abgeleiteter Snapshot. Stellen mit einer bekannten Pendelzeit über
-`max_pendelzeit_min` (Standard 90) werden gar nicht erst angelegt: Sie erhalten
+`max_pendelzeit_min` (Standard 30) werden gar nicht erst angelegt: Sie erhalten
 beim Merge das ``deleted``-Flag, es werden keine Unterlagen erzeugt und sie
 erscheinen nicht im Dashboard. Das Dashboard bettet den gesamten Bestand ein,
 zeigt in der Tabelle aber nur relevante Einträge (mindestens ein vorhandenes

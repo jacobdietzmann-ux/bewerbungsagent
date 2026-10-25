@@ -28,6 +28,7 @@ from .industry import classify_industry
 from .matching import (fit_value, has_role_signal, is_student_role,
                        is_technician_role, match_jobs)
 from .profile import Profile, normalize
+from .provider_health import DEFAULT_MAX_FAILURES, record
 from .quality import check_application
 from .salary import enrich_salary
 from .search import run_search as _search
@@ -146,13 +147,22 @@ def _dimensionen_blockieren(config: Config, dims: dict) -> bool:
 # --------------------------------------------------------------------------
 
 def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
-    jobs, errors, triage_rejected = _search(config, profile, definition)
-    jobs = _preserve_descriptions(jobs, _store(config).load_state())
+    store = _store(config)
+    health = store.get_meta("provider_health") or {}
+    stats: dict = {}
+    jobs, errors, triage_rejected = _search(config, profile, definition,
+                                            health=health, stats=stats)
+    max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
+                       .get("max_failures") or DEFAULT_MAX_FAILURES)
+    health = record(health, stats, now=now_iso(), max_failures=max_failures)
+    store.set_meta("provider_health", health)
+    jobs = _preserve_descriptions(jobs, store.load_state())
     save_json(config.jobs_path(), jobs)
     context = _enrich_job_context(config, jobs)
     return {
         "count": len(jobs), "errors": errors, "path": str(config.jobs_path()),
         "context": context, "triage_rejected": triage_rejected,
+        "provider_stats": stats, "provider_health": health,
     }
 
 

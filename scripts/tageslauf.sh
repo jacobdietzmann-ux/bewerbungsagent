@@ -16,7 +16,10 @@
 #    Ein Hintergrunddienst hat oft kein Display; dann bleibt es im Log/Status.
 set -euo pipefail
 
-AGENT_DIR="${1:-$HOME/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent}"
+AGENT_DIR="${1:-$HOME/git/bewerbungsagent}"
+# WICHTIG: AGENT_DIR darf NICHT auf einem Google Drive / rclone / bisync
+# synchronisierten Mount liegen. SQLite-WAL-Dateien (data/jobs.db) werden
+# durch gleichzeitigen Sync korrumpiert. Siehe AGENTS.md / docs/BACKUP.md.
 LOG="$AGENT_DIR/data/tageslauf.log"
 STATUS="$AGENT_DIR/data/tageslauf-status.json"
 LOCK="$AGENT_DIR/data/tageslauf.lock"

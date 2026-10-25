@@ -33,6 +33,7 @@ from bewerbungsagent.pipeline import (
     run_match,
     run_search,
 )
+from bewerbungsagent.quality import run_quality
 from bewerbungsagent.saved_searches import (
     find_saved_search,
     load_saved_searches,
@@ -83,6 +84,7 @@ def main(argv=None) -> int:
     sub.add_parser("match", help="Fit-Scoring gegen das Skill-Profil ausführen")
     sub.add_parser("import-old", help="Inhalt des alten Dashboards übernehmen")
     sub.add_parser("enrich", help="Pendelweg + Gehalt + Bereinigung (FIT-Filter) + Auto-Bewerbung")
+    sub.add_parser("quality", help="Erzeugte Unterlagen unabhängig prüfen (Fakten, Pflichtteile, PDF)")
     cln = sub.add_parser("cleanup", help="Alte Bewerbungsordner aufräumen")
     cln.add_argument("--dry-run", action="store_true", help="nur anzeigen, nichts verschieben")
     cln.add_argument("--days", type=int, default=60, help="Altersgrenze in Tagen (Standard 60)")
@@ -242,6 +244,15 @@ def main(argv=None) -> int:
                 print(f"      - {s.get('firma')} — {s.get('titel')}")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
+
+    elif args.command == "quality":
+        result = run_quality(config)
+        print(f"Qualitätsprüfung: {result['geprueft']} Bewerbung(en) mit Unterlagen geprüft, "
+              f"{result['mit_befunden']} mit Befunden.")
+        for d in result.get("details") or []:
+            print(f"  - {d['firma']} — {d['titel']}")
+            for b in d["befunde"]:
+                print(f"      {b}")
 
     elif args.command == "cleanup":
         result = run_cleanup(config, dry_run=args.dry_run, max_age_days=args.days)

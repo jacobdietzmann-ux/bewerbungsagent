@@ -864,3 +864,55 @@ Dimensionen bleiben berichtend, bis ≥ 50 Labels je Klasse vorliegen.
 Dimensionen mit Belegen, Senioritätsstufen, Gehalts-Parsing, K.O. (Gehalt,
 Xing-Schätzung, konfigurierte Seniorität), Merge in den Bestand,
 Dashboard-Zusammenfassung.
+
+## ADR-032 – Qualitätsprüfung als eigener, unabhängiger Schritt
+
+Der Review (P0b) verlangt eine Prüfung der erzeugten Unterlagen: Stimmen
+Tätigkeiten, Zeiträume und Arbeitgeber mit dem Lebenslauf überein? Sind
+Technologien nachweisbar? Werden die Anforderungen der Anzeige adressiert?
+Gibt es erfundene Kompetenzen?
+
+Bisher gab es dafür nichts. Die Generierung ist zwar deterministisch und zieht
+Behauptungen aus dem Profil — aber niemand hat das Ergebnis *gegen* das Profil
+geprüft. Ein Fehler in der Auswahl (falscher Bullet, falsche Station, alter
+Arbeitgeber im Fließtext) wäre unbemerkt geblieben.
+
+**Entscheidung.** `quality.py` prüft jede Bewerbung deterministisch gegen drei
+Quellen und vergibt Schweregrade:
+
+1. **Profil:** Jede Behauptung im Anschreiben muss als Beleg-Bullet im Profil
+   stehen (Signaturvergleich), jeder Zeitraum muss im Profil vorkommen, jeder
+   genannte Arbeitgeber/Projektkunde muss im Profil oder im Stellentitel stehen.
+2. **Anschreiben:** Anrede, Betreff mit Stellentitel und Grußformel müssen
+   vorhanden sein; bestätigte Lücken (`gap_terms`) müssen als
+   Transparenz-Absatz ausgewiesen sein.
+3. **Datei:** PDF existiert, beginnt mit `%PDF`, hat eine plausible Seitenzahl
+   (Anschreiben ≤ 2).
+
+Der Text wird bei der Generierung mitgeschnitten (`text_out`), nicht aus dem
+PDF extrahiert — das spart eine zusätzliche Abhängigkeit. Für alte Unterlagen
+ohne Text läuft nur die Dateiprüfung; `qualitaet.umfang` unterscheidet
+`voll` von `datei`, und das Dashboard zeigt das an („Prüfung – Datei“ statt
+„Prüfung ✓“).
+
+**Kein LLM in dieser Stufe.** Die Prüfung soll nicht überzeugbar sein und
+nichts kosten. Ein Modell-Check für Stil und Individualität ist eine mögliche
+Ergänzung, aber kein Ersatz für „diese Zahl steht nicht im Profil“.
+
+**Realdaten (25.10.2026).** 169 vorhandene Anschreiben neu gerendert und
+geprüft: 0 Fehler, 0 Warnungen, 4 Hinweise (Anschreiben nennt keinen der
+Kernbegriffe aus dem Titel — u. a. „Flight Test & Field Systems Engineer“).
+Der Bestandslauf über 169 Bewerbungen fand 22 alte Bewerbungen, deren
+PDF-Ordner aufgeräumt wurden — als Hinweis, nicht als Fehler, weil sie
+versendet/abgelehnt sind.
+
+**Grenzen.** Die Arbeitgeber- und Anforderungsprüfung sind Heuristiken mit
+Stoppliste; ein englisches Anschreiben darf dieselbe Rolle anders benennen.
+Deshalb sind sie Hinweis/Warnung, nie Fehler. Eine echte PDF-Textextraktion
+fehlt bewusst (keine neue Abhängigkeit).
+
+**Testabdeckung.** `test_quality.py`: erfundene Behauptung, falscher/richtiger
+Zeitraum, fehlende Anrede/Grußformel, Arbeitgeber außerhalb des Profils,
+Arbeitgeber im Bullet/Stellentitel, Lücke ohne Transparenz, Anforderungs-
+Hinweis, PDF-Prüfungen (fehlt, kein PDF, zu viele Seiten), Zusammenfassung
+fürs Dashboard.

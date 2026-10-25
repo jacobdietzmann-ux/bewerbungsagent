@@ -71,18 +71,28 @@ Zum Vergleich: 58 T€ trifft 0, 60 T€ trifft 2, 65 T€ trifft 3 Anzeigen mit
 echter Gehaltsspanne. Die Schwelle ist eine persönliche Entscheidung und in
 `config.json` änderbar.
 
-## P0b — Quality-Knoten (`qualitaet`) vor `review`
+## P0b — Quality-Knoten (`qualitaet`) vor `review` ✅ (Stand 25.10.2026)
 
 **Ziel:** Keine erfundenen Kompetenzen, keine falschen Zeiträume, keine
 unbelegten Behauptungen in versandfertigen Unterlagen.
 
-1. Deterministische Prüfungen zuerst: jede Aussage im Anschreiben gegen das
-   Profil mappen (Tätigkeiten, Zeiträume, Arbeitgeber, Technologien),
-   `_claim_signature` wiederverwenden, Anzeigen-Anforderungen gegen die
-   Absätze prüfen, PDF-Sanity (Seiten, Fonts, `_sanitize`).
-2. Ergebnis in SQLite + Dashboard-Spalte („Prüfung: ok / N Befunde“).
-3. LLM-Prüfung optional und gated: nur für Jobs, die in `generate` gehen.
-4. Tests mit injizierter erfundener Kompetenz und falschem Zeitraum.
+Umgesetzt in `bewerbungsagent/quality.py` (ADR-032):
+
+1. Deterministische Prüfung des gerenderten Anschreibens gegen das Profil:
+   Behauptungen (Signaturvergleich mit den Profil-Bullets), Zeiträume,
+   Arbeitgeber/Projektkunden, Pflichtteile (Anrede, Betreff, Grußformel).
+2. Anzeige: bestätigte Lücken müssen als Transparenz-Absatz erscheinen
+   (Warnung), Kernbegriffe aus dem Titel sollen vorkommen (Hinweis).
+3. Datei: PDF vorhanden, `%PDF`-Header, plausible Seitenzahl. Fehlende PDFs
+   bei versendeten/abgelehnten Bewerbungen sind ein Hinweis (Ordner
+   aufgeräumt), bei offenen ein Fehler.
+4. Befunde landen in SQLite (`qualitaet`) und im Dashboard als
+   „Prüfung ✓ / ⚠ N / ✗ N / – Datei“ mit Tooltip. Neuer Knoten `qualitaet`
+   im Ablauf-Graph und `python agent.py quality` für den Bestand.
+
+**Realdaten:** 169 vorhandene Anschreiben neu gerendert und geprüft —
+0 Fehler, 0 Warnungen, 4 Hinweise. Der Bestandslauf fand 22 alte Bewerbungen
+mit aufgeräumten PDF-Ordnern (nur Hinweis).
 
 ## P1 — Research und Company
 

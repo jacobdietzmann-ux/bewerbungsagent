@@ -33,6 +33,7 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | `salary.py` | Gehalt schätzen, wenn Anzeige keine Zahl nennt | ✅ deterministisch |
 | `commute.py` | Pendelweg (Nominatim + OSRM), mit Cache; Obergrenze `max_pendelzeit_min` | ⚠️ Netzwerk |
 | `documents.py` | Anschreiben + Lebenslauf als PDF (ReportLab-Vorlagen oder eigene DOCX-Vorlage) | ✅ deterministisch |
+| `quality.py` | Prüft erzeugte Unterlagen gegen Profil, Anzeige und Datei (P0b) | ✅ deterministisch |
 | `dashboard.py` | HTML-Dashboard rendern (Template + Daten) | ✅ deterministisch |
 | `scripts/build_agent_map.py` | Agenten-Map erzeugen (Ablauf- + Geografie-Karte) | ✅ deterministisch |
 | `pipeline.py` | Orchestrierung der Stufen, State-Merge | teils |
@@ -224,6 +225,35 @@ Anzeigen-Gehalt, dessen **oberes** Ende unter `ko_gehalt_min_tsd` liegt
 leer). Eine K.O. blockiert nur die *automatische* Unterlagenerzeugung — die
 Stelle bleibt im Dashboard sichtbar und per `--ids` bedienbar. Schätzungen
 („Xing-Schätzung“) zählen nie als Anzeigen-Gehalt.
+
+## Qualitätsprüfung der Unterlagen (`quality.py`, ADR-032)
+
+Jede erzeugte Bewerbung wird unabhängig geprüft — nicht von der Stelle, die sie
+geschrieben hat. Drei Quellen, drei Prüfebenen:
+
+| Ebene | Prüft | Schwere bei Verstoß |
+|---|---|---|
+| Profil | jede Behauptung im Anschreiben hat einen Beleg-Bullet im Profil | Fehler |
+| Profil | jeder genannte Zeitraum existiert im Profil | Fehler |
+| Profil | jeder genannte Arbeitgeber/Projektkunde steht im Profil oder im Stellentitel | Fehler |
+| Anschreiben | Anrede, Betreff mit Stellentitel, Grußformel | Fehler |
+| Anzeige | bestätigte Lücke (`gap_terms`) wird als Transparenz-Absatz ausgewiesen | Warnung |
+| Anzeige | Kernbegriffe aus dem Titel kommen im Text vor | Hinweis |
+| Datei | PDF existiert, beginnt mit `%PDF`, hat plausible Seitenzahl | Fehler/Warnung |
+
+Der Anschreiben-Text wird bei der Generierung mitgeschnitten
+(`generate_anschreiben(..., text_out=...)`), nicht aus dem PDF extrahiert —
+dafür wäre eine zusätzliche PDF-Abhängigkeit nötig. Alte Bewerbungen, für die
+kein Text vorliegt, werden nur auf Dateiebene geprüft; das Feld
+`qualitaet.umfang` (`voll` | `datei`) macht den Unterschied im Dashboard
+sichtbar („Prüfung ✓“ vs. „Prüfung – Datei“).
+
+**Wo sie läuft:** bei jeder Generierung (`_generate_one`), als eigener
+Knoten `qualitaet` im Ablauf-Graph (nach `generate`, vor `review`) und per
+`python agent.py quality` für den gesamten Bestand. Ein Lauf ändert keine
+Dokumente — er schreibt nur Befunde in die Datenbank. Fehlende PDFs bei
+versendeten/abgeschlossenen Bewerbungen sind ein *Hinweis* (Ordner wurde
+aufgeräumt), bei offenen Bewerbungen ein *Fehler*.
 
 ## Evaluation (`eval/`)
 

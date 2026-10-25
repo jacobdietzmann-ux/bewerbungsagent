@@ -27,6 +27,7 @@ from .industry import classify_industry
 from .matching import (fit_value, has_role_signal, is_student_role,
                        is_technician_role, match_jobs)
 from .profile import Profile, normalize
+from .quality import check_application
 from .salary import enrich_salary
 from .search import run_search as _search
 from .statuses import normalize_status
@@ -652,6 +653,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             # Dokument-Referenzen direkt in den In-Memory-Zustand übernehmen,
             # damit sie nicht durch den finalen ``_persist_state`` verloren gehen.
             a["dokumente"] = {**a.get("dokumente", {}), **created["dokumente"]}
+            if created.get("qualitaet") is not None:
+                a["qualitaet"] = created["qualitaet"]
             if a.get("status") in (None, "research", "neu"):
                 a["status"] = "docs"
 
@@ -739,7 +742,7 @@ def _merge_state(existing: dict, matches: list[dict],
                     "title_hits", "body_hits", "location_bonus", "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
                     "pendelzeit_min", "pendeldistanz_km", "homeoffice",
-                    "dimensionen")
+                    "dimensionen", "qualitaet")
 
     result = []
     seen: set[str] = set()
@@ -811,13 +814,20 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     template = template or (config.data["documents"].get("lebenslauf_template") or DEFAULT_CV_TEMPLATE)
     languages = config.data["documents"].get("languages", ["de"])
     files: dict[str, str] = {}
+    texte: dict[str, str] = {}
+    pdfs: dict[str, Path] = {}
     for lang in languages:
         names = config.doc_names(lang)
-        ans = generate_anschreiben(profile, job, match, folder / names["anschreiben"], config.data, lang)
+        capture: list[str] = []
+        ans = generate_anschreiben(profile, job, match, folder / names["anschreiben"],
+                                   config.data, lang, text_out=capture)
+        texte[f"anschreiben_{lang}"] = "\n".join(capture)
+        pdfs[f"anschreiben_{lang}"] = Path(ans)
         # Eigene DOCX-Vorlage bevorzugen (mit pro-Stelle angepasstem Profil-Absatz);
         # bei fehlender Vorlage fällt die Funktion intern auf ReportLab zurück.
         cv = generate_lebenslauf_vorlage(profile, job, match, folder / names["lebenslauf"], config.data, lang,
                                          template=template)
+        pdfs[f"lebenslauf_{lang}"] = Path(cv)
         files[f"anschreiben_{lang}"] = _rel(ans)
         files[f"lebenslauf_{lang}"] = _rel(cv)
 
@@ -832,9 +842,14 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     if ref:
         files["referenzschreiben"] = _rel(ref)
 
-    _record_docs(config, job, files)
+    # Qualitätsprüfung (P0b): Behauptungen, Zeiträume, Arbeitgeber, Pflichtteile
+    # und die PDF-Dateien selbst — unabhängig von der Generierung.
+    qualitaet = check_application(profile, job, match, config.data,
+                                  texte=texte, pdfs=pdfs)
+
+    _record_docs(config, job, files, qualitaet=qualitaet)
     return [{"id": job.get("id"), "firma": job.get("firma"), "titel": job.get("titel"),
-             "dokumente": files}]
+             "dokumente": files, "qualitaet": qualitaet}]
 
 
 def _stellenanzeige_text(job: dict) -> str:
@@ -855,13 +870,16 @@ def _rel(path: Path) -> str:
     return os.path.relpath(str(path), str(AGENT_ROOT))
 
 
-def _record_docs(config: Config, job: dict, files: dict) -> None:
+def _record_docs(config: Config, job: dict, files: dict,
+                 qualitaet: dict | None = None) -> None:
     store = _store(config)
     state = store.load_state()
     key = job.get("key") or _job_key(job)
     for a in state.get("applications", []):
         if a.get("key") == key:
             a["dokumente"] = {**a.get("dokumente", {}), **files}
+            if qualitaet is not None:
+                a["qualitaet"] = qualitaet
             if a.get("status") in (None, "research", "neu"):
                 a["status"] = "docs"
             break

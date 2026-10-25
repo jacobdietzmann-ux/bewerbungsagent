@@ -339,6 +339,20 @@ def _dim_summary(dims: dict | None) -> dict | None:
     }
 
 
+def _quality_summary(quality: dict | None) -> dict | None:
+    """Kompakte Anzeigeform der Qualitätsprüfung (P0b)."""
+    if not isinstance(quality, dict):
+        return None
+    befunde = quality.get("befunde") or []
+    return {
+        "ok": bool(quality.get("ok")),
+        "n": len(befunde),
+        "errors": sum(1 for f in befunde if f.get("schwere") == "fehler"),
+        "umfang": quality.get("umfang") or "datei",
+        "befunde": [f'{f.get("schwere", "?")}: {f.get("detail", "")}' for f in befunde[:6]],
+    }
+
+
 def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
     fit = fit_value(app)
 
@@ -378,6 +392,7 @@ def _to_data(app: dict, letzter_fund: dict | None = None) -> dict:
         "status": normalize_status(app.get("status")),
         "fit": fit,
         "dim": _dim_summary(app.get("dimensionen")),
+        "quality": _quality_summary(app.get("qualitaet")),
         "salary": app.get("gehalt", "") or "",
         "salarySource": app.get("gehalt_quelle", "") or "",
         "commute": app.get("pendelzeit_min"),
@@ -643,6 +658,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <strong>„neu gefunden":</strong> Die Stelle gehört zum jüngsten Fund (blauer Balken links, Badge an der Position, Filter oben). Das bleibt stehen, bis ein Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht.<br>
       <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
       <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
+      <strong>Prüfung:</strong> Qualitätsprüfung der erzeugten Unterlagen — <span style="color:#22c55e">✓ bestanden</span>, <span style="color:#fbbf24">⚠ nur Hinweise</span>, <span style="color:#fca5a5">✗ Fehler</span>. Der Tooltip nennt die Befunde (Behauptung ohne Profil-Beleg, falscher Zeitraum, fehlender Pflichtteil, PDF-Problem).<br>
       <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
       <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
       <strong>Aktion (🗑):</strong> Entfernt den Eintrag aus dem Dashboard (nach Bestätigung); rückgängig nur über „Auf Standard zurücksetzen".
@@ -878,6 +894,18 @@ function dimBadge(d) {
     : "";
   return `<div style="margin-top:4px;font-size:10px;color:#94a3b8;cursor:help"
     title="Mehrdimensionale Bewertung (berichtend): ${esc(d.detail)}">Dim ${d.gesamt}%${ko}</div>`;
+}
+function qualityBadge(q) {
+  // Qualitätsprüfung (P0b): ✓ bestanden, ⚠ nur Hinweise, ✗ Fehler.
+  if (!q) return "";
+  if (q.umfang !== "voll") {
+    return `<div style="margin-top:4px;font-size:10px;color:#64748b" title="Nur die PDF-Dateien wurden geprüft. Die Textprüfung (Behauptungen, Zeiträume) läuft bei der nächsten Generierung.">Prüfung – Datei</div>`;
+  }
+  if (!q.n) return `<div style="margin-top:4px;font-size:10px;color:#22c55e" title="Qualitätsprüfung: alle Prüfungen bestanden">Prüfung ✓</div>`;
+  const color = q.errors ? "#fca5a5" : "#fbbf24";
+  const symbol = q.errors ? "✗" : "⚠";
+  return `<div style="margin-top:4px;font-size:10px;color:${color};cursor:help"
+    title="${esc((q.befunde || []).join(' · '))}">Prüfung ${symbol} ${q.n}</div>`;
 }
 function salaryBadge(s, source) {
   if (!s) return '<span style="color:#64748b">k. A.</span>';
@@ -1231,7 +1259,7 @@ function renderRows() {
       </td>
       <td class="center">${fitBadge(r.fit)}${dimBadge(r.dim)}</td>
       <td class="center">${salaryBadge(r.salary, r.salarySource)}</td>
-      <td class="center">${linkBadge(r)}${docLinks ? "<br>" + docLinks : ""}${openBtn}</td>
+      <td class="center">${linkBadge(r)}${docLinks ? "<br>" + docLinks : ""}${openBtn}${qualityBadge(r.quality)}</td>
       <td class="center"><button class="row-delete" data-i="${i}" title="Eintrag aus dem Dashboard entfernen">🗑</button></td>
     `;
     tb.appendChild(tr);

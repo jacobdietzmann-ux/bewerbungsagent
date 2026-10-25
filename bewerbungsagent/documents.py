@@ -2130,12 +2130,24 @@ def copy_reference_letter(profile: Profile, folder) -> str | None:
     return str(dst)
 
 
-def generate_anschreiben(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de") -> str:
-    """Erzeugt das Anschreiben; kürzt automatisch, falls es > 1 Seite wird."""
+def generate_anschreiben(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de",
+                         text_out: list[str] | None = None) -> str:
+    """Erzeugt das Anschreiben; kürzt automatisch, falls es > 1 Seite wird.
+
+    ``text_out`` (optional) fängt den gerenderten Klartext der letzten
+    (endgültigen) Fassung ein — Grundlage der Qualitätsprüfung in ``quality.py``.
+    """
     decor = _page_decorator(HexColor(config["documents"].get("accent_color", "#0B3D5C")))
 
     def _build(max_bullets: int) -> int:
         story, _accent = _letter_story(profile, job, match, config, lang, max_bullets=max_bullets)
+        if text_out is not None:
+            text_out.clear()
+            for flowable in story:
+                try:
+                    text_out.append(flowable.getPlainText())
+                except AttributeError:
+                    continue
         doc = SimpleDocTemplate(
             str(out_path), pagesize=A4,
             leftMargin=22 * mm, rightMargin=22 * mm, topMargin=20 * mm, bottomMargin=18 * mm,

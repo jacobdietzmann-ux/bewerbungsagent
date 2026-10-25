@@ -35,6 +35,7 @@ from .pipeline import (
     run_search,
 )
 from .profile import Profile
+from .quality import run_quality
 
 # Höchstens so viele Nachladeversuche, bevor der Graph aufgibt. Eine Obergrenze
 # ist Pflicht: ohne sie kann eine Schleife im Graph nicht terminieren, und ein
@@ -58,6 +59,7 @@ class Ablauf(TypedDict, total=False):
     match: dict
     enrich: dict
     generate: dict
+    qualitaet: dict
     dashboard: dict
 
     # Zähler und Entscheidungen
@@ -193,6 +195,17 @@ def knoten_review(state: Ablauf) -> Ablauf:
     return {"weg": _notiere(state, "review")}
 
 
+def knoten_qualitaet(state: Ablauf) -> Ablauf:
+    """Prüft die erzeugten Unterlagen unabhängig (Datei-Ebene).
+
+    Text-Befunde entstehen bereits bei der Generierung (``_generate_one``);
+    dieser Knoten frischt die Datei-Prüfungen auf, damit ein abgebrochener
+    Lauf oder ein manuell gelöschtes PDF sichtbar wird.
+    """
+    result = run_quality(state["config"])
+    return {"qualitaet": result, "weg": _notiere(state, "qualitaet")}
+
+
 def knoten_dashboard(state: Ablauf) -> Ablauf:
     """Dashboard rendern (Endzustand der Sicht)."""
     result = run_dashboard(state["config"])
@@ -242,6 +255,7 @@ def build_graph(*, review: bool = True):
     g.add_node("match", knoten_match)
     g.add_node("enrich", knoten_enrich)
     g.add_node("generate", knoten_generate)
+    g.add_node("qualitaet", knoten_qualitaet)
     g.add_node("dashboard", knoten_dashboard)
 
     g.add_edge(START, "suche")
@@ -252,13 +266,14 @@ def build_graph(*, review: bool = True):
     g.add_edge("beschreibung", "triage")
     g.add_edge("match", "enrich")
     g.add_edge("enrich", "generate")
+    g.add_edge("generate", "qualitaet")
 
     if review:
         g.add_node("review", knoten_review)
-        g.add_edge("generate", "review")
+        g.add_edge("qualitaet", "review")
         g.add_edge("review", "dashboard")
     else:
-        g.add_edge("generate", "dashboard")
+        g.add_edge("qualitaet", "dashboard")
 
     g.add_edge("dashboard", END)
     return g.compile()

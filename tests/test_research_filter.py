@@ -58,6 +58,28 @@ class TestKeepReason:
         assert research_keep_reason(app, 30, SETTINGS) == ""
 
 
+class TestDefaults:
+    def test_default_fenster_beginnt_bei_65(self, tmp_path):
+        from bewerbungsagent.pipeline import _research_filter_settings
+
+        assert _research_filter_settings(_config(tmp_path))["fit_min"] == 65
+
+
+class TestDokumentierteResearch:
+    """Research mit alten Unterlagen: unter 65 % kein Research-Fall (ADR-036)."""
+
+    def test_unter_65_wird_entfernt(self, tmp_path):
+        apps = [_app(fit_pct=62, dokumente={"de": {}})]
+        _apply_research_filter(_config(tmp_path), apps)
+        assert apps[0].get("deleted") is True
+        assert str(apps[0].get("deleted_reason", "")).startswith("research-kriterium")
+
+    def test_ab_65_bleibt(self, tmp_path):
+        apps = [_app(fit_pct=65, dokumente={"de": {}})]
+        _apply_research_filter(_config(tmp_path), apps)
+        assert not apps[0].get("deleted")
+
+
 def _config(tmp_path, **research) -> Config:
     data = {
         "data_dir": str(tmp_path / "data"),

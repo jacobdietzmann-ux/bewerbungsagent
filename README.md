@@ -477,7 +477,7 @@ Aus dem Fit folgt der Status — die Grenzen stehen in `bewerbungsagent/pipeline
 | Fit | Status | Dokumente |
 |---|---|---|
 | < 50 % | ausgeblendet | – |
-| 50–70 % | `Research` (Filter hält 60–70 % bzw. Pendelweg knapp drüber) | keine |
+| 50–70 % | `Research` (Filter hält 65–70 % bzw. Pendelweg knapp drüber; 50–64 % wird verborgen) | keine |
 | > 70 % | `Dokumente erstellt` | ja |
 
 Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch — deshalb
@@ -558,7 +558,7 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
 - `research_filter` – begrenzt den `research`-Bestand. Behalten werden nur Funde mit
-  Fit zwischen `fit_min` und `fit_max` (Standard 60–70 %) oder mit Pendelweg bis
+  Fit zwischen `fit_min` und `fit_max` (Standard 65–70 %) oder mit Pendelweg bis
   `max_pendelzeit_min + commute_grace_min` (Standard 40 min). Funde **oberhalb**
   des Fensters sind keine Research-Fälle mehr, sondern Dokumenten-Kandidaten und
   werden nicht gelöscht. Alles andere wird nur als `deleted` markiert (nichts wird

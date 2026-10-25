@@ -281,12 +281,18 @@ RESEARCH_REASON_PREFIX = "research-kriterium"
 
 
 def _research_filter_settings(config: Config) -> dict | None:
-    """Einstellungen des Research-Filters oder ``None`` bei ``enabled: false``."""
+    """Einstellungen des Research-Filters oder ``None`` bei ``enabled: false``.
+
+    ``fit_min`` ist standardmäßig 65: Ein Fund unterhalb der Unterlagen-Schwelle
+    (71) ist nur dann eine Entscheidung wert, wenn er nah genug daran liegt.
+    60–64-%-Treffer waren der Grund, warum immer wieder schwache Stellen als
+    ``research`` im Dashboard standen (ADR-036).
+    """
     raw = config.data.get("research_filter") or {}
     if raw.get("enabled") is False:
         return None
     return {
-        "fit_min": int(raw.get("fit_min", 60)),
+        "fit_min": int(raw.get("fit_min", 65)),
         "fit_max": int(raw.get("fit_max", 70)),
         "commute_grace_min": int(raw.get("commute_grace_min", 10)),
     }
@@ -642,6 +648,15 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         if _fit_value(a) >= schwellenwert:
             continue
         a["status"] = "research"
+        # Ein zurückgenommener Fund ist nur dann ein Research-Fall, wenn er im
+        # Research-Fenster liegt. Alles darunter wird noch im selben Lauf
+        # verborgen — sonst stünde die Stelle bis zum nächsten Lauf sichtbar
+        # als „Research“ im Dashboard (ADR-036).
+        research = _research_filter_settings(config)
+        if research and _fit_value(a) < research["fit_min"]:
+            a["deleted"] = True
+            a["deleted_reason"] = (f"{RESEARCH_REASON_PREFIX}: FIT {int(_fit_value(a))} "
+                                   f"< {research['fit_min']} %")
         zurueckgenommen.append({"firma": a.get("firma"), "titel": a.get("titel"),
                                 "fit": _fit_value(a)})
 

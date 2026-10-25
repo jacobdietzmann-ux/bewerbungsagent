@@ -81,17 +81,29 @@ class TestDocumentedJobsKeepVisible:
         result = _run(config, [_job("ohne-unterlagen")])
         assert result["deleted_fit_under_50"] == 1
 
-    def test_niedriger_fit_mit_unterlagen_bleibt_sichtbar(self, config):
-        """Kernregel: erzeugte Dokumente = bewusste Entscheidung."""
+    def test_niedriger_fit_mit_unterlagen_ohne_auftrag_wird_verborgen(self, config):
+        """Unter 65 % ist kein Research-Fall — auch mit alten Dateien (ADR-036)."""
         apps = [_job("mit-unterlagen", dokumente={"de": {"anschreiben": "x.pdf"}})]
-        result = _run(config, apps)
-        assert result["deleted_fit_under_50"] == 0
-        state = Store(config.db_path()).load_state()
-        assert not state["applications"][0].get("deleted")
+        _run(config, apps)
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app["status"] == "research"
+        assert app.get("deleted") is True
+        assert str(app.get("deleted_reason", "")).startswith("research-kriterium")
+        # Die Dateien bleiben referenziert — es wird nichts gelöscht.
+        assert app["dokumente"]
+
+    def test_niedriger_fit_mit_auftrag_bleibt_sichtbar(self, config):
+        """``unterlagen_gewuenscht`` ist die ausdrückliche Entscheidung."""
+        apps = [_job("mit-auftrag", dokumente={"de": {"anschreiben": "x.pdf"}},
+                     unterlagen_gewuenscht=True)]
+        _run(config, apps)
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app["status"] == "docs"
+        assert not app.get("deleted")
 
     def test_bereits_ausgeblendete_dokumentierte_werden_zurueckgeholt(self, config):
         """Einmalige Reparatur: frühere Läufe haben sie allein wegen FIT versteckt."""
-        apps = [_job("alt", deleted=True, dokumente={"de": {}})]
+        apps = [_job("alt", deleted=True, dokumente={"de": {}}, unterlagen_gewuenscht=True)]
         result = _run(config, apps)
         assert result["restored_documented"] == 1
         state = Store(config.db_path()).load_state()
@@ -385,7 +397,8 @@ class TestFitBaender:
         assert [z["titel"] for z in result["zurueckgenommen"]] == ["Testingenieur"]
         app = Store(config.db_path()).load_state()["applications"][0]
         assert app["status"] == "research"
-        # Die Dateien bleiben referenziert — es wird nichts gelöscht.
+        # Unter 65 % bleibt der Fund verborgen, die Dateien bleiben liegen.
+        assert app.get("deleted") is True
         assert app["dokumente"]
 
     def test_versendete_stelle_im_mittelband_bleibt_docs(self, config):

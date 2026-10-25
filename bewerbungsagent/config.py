@@ -115,7 +115,7 @@ DEFAULT_CONFIG: dict = {
     # Stellen, die knapp über der Pendelgrenze liegen (zweite Chance).
     "research_filter": {
         "enabled": True,
-        "fit_min": 60,          # Fenster „knapp unter der Unterlagen-Schwelle“
+        "fit_min": 65,          # Fenster „knapp unter der Unterlagen-Schwelle“ (71)
         "fit_max": 70,
         "commute_grace_min": 10,  # „leicht über der Pendelgrenze“ = Grenze + 10
     },

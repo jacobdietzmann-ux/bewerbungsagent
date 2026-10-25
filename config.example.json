@@ -78,7 +78,7 @@
   "max_pendelzeit_min": 30,
   "research_filter": {
     "enabled": true,
-    "fit_min": 60,
+    "fit_min": 65,
     "fit_max": 70,
     "commute_grace_min": 10
   },

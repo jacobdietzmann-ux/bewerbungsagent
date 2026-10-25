@@ -11,8 +11,17 @@ Dashboard als Lese-/Schreib-Oberfläche:
   │ Provider │   │ Scoring  │   │ PDFs      │   │ HTML+Server│
   └──────────┘   └──────────┘   └───────────┘   └────────────┘
        │              │               │               │
-   jobs.json     matches.json   01_Bewerbungen/   state.json
+   jobs.json      matches.json   01_Bewerbungen/   dashboard.html
+   (Zwischenstand) (Zwischenstand) (PDFs)          (aus SQLite)
+                              │
+                              ▼
+                   data/jobs.db     — Quelle der Wahrheit (SQLite)
+                   data/state.json  — abgeleiteter Snapshot (Backup)
 ```
+
+Die JSON-Dateien `jobs.json`/`matches.json` sind nur der Zwischenstand der
+jeweiligen Stufe; gelesen und geschrieben wird der Bestand über
+`db.Store` (SQLite). `state.json` ist ein Export für Backup und Sync.
 
 SQLite (`data/jobs.db`) ist die Quelle der Wahrheit; `state.json` ist ein
 abgeleiteter Snapshot. Stellen mit einer bekannten Pendelzeit über

@@ -111,8 +111,10 @@ mit aufgeräumten PDF-Ordnern (nur Hinweis).
 1. **Integrationstests:** gemockte Provider mit kaputten Daten, Dubletten-
    Import, verschwindende/geänderte Anzeige, fehlgeschlagene Migration,
    abgebrochenes `generate`, unterbrochener Tageslauf.
-2. **Doku vereinheitlichen:** Diagramm in `ARCHITECTURE.md` auf SQLite-first,
-   Matching-Gewichte ins README, ADR für die neuen Dimensionen.
+2. **Doku vereinheitlichen:** ✅ Diagramm in `ARCHITECTURE.md` auf SQLite-first
+   (JSON nur noch als Zwischenstand gekennzeichnet); ✅ ADR-031/032/033. Die
+   Matching-Gewichte standen im README bereits korrekt (6/4/2) — der Review hatte
+   hier eine ältere Fassung gesehen.
 3. **Career:** ✅ Nachfassen umgesetzt (`followup.py`, Dashboard-Filter +
    KPI, `agent.py followup --write`). ⏳ Offen: Interview-Vorbereitung
    (Briefing-Vorlage, Fragenkatalog) — als Templates, nicht als Automatisierung.

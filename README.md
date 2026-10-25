@@ -464,6 +464,13 @@ Deutsch/englische Varianten werden über eine Synonym-Brücke zusammengeführt (
 matcht auch „test automation“/„testautomation“). Kategorien: `hoch` ≥ 65, `mittel` ≥ 40, sonst
 `niedrig`.
 
+Zusätzlich bewertet `bewerbungsagent/dimensions.py` dieselbe Stelle in sieben Dimensionen
+(Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell, Entwicklung) —
+**berichtend**: Der Fit-Wert bleibt der Keyword-Score, die Dimensionen erscheinen im Dashboard
+als „Dim NN %“ und dienen der Diagnose. Hart ist nur die K.O.-Liste (Anzeigen-Gehalt unter
+`matching.dimensions.ko_gehalt_min_tsd`), sie blockiert die automatische Unterlagenerzeugung.
+Details: `docs/ARCHITECTURE.md`, ADR-031.
+
 Aus dem Fit folgt der Status — die Grenzen stehen in `bewerbungsagent/pipeline.py`:
 
 | Fit | Status | Dokumente |

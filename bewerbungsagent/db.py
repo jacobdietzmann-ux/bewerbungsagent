@@ -40,6 +40,11 @@ USER_FIELDS = (
     # Entscheidung des Nutzers, kein ableitbarer Zustand — deshalb hier und
     # nicht im Provider-Anteil, den ein Suchlauf neu schreiben darf.
     "research_sichtbar",
+    # Ausdrücklich angeforderte Unterlagen für eine Stelle unterhalb der
+    # Unterlagen-Schwelle. Schützt vor der automatischen Rücknahme des Status
+    # (``run_enrich`` Schritt 6), damit die Anforderung nicht nach einem Lauf
+    # still aufgehoben ist.
+    "unterlagen_gewuenscht",
 )
 
 # Status, den ein CLI-Lauf nicht zurückstufen darf: was der Nutzer als

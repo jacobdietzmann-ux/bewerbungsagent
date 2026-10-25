@@ -22,10 +22,10 @@ import sys
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 # Normalisierung der Statuswerte aus dem Agent-Package (einzelne Quelle der Wahrheit).
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from bewerbungsagent.statuses import normalize_status
 except Exception:
@@ -347,18 +347,25 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _handle_open(self, parsed):
         params = parse_qs(parsed.query)
-        rel = unquote((params.get("path") or [""])[0]).replace("/", os.sep)
-        target = os.path.abspath(os.path.join(ROOT, rel))
-
-        root_norm = os.path.normcase(ROOT + os.sep)
-        if not os.path.normcase(target + os.sep).startswith(root_norm):
+        rel = unquote((params.get("path") or [""])[0])
+        # Backslashes zu Slashes normalisieren (schützt vor URL-encoded
+        # Backslash-Traversal auf Windows, z. B. %5c%5c..%5c..%5c)
+        rel = rel.replace("\\", "/")
+        # ..-Segmente ablehnen, bevor der Pfad aufgelöst wird
+        if ".." in rel.split("/"):
+            return self._text(403, "Pfad enthält nicht erlaubte ..-Segmente.")
+        target = (Path(ROOT) / rel).resolve()
+        root_resolved = Path(ROOT).resolve()
+        try:
+            target.relative_to(root_resolved)
+        except ValueError:
             return self._text(403, "Pfad ausserhalb des erlaubten Bereichs.")
-        if not os.path.isdir(target):
+        if not target.is_dir():
             return self._text(404, "Ordner nicht gefunden: " + rel)
 
         try:
-            open_in_file_manager(target)
-            print("[open] " + target)
+            open_in_file_manager(str(target))
+            print("[open] " + str(target))
             return self._text(200, "ok")
         except Exception as exc:
             return self._text(500, "Fehler beim Öffnen: " + str(exc))

@@ -1074,7 +1074,7 @@ wird entfernt, 65 % bleibt. `test_enrich_cleanup.py`: dokumentierte Stelle ohne
 Auftrag wird nach Rücknahme verborgen, mit `unterlagen_gewuenscht` bleibt sie
 `docs` und sichtbar.
 
-## ADR-036 – Stellenbezogenes Lebenslauf-Tailoring als eigenes File
+## ADR-037 – Stellenbezogenes Lebenslauf-Tailoring als eigenes File
 
 Ausgangslage: Der Lebenslauf entstand aus der eigenen DOCX-Vorlage, wobei nur
 der Profil-Absatz pro Stelle ersetzt wurde — Stationen, Bullets und

@@ -78,7 +78,7 @@ genau dafür gibt es `tests/`.
    `classic` | `awesome` | `deedy` | `mcdowell` | `sidebar` | `elegant` |
    `clean`), optional per CLI `--template`.
    Liegt im Bewerbungsordner eine **`Lebenslauf-Tailoring.json`**, wird der
-   Lebenslauf daraus gebaut (ReportLab, `tailoring.py`): Headline, Profilabsatz,
+   Lebenslauf daraus gebaut (ReportLab, `tailoring.py`, ADR-037): Headline, Profilabsatz,
    Stations-Bullets, Fähigkeitsgruppen und Kernkompetenz-Karten kommen aus dem
    File. Die DOCX-Vorlage wird dann bewusst nicht verwendet — sie erlaubt nur
    das Ersetzen eines Absatzes. Das Tailoring wählt aus und formuliert um, es

@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
+from ..provider_health import is_disabled
 from . import (arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual,
                stepstone, xing)
 
@@ -42,6 +43,13 @@ _LISTING_HINTS = (
     " - glassdoor", " - kimeta", "tausende freie jobs", "neuer job:",
     "projekte für", "projekte fuer",
 )
+
+
+def _collect(stats: dict, name: str, gefunden: int, fehler: list[str]) -> None:
+    """Sammelt das Ergebnis eines Providers in der Lauf-Statistik."""
+    entry = stats.setdefault(name, {"gefunden": 0, "fehler": []})
+    entry["gefunden"] += max(0, int(gefunden))
+    entry["fehler"].extend(str(f) for f in fehler)
 
 
 def _is_listing_page(title: str) -> bool:
@@ -124,13 +132,20 @@ def _terms_for_provider(s: dict, name: str) -> list[str]:
 
 
 def run_search(config: Config, profile: Profile,
-               definition: dict | None = None) -> tuple[list[dict], list[str]]:
+               definition: dict | None = None,
+               health: dict | None = None,
+               stats: dict | None = None) -> tuple[list[dict], list[str], int]:
     """Führt eine Suche aus.
 
     ``definition`` (optional) überschreibt einzelne Suchparameter — für
     „gespeicherte Suchen": ``{"query_terms": [...], "location": "...",
     "providers": [...]}``. Ohne Angabe wird die Standard-Suche aus ``config.json``
     verwendet. Manueller Import läuft unabhängig davon immer mit.
+
+    ``health`` (optional) ist der gespeicherte Zustand der Quellen
+    (``provider_health``): deaktivierte Provider werden übersprungen.
+    ``stats`` (optional, Ausgabe) sammelt je Provider ``gefunden``/``fehler``;
+    der Aufrufer verrechnet sie mit der Historie.
     """
     s = dict(config.data["search"])
     if definition:
@@ -175,8 +190,22 @@ def run_search(config: Config, profile: Profile,
 
     # 2) Web-Provider.
     if s.get("enabled", True):
+        stats = stats if stats is not None else {}
+        # Die Statistik wird pro Provider aus dem Delta von ``jobs``/``errors``
+        # gebildet — so braucht kein Provider-Zweig eigene Zählzeilen.
+        current: str | None = None
+        before_jobs = before_errors = 0
         for name in s.get("providers", []):
+            if current is not None:
+                _collect(stats, current, len(jobs) - before_jobs, errors[before_errors:])
             if name == "manual":
+                current = None
+                continue
+            current = name
+            before_jobs, before_errors = len(jobs), len(errors)
+            if health is not None and is_disabled(health, name):
+                stats[name] = {"gefunden": 0, "fehler": [], "uebersprungen": "deaktiviert"}
+                current = None
                 continue
             provider = {"duckduckgo": duckduckgo, "bing": bing,
                         "stepstone": stepstone, "jobspy": jobspy,
@@ -333,6 +362,9 @@ def run_search(config: Config, profile: Profile,
                             add(_to_job(raw))
                     except Exception as exc:
                         errors.append(f"{name} ({query[:40]}...): {exc}")
+
+        if current is not None:
+            _collect(stats, current, len(jobs) - before_jobs, errors[before_errors:])
 
     # IDs vergeben.
     for i, job in enumerate(jobs, start=1):

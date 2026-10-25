@@ -96,13 +96,14 @@ mit aufgeräumten PDF-Ordnern (nur Hinweis).
 
 ## P1 — Research und Company
 
-1. **Provider-Gesundheit:** Erfolgs-/403-/Rate-Limit-Statistik pro Quelle in
-   SQLite; Auto-Deaktivierung nach N Fehlläufen in Folge, manuelle
-   Reaktivierung. Priorität ATS > StepStone > Arbeitnow > Rest.
-   *Snapshot 25.10.2026:* ATS-Boards fehlerfrei (9 Firmen, 2.772 Treffer,
+1. **Provider-Gesundheit** ✅ (25.10.2026): `provider_health.py` zählt je Quelle
+   Läufe, Funde und Fehler in der SQLite-Meta-Tabelle; nach 3 Fehlläufen in
+   Folge (Fehler **und** 0 Funde) wird die Quelle abgeschaltet, `agent.py
+   providers --enable NAME` schaltet sie zurück. JobSpy-Fehler werden aus dem
+   Log abgefangen, weil die Bibliothek sie nicht wirft.
+   *Snapshot des Messlaufs:* ATS-Boards fehlerfrei (9 Firmen, 2.772 Treffer,
    202 im Umkreis), StepStone 109, Arbeitnow 85, JobLeads 66, XING 19,
-   Indeed 13; JobSpy/Google/Indeed weiter 403 bzw. „no job data“ (erwartet,
-   trägt den Lauf nicht). 2 Pendelwege nicht ermittelbar.
+   Indeed 13; JobSpy/Google/Indeed 403 (erwartet). 2 Pendelwege nicht ermittelbar.
 2. **Suchprofile** ✅ gemessen (25.10.2026): Ausgangslage 23 Begriffe, ergänzt
    um Testmanager, Testleiter, Software-in-the-Loop, Hardware-in-the-Loop;
    „Teilprojektleiter Funktionsintegration“ nach der Messung wieder entfernt.

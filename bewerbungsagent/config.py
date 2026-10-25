@@ -99,6 +99,10 @@ DEFAULT_CONFIG: dict = {
         # jobs.labo.de ist serverseitig gerendert, braucht aber je Begriff eine
         # eigene Anfrage (keine begriffsübergreifende Suche).
         "labo_max_jobs": 120,
+        # Zustand der Such-Quellen: Nach so vielen Fehlläufen in Folge wird
+        # eine Quelle abgeschaltet (manuell wieder einschaltbar über
+        # `agent.py providers --enable NAME`).
+        "provider_health": {"max_failures": 3},
     },
     # Stellen mit längerem Pendelweg (Auto, ab Wohnadresse) werden gar nicht erst
     # angelegt: keine Unterlagen, keine Anzeige im Dashboard. Unbekannte

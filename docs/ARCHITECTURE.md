@@ -48,6 +48,7 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | `scripts/build_agent_map.py` | Agenten-Map erzeugen (Ablauf- + Geografie-Karte) | ✅ deterministisch |
 | `pipeline.py` | Orchestrierung der Stufen, State-Merge | teils |
 | `search/*` | Provider (StepStone, DuckDuckGo, Bing, manuell) | ⚠️ Netzwerk |
+| `provider_health.py` | Erfolg/Fehler je Such-Quelle, automatische Abschaltung | ✅ deterministisch |
 | `storage.py` | JSON lesen/schreiben | ✅ |
 | `server.py` | Lokaler HTTP-Server (Dashboard + `/state`-API) | ⚠️ |
 
@@ -281,6 +282,21 @@ Filter „Nur Nachfassen fällig“ und eine KPI-Karte. `python agent.py followu
 [--days N] [--write]` listet die Fälle; `--write` legt `Follow-up_de.txt`
 (oder `_en.txt`) in den Bewerbungsordner. Versendet wird nichts automatisch —
 der Statuswechsel auf `followup` bleibt eine Entscheidung im Dashboard.
+
+## Provider-Gesundheit (`provider_health.py`)
+
+Jeder Suchlauf verrechnet je Quelle Funde und Fehler in der SQLite-Meta-Tabelle
+(`provider_health` — kein Schema-Umbau). Ein Lauf zählt als **Fehler**, wenn er
+Fehlermeldungen liefert *und* nichts findet; Treffer trotz einzelner Fehler
+(StepStone: 2 von 28 Begriffen) sind ein Erfolg. Nach
+`search.provider_health.max_failures` (Standard 3) Fehlläufen in Folge wird die
+Quelle deaktiviert und im nächsten Lauf übersprungen. `agent.py providers`
+zeigt die Historie; `--enable NAME` schaltet zurück (setzt den Zähler),
+`--disable NAME` schaltet manuell ab, `--reset` löscht alles.
+
+JobSpy loggt HTTP-Fehler nur („JobSpy:Indeed - 403“), statt sie zu werfen.
+`search/jobspy.py` fängt diese Log-Meldungen ab und wirft, wenn kein einziger
+Treffer ankam — sonst wäre eine tote Quelle für die Statistik unsichtbar.
 
 ## Evaluation (`eval/`)
 

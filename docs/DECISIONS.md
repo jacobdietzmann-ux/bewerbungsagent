@@ -947,3 +947,38 @@ geschätzt; sie erscheinen erst, wenn der Versand im Dashboard erfasst ist.
 **Testabdeckung.** `test_followup.py`: Fristen (14/13 Tage), zweite
 Nachfrage, Interview-Ausschluss, Löschung, Sortierung, DE/EN-Text,
 Schreiben neben die Unterlagen, Dashboard-Flag und Filter.
+
+## ADR-034 – Such-Quellen mit Historie und automatischer Abschaltung
+
+Ausgangslage: Zwölf Quellen laufen in jedem Suchlauf mit. JobSpy/Indeed/Google
+liefern seit Wochen 403, ohne dass das irgendwo gezählt wurde; ATS-Boards
+drosseln gelegentlich. Ein Lauf „mit zwölf Quellen“ sah dadurch immer
+erfolgreich aus, und ein stiller Ausfall war von „nichts Passendes gefunden“
+nicht zu unterscheiden.
+
+**Entscheidung.**
+
+1. `provider_health.py` führt die Historie je Quelle in der SQLite-Meta-Tabelle
+   (`provider_health`) — kein Schema-Umbau, keine Migration.
+2. Ein Lauf zählt als **Fehler**, wenn er Fehlermeldungen liefert **und**
+   nichts findet. Treffer trotz einzelner Fehler (StepStone: 2 von 28 Begriffen)
+   sind ein Erfolg — sonst würde eine teilweise gestörte, aber nützliche Quelle
+   abgeschaltet.
+3. Nach `search.provider_health.max_failures` (Standard 3) Fehlläufen in Folge
+   wird die Quelle deaktiviert und im nächsten Lauf übersprungen.
+4. **Manuelle Reaktivierung** (`agent.py providers --enable NAME`), kein
+   automatisches Wiedereinschalten: Eine fälschlich deaktivierte Hauptquelle
+   würde sonst stillschweigend fehlen — genau der Fehler, den dieses ADR
+   verhindern soll.
+5. JobSpy fängt seine HTTP-Fehler intern ab und loggt sie nur. `search/jobspy.py`
+   sammelt diese Log-Meldungen und wirft, wenn kein einziger Treffer ankam —
+   sonst wäre die tote Quelle für die Statistik unsichtbar.
+
+**Grenzen.** ATS wird als *eine* Quelle geführt (Board-Ebene wird nicht
+getrennt); Fehler zählen pro Lauf, nicht pro Suchbegriff; die Historie beginnt
+mit dem nächsten Suchlauf. Die Schwelle 3 ist eine Konvention, keine Messung.
+
+**Testabdeckung.** `test_provider_health.py`: Erfolg/Fehler/Serie, Schwelle
+konfigurierbar, Teilfehler mit Treffern, übersprungene Quelle zählt nicht,
+manuelles Aus-/Einschalten, Reset, deaktivierte Quelle wird im Suchlauf nicht
+aufgerufen, Fehler landet in der Statistik.

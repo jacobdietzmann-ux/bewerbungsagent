@@ -35,6 +35,9 @@ from bewerbungsagent.pipeline import (
 )
 from bewerbungsagent.quality import run_quality
 from bewerbungsagent.followup import run_followup
+from bewerbungsagent.provider_health import is_disabled, reset as reset_health, set_enabled
+from bewerbungsagent.db import Store
+from bewerbungsagent.storage import now_iso
 from bewerbungsagent.saved_searches import (
     find_saved_search,
     load_saved_searches,
@@ -71,6 +74,20 @@ def _print_job_context(context: dict) -> None:
           f"{context.get('industry_unresolved', 0)} nicht ermittelt.")
 
 
+def _print_provider_stats(stats: dict) -> None:
+    """Zeigt je Quelle, wie viele Funde sie beigetragen hat (und ob sie lief)."""
+    if not stats:
+        return
+    print("Quellen:")
+    for name, st in stats.items():
+        if st.get("uebersprungen"):
+            print(f"  - {name}: übersprungen ({st['uebersprungen']})")
+            continue
+        fehler = len(st.get("fehler") or [])
+        print(f"  - {name}: {st.get('gefunden', 0)} Fund(e)"
+              + (f", {fehler} Fehler" if fehler else ""))
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Bewerbungsagent")
     parser.add_argument("--config", default=None,
@@ -91,6 +108,13 @@ def main(argv=None) -> int:
                     help="Wartezeit in Tagen (Standard: aus config.json, sonst 14)")
     fo.add_argument("--write", action="store_true",
                     help="Follow-up-Text in den jeweiligen Bewerbungsordner schreiben")
+    prov = sub.add_parser("providers", help="Zustand der Such-Quellen anzeigen / ein- und ausschalten")
+    prov.add_argument("--enable", metavar="NAME", default=None,
+                      help="Quelle wieder einschalten (setzt den Fehlerzähler zurück)")
+    prov.add_argument("--disable", metavar="NAME", default=None,
+                      help="Quelle manuell abschalten")
+    prov.add_argument("--reset", action="store_true",
+                      help="gesamte Historie löschen (alle Quellen wieder aktiv)")
     cln = sub.add_parser("cleanup", help="Alte Bewerbungsordner aufräumen")
     cln.add_argument("--dry-run", action="store_true", help="nur anzeigen, nichts verschieben")
     cln.add_argument("--days", type=int, default=60, help="Altersgrenze in Tagen (Standard 60)")
@@ -147,6 +171,7 @@ def main(argv=None) -> int:
             print(f"  Ausgefiltert (domänenfremd, z. B. Vertrieb/Marketing): {rejected} "
                   f"— protokolliert in data/triage_rejected.json")
         _print_job_context(result["context"])
+        _print_provider_stats(result.get("provider_stats") or {})
         for err in result["errors"]:
             print(f"  ! {err}")
         print(f"Ergebnis: {result['path']}")
@@ -259,6 +284,29 @@ def main(argv=None) -> int:
             print(f"  - {d['firma']} — {d['titel']}")
             for b in d["befunde"]:
                 print(f"      {b}")
+
+    elif args.command == "providers":
+        store = Store(config.db_path())
+        health = store.get_meta("provider_health") or {}
+        if args.reset:
+            health = reset_health(health)
+        if args.enable:
+            health = set_enabled(health, args.enable, True, now=now_iso())
+        if args.disable:
+            health = set_enabled(health, args.disable, False, now=now_iso())
+        if args.reset or args.enable or args.disable:
+            store.set_meta("provider_health", health)
+        if not health:
+            print("Noch keine Statistik — sie entsteht beim nächsten Suchlauf.")
+            return 0
+        print(f"{'Quelle':<12} {'Status':<6} {'Läufe':>5} {'Fehler':>6} {'Serie':>5} "
+              f"{'Funde':>6}  letzter Fehler")
+        for name in sorted(health):
+            e = health[name]
+            status = "AUS" if is_disabled(health, name) else "aktiv"
+            letzter = (e.get("letzter_fehler_text") or "–")[:60]
+            print(f"{name:<12} {status:<6} {e.get('laeufe', 0):>5} {e.get('fehler', 0):>6} "
+                  f"{e.get('serie_fehler', 0):>5} {e.get('gefunden', 0):>6}  {letzter}")
 
     elif args.command == "followup":
         result = run_followup(config, profile, after_days=args.days, write=args.write)

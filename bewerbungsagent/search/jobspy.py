@@ -21,6 +21,8 @@ sodass ``fetch_descriptions.py`` (Browser-Fetch) für diese Stellen übersprunge
 
 from __future__ import annotations
 
+import logging
+
 # Sites, die für den deutschen Markt relevant sind.
 SITES = ("linkedin", "indeed", "google")
 
@@ -41,6 +43,25 @@ _ATS_HOSTS = (
 )
 
 _SNIPPET_MAX = 420
+
+
+class _ErrorCollector(logging.Handler):
+    """Sammelt JobSpy-Fehlermeldungen, die die Bibliothek nur loggt.
+
+    ``python-jobspy`` fängt HTTP-Fehler intern ab und schreibt sie ins Log
+    („JobSpy:Indeed - 403“), statt sie zu werfen. Ohne diesen Mitschnitt sähe
+    die Provider-Statistik einen „erfolgreichen“ Lauf mit 0 Funden und könnte
+    eine tote Quelle nie abschalten.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:  # pragma: no cover - Log-Pfad
+        message = str(record.getMessage())
+        if message.startswith("JobSpy"):
+            self.messages.append(message)
 
 
 def _direct_url(job: dict) -> str:
@@ -73,18 +94,27 @@ def search(query: str, location: str = "München", max_results: int = 8,
     # Lazy-Import: pandas/pydantic nur laden, wenn der Provider wirklich genutzt wird.
     from jobspy import scrape_jobs
 
-    df = scrape_jobs(
-        site_name=list(SITES),
-        search_term=query,
-        google_search_term=f"{query} {location}",
-        location=location,
-        country_indeed="germany",
-        results_wanted=max_results,
-        verbose=0,
-        user_agent=user_agent,
-        description_format="markdown",
-    )
+    collector = _ErrorCollector()
+    root = logging.getLogger()
+    root.addHandler(collector)
+    try:
+        df = scrape_jobs(
+            site_name=list(SITES),
+            search_term=query,
+            google_search_term=f"{query} {location}",
+            location=location,
+            country_indeed="germany",
+            results_wanted=max_results,
+            verbose=0,
+            user_agent=user_agent,
+            description_format="markdown",
+        )
+    finally:
+        root.removeHandler(collector)
     if df is None or getattr(df, "empty", True):
+        if collector.messages:
+            # Kein einziger Treffer *und* Fehler im Log: Die Quelle ist tot.
+            raise RuntimeError("; ".join(collector.messages[:2]))
         return []
 
     results: list[dict] = []

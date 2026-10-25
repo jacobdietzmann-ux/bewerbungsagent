@@ -173,6 +173,7 @@ python agent.py generate --ids 1,2,3   # nur bestimmte Stellen
 python agent.py quality         # erzeugte Unterlagen prüfen (Fakten, Pflichtteile, PDF)
 python agent.py followup        # fällige Nachfassen anzeigen
 python agent.py followup --write  # Follow-up-Texte in die Bewerbungsordner legen
+python agent.py providers       # Zustand der Such-Quellen (--enable/--disable/--reset)
 python agent.py dashboard       # HTML-Dashboard (neu) erzeugen
 python agent.py status          # aktuelle Stellen anzeigen
 

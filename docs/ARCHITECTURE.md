@@ -120,7 +120,10 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
 - **Deterministisches Scoring** statt LLM: nachvollziehbar, reproduzierbar,
   testbar. Der Fit-Wert ist eine transparente Summe aus Treffern
   (Titel ×6, Text ×4, Inhaltswort ×2, Standort +10). Die Faktoren 6/4/2
-  mildern die Titel-Dominanz gegenüber dem früheren 7/3/1.
+  mildern die Titel-Dominanz gegenüber dem früheren 7/3/1. Alle Summanden
+  werden gespeichert (`title_hits`, `body_hits`, `word_hits`,
+  `location_bonus`) — jeder Score ist damit aus dem Bestand nachrechenbar
+  (ADR-035).
 - **HTML als Datei + lokaler Server**: Das Dashboard funktioniert als
   statische Datei *und* live (Status-Änderungen via `POST /state`).
 - **ReportLab** statt HTML→PDF: keine externen Abhängigkeiten, exakte
@@ -198,14 +201,24 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   Ismaning (9 min) bekam 0 Punkte, München (25 min) 10. `location_bonus_for()`
   stuft nach Fahrzeit (≤30 → 10, ≤45 → 8, ≤60 → 6, ≤75 → 4, ≤90 → 2, darüber 0,
   Remote 10). Fehlt die Route, greift der Ortsvergleich als Rückfall.
+- **Mehr-Standort-Angaben geben keinen Bonus**: „bundesweit, Düsseldorf, …,
+  München" belegt keine Nähe; vorher machte der Marker „bundesweit"
+  (`_REMOTE_MARKERS`) daraus eine Remote-Stelle mit pauschal +10. Nennt der Ort
+  mehrere Standorte und liegt mindestens einer außerhalb der Metropolregion,
+  gibt es 0. Land/Bundesland und Adressbestandteile (Hausnummer, PLZ) zählen
+  nicht als Standort; „München, Starnberg" behält den Bonus (ADR-035).
 - **Auto-Erzeugung verlangt ein Rollen-Signal im Titel**: Ein Fit > 65 % reicht
   nicht, weil Technologie-Begriffe aus dem Skill-Profil (embedded, linux,
   python, can) auch reine Software-Rollen hoch bewerten — „Embedded Linux &
   Release Engineer" kam so auf 73 % und bekam ungefragt Unterlagen.
   `has_role_signal()` prüft den Titel; die Liste ist in `_ROLE_SIGNAL_RE`
   dokumentiert und enthält bewusst `integration`/`mechatronik`, damit
-  „Payload Integration Engineer" nicht blockiert wird. Der **manuelle** Auftrag
-  (`run_generate --ids`) ist nicht betroffen und erzeugt weiterhin alles.
+  „Payload Integration Engineer" nicht blockiert wird. Architektur- und
+  Beratungstitel (`architekt|architect|consult|berat|presales`) fallen trotzdem
+  durch, solange kein Test-/Verifikationskern im Titel steht — sonst bekam eine
+  Beratungsstelle „Lead Integration Engineer … Technology Consulting" bei 84 %
+  Unterlagen (ADR-035). Der **manuelle** Auftrag (`run_generate --ids`) ist
+  nicht betroffen und erzeugt weiterhin alles.
 
 ### Mehrdimensionale Bewertung (`dimensions.py`, ADR-031)
 

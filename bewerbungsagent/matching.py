@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 
+from .commute import all_locations_near_munich, is_multi_location
 from .profile import Profile, normalize
 
 # Signale im Stellentitel, die eine hardware-/systemnahe Ingenieursrolle belegen.
@@ -49,9 +50,43 @@ _ROLE_SIGNAL_RE = re.compile(
 )
 
 
+# Architektur-/Beratungsrollen sind keine Test-/Absicherungsrolle — auch wenn
+# der Titel ein Domänenwort wie „Integration" enthält. Genau daran scheiterte
+# eine Stelle „Lead Integration Engineer (m/w/d) im Team Technology Consulting":
+# sie erfüllte ``_ROLE_SIGNAL_RE`` über ``\bintegration\w*``, bekam bei 84 %
+# Unterlagen und beschreibt tatsächlich Integrationsarchitektur (Kafka,
+# REST/SOAP, Middleware, API-Governance) statt Test/Verifikation.
+#
+# ``integration`` bleibt trotzdem im Rollen-Muster: „Payload Integration
+# Engineer", „HW/SW Integration Engineer" und „R&D Engineer - AI Integration"
+# sind ausdrücklich gewünschte Rollen. Die Ausschluss-Regel greift deshalb nur,
+# wenn **kein** Test-/Verifikationssignal im Titel steht — „Test-Architekt" oder
+# „Architekt für Testautomatisierung" bleiben erlaubt.
+_ARCHITEKTUR_RE = re.compile(
+    r"\barchitekt\w*|\barchitect\w*|\bconsult\w*|\bberat\w*|\bpresales?\b",
+    re.IGNORECASE,
+)
+
+# Der harte Kern: Test/Verifikation/Validierung/Qualität/Prüfung — ohne die
+# Domänenwörter (integration, mechatronik, elektronik, adas, hpc, ecu).
+_TEST_KERN_RE = re.compile(
+    r"\w*test\w*"
+    r"|\bverification\w*|\bvalidation\w*|\bverifikation\w*|\bvalidierung\w*"
+    r"|\babsicherung\w*|\berprobung\w*|\bversuchsingenieur\w*"
+    r"|\bqualifikation\w*|\bqualifizierung\w*|\bqa\b"
+    r"|\bquality\w*|\bqualitat\w*|\bqualitaet\w*"
+    r"|\bpruef\w*|\bpruf\w*",
+)
+
+
 def has_role_signal(title: str | None) -> bool:
     """True, wenn der Titel auf eine Test-/Absicherungsrolle hindeutet."""
-    return bool(_ROLE_SIGNAL_RE.search(normalize(title or "")))
+    t = normalize(title or "")
+    if not _ROLE_SIGNAL_RE.search(t):
+        return False
+    architektur = bool(_ARCHITEKTUR_RE.search(t))
+    test_kern = bool(_TEST_KERN_RE.search(t))
+    return test_kern or not architektur
 
 
 # Studenten-/Praktikums-/Ausbildungsrollen sind für einen Vollzeit-Ingenieur
@@ -127,9 +162,17 @@ def location_bonus_for(job: dict, location: str | None = None) -> int:
     (29 min) bekamen 0 Punkte, München (25 min) 10 — obwohl die Fahrzeit der
     eigentliche Maßstab ist und bereits berechnet vorliegt.
 
-    Ohne Pendeldaten greift weiterhin der Ortsvergleich, damit eine fehlende
-    Route niemanden benachteiligt.
+    Mehr-Standort-Angaben bekommen **keinen** Bonus, wenn ein genannter Ort
+    außerhalb der Metropolregion liegt: „bundesweit, Düsseldorf, Frankfurt,
+    Hamburg, München" belegt keine Nähe, und ein einzelner Stadtname in der
+    Aufzählung ist kein Arbeitsort. Vorher gab der Teilstring-Treffer +10 —
+    auch für Stellen, die als ``Remote`` erkannt wurden, weil „bundesweit" in
+    den Remote-Markern stand. „München, Starnberg" behält den Bonus: dort
+    liegen alle genannten Orte im Umkreis.
     """
+    ort_raw = job.get("ort") or job.get("location") or ""
+    if is_multi_location(ort_raw) and not all_locations_near_munich(ort_raw):
+        return 0
     if (job.get("pendel_modus") or "") == "Remote":
         return 10
     minutes = _as_minutes(job.get("pendelzeit_min"))
@@ -137,7 +180,7 @@ def location_bonus_for(job: dict, location: str | None = None) -> int:
         return next((bonus for limit, bonus in _COMMUTE_BONUS
                      if minutes <= limit), 0)
 
-    ort = normalize(job.get("ort") or job.get("location") or "")
+    ort = normalize(ort_raw)
     loc = normalize(location or "")
     # "munich"/"munchen" gleich behandeln (englische vs. deutsche Schreibung).
     ort, loc = ort.replace("munich", "munchen"), loc.replace("munich", "munchen")
@@ -183,7 +226,11 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
 
     title_hits = profile.keywords_in(title)
     body_hits = profile.keywords_in(desc)
-    word_hits = profile.words_in(f"{title} {desc}")
+    # ``words_in()`` liefert eine Menge — als sortierte Liste, damit das Feld
+    # JSON-serialisierbar ist (``word_hits`` wird seit der Score-Offenlegung
+    # gespeichert).
+    word_hits = sorted(profile.words_in(f"{title} {desc}"))
+
 
     # Gewichtung: Titel-Treffer zählen am stärksten, gefolgt vom Anzeigentext;
     # die Inhaltswort-Überschneidungen geben den „weichen" Ausschlag. 6/4/2
@@ -214,6 +261,11 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
         "matched_skills": matched,
         "title_hits": title_hits,
         "body_hits": body_hits,
+        # ``word_hits`` floss immer in den Score ein (2 Punkte je Treffer),
+        # wurde aber nicht gespeichert — ein Score von 84 % ließ sich damit
+        # nicht mehr nachrechnen. Jetzt ist die Rechnung vollständig:
+        # 6*title + 4*body + 2*word + location_bonus.
+        "word_hits": word_hits,
         "location_bonus": location_bonus,
     }
 

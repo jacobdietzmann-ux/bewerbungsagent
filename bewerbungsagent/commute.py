@@ -112,6 +112,83 @@ _DISAMBIGUATE = {
 _REMOTE_MARKERS = ("remote", "homeoffice", "home office", "deutschlandweit",
                    "bundesweit", "100% remote", "remote-first", "vollzeit remote")
 
+# Mehr-Standort-Angaben belegen **keine** Nähe: der tatsächliche Einsatzort steht
+# nicht fest. „bundesweit, Düsseldorf, Frankfurt, Hamburg, München" ist eine
+# Beratungstätigkeit beim Kunden, kein Arbeitsplatz in München. Vorher zählte der
+# Teilstring „münchen" als Ortstreffer und gab +10 Punkte — eine 84-%-Stelle war
+# in Wahrheit nicht in München.
+_MULTI_LOCATION_MARKERS = (
+    "bundesweit", "deutschlandweit", "mehrere standorte", "verschiedene standorte",
+    "verschiedene orte", "weitere standorte", "+ weitere", "wechselnde",
+    "wechselnder einsatzort", "verschiedene kunden", "wechselnde projekte",
+)
+
+
+# Teile einer Ortsangabe, die keinen zweiten Arbeitsort bezeichnen: Land,
+# Bundesland, Region. „München, Bayern, Deutschland" ist **ein** Standort,
+# „Munich, Germany, San Diego, California" sind zwei.
+_NON_PLACE = {
+    "deutschland", "germany", "de", "brd", "d",
+    "osterreich", "austria", "at", "schweiz", "switzerland", "ch",
+    "usa", "united states", "us", "vereinigte staaten",
+    "bayern", "bavaria", "by", "baden-wurttemberg", "baden-wuerttemberg",
+    "nordrhein-westfalen", "nrw", "hessen", "sachsen", "niedersachsen",
+    "rheinland-pfalz", "berlin-brandenburg", "schleswig-holstein",
+    "thuringen", "sachsen-anhalt", "saarland",
+    "oberosterreich", "niederosterreich", "steiermark",
+    "california", "ca", "texas", "tx", "washington", "wa", "new york", "ny",
+    "region", "raum", "umgebung", "homeoffice", "remote", "hybrid",
+}
+
+
+def _place_parts(ort: str) -> list[str]:
+    """Zerlegt eine Ortsangabe in Standort-Kandidaten.
+
+    Verworfen werden Teile, die keinen Ort benennen: Land/Bundesland/Region
+    (``_NON_PLACE``) und Adressbestandteile mit Hausnummer oder Postleitzahl
+    („Landaubogen 1", „81373 München (Sendling)") — eine Straßenadresse ist
+    **ein** Standort, keine Aufzählung.
+    """
+    parts = []
+    for raw in normalize(ort or "").split(","):
+        part = raw.strip(" .;/-")
+        if not part or part in _NON_PLACE or re.search(r"\d", part):
+            continue
+        parts.append(part)
+    return parts
+
+
+def is_multi_location(ort: str) -> bool:
+    """True, wenn der Ort mehrere Standorte zur Wahl stellt.
+
+    Solche Angaben sind für den Ortsbonus unbrauchbar: ein einzelner Stadtname
+    in der Aufzählung belegt keine Nähe. Land/Bundesland und Adressbestandteile
+    zählen **nicht** als zweiter Standort — „Garching b. Muenchen, Bayern,
+    Germany" und „Landaubogen 1, 81373 München" bleiben je ein Ort.
+    """
+    text = normalize(ort or "")
+    if not text:
+        return False
+    if any(marker in text for marker in _MULTI_LOCATION_MARKERS):
+        return True
+    return len(_place_parts(text)) >= 2
+
+
+def all_locations_near_munich(ort: str) -> bool:
+    """True, wenn **jeder** genannte Standort in der Metropolregion liegt.
+
+    „München, Starnberg" ist eine echte Wahl zwischen zwei nahen Büros —
+    „München, Berlin" ist keine Nähe. Nur im zweiten Fall darf der Ortsbonus
+    entfallen.
+    """
+    parts = _place_parts(ort)
+    return bool(parts) and all(_is_metro(part) for part in parts)
+
+
+def is_remote(ort: str) -> bool:
+    return any(m in normalize(ort or "") for m in _REMOTE_MARKERS)
+
+
 # Parenthesen-Inhalte, die keine Standort-Info tragen (nur Anmerkungen) und
 # beim Geocoding stören.
 _NOISE_PAREN = ("ermittelbar", "einsatzort", "nicht munchen", "nicht münchen",
@@ -127,10 +204,6 @@ _NOISE_SUFFIX = re.compile(
     r"(?:m[uü]nchen|munich)\s*$",
     re.IGNORECASE,
 )
-
-
-def is_remote(ort: str) -> bool:
-    return any(m in normalize(ort or "") for m in _REMOTE_MARKERS)
 
 
 def is_near_munich(ort: str) -> bool:

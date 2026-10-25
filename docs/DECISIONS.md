@@ -982,3 +982,57 @@ mit dem nächsten Suchlauf. Die Schwelle 3 ist eine Konvention, keine Messung.
 konfigurierbar, Teilfehler mit Treffern, übersprungene Quelle zählt nicht,
 manuelles Aus-/Einschalten, Reset, deaktivierte Quelle wird im Suchlauf nicht
 aufgerufen, Fehler landet in der Statistik.
+
+## ADR-035 – Fit-Score nachrechenbar: Rollen-Gate, Mehr-Standort, `word_hits`
+
+Ausgangslage: Eine Anzeige „Lead Integration Engineer (m/w/d) im Team
+Technology Consulting" stand mit **84 %** auf `docs`, obwohl sie
+Integrationsarchitektur und Beratung beschreibt (Kafka, REST/SOAP, Middleware,
+API-Governance) und keine Test-/Verifikationsrolle ist. Zerlegung:
+
+    0 (Titel) + 52 (13 body_hits) + 22 (11 word_hits) + 10 (Ortsbonus) = 84
+
+Drei unabhängige Ursachen, drei Korrekturen.
+
+1. **Rollen-Gate.** `has_role_signal()` akzeptierte `\bintegration\w*` als
+   Rollensignal — laut Kommentar bewusst, damit „Payload Integration Engineer"
+   nicht herausfällt. Ergebnis: jede Architektur- oder Beratungsstelle mit
+   „Integration" im Titel passierte das Gate. Neu: Wer zusätzlich ein
+   Architektur-/Beratungswort trägt (`architekt|architect|consult|berat|presales`)
+   **und** keinen Test-/Verifikationskern (`test|verification|validation|
+   absicherung|erprobung|qualität|prüf`), passiert nicht mehr.
+   `integration` bleibt im Rollen-Muster.
+2. **Ortsbonus.** `location_bonus_for()` gab pauschal +10, sobald
+   `pendel_modus == "Remote"` — und `bundesweit` steht in `_REMOTE_MARKERS`.
+   Die Mehr-Standort-Angabe „bundesweit, Düsseldorf, …, München" wurde damit
+   zur Remote-Stelle, obwohl der Einsatzort offen ist. Neu: Nennt der Ort
+   mehrere Standorte **und** liegt mindestens einer außerhalb der
+   Metropolregion, gibt es keinen Bonus. Land/Bundesland und Adressbestandteile
+   (Hausnummer, PLZ) zählen nicht als Standort — „Garching b. Muenchen, Bayern,
+   Germany" und „Landaubogen 1, 81373 München" bleiben je ein Ort, und
+   „München, Starnberg" behält den Bonus, weil beide Orte im Umkreis liegen.
+3. **`word_hits` wurde nie gespeichert.** Die Punktzahl floss in den Score
+   (`2 * len(word_hits)`), war aber in `score_fields` nicht enthalten — kein
+   Eintrag im Bestand konnte nachgerechnet werden. `score_job()` liefert die
+   Liste jetzt (sortiert, JSON-fähig) und `_merge_state()` übernimmt sie.
+
+**Verworfene Variante.** `\bintegration\w*` ersatzlos zu streichen hätte 17
+Einträge durch das Gate fallen lassen, darunter „Senior Payload Integration
+Engineer" (100 %), „HW/SW Integration Engineer" (78 %) und „R&D Engineer -
+AI Integration" (72 %) — ausdrücklich gesuchte Rollen. Die gemessene Variante
+ändert 2 Einträge: die x1F-Beratungsstelle und „Systems Architect ECU
+Autonomous Driving".
+
+**Grenzen.**
+- Das Gate blockiert nur die automatische Unterlagen-Erzeugung; bestehende
+  Einträge und ausdrückliche `generate --ids` bleiben unberührt.
+- Der Ortsbonus ist weiterhin eine Textheuristik, keine Fahrzeit. Wo eine
+  berechnete Pendelzeit vorliegt, gilt sie unverändert.
+- `word_hits` sind eine Teilmenge der `body_hits`; derselbe Treffer zählt also
+  4 + 2 = 6 Punkte. Das ist gewollt (weiches Signal), aber im Score sichtbar.
+
+**Testabdeckung.** `test_scoring_gates.py`: Beratungs-/Architekturtitel fallen
+durch, Payload-/HW-SW-/AI-Integration und „Test-Architekt" bleiben; Mehr-Standort
+vs. Adresse/nahe Orte; Bonus 0 für Fernorte, 10 für echte Remote-Stellen;
+`word_hits` wird geliefert, der Score ist aus den Teilen nachrechenbar, und
+`_merge_state` übernimmt das Feld.

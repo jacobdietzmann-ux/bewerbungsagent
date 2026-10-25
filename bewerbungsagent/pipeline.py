@@ -759,7 +759,8 @@ def _merge_state(existing: dict, matches: list[dict],
     # werden — sonst wird aus „geprüft verfügbar" ein ``None`` und im Dashboard
     # landete fälschlich das Badge „abgelaufen".
     score_fields = ("score", "fit_geschaetzt", "begruendung", "matched_skills",
-                    "title_hits", "body_hits", "location_bonus", "beschreibung",
+                    "title_hits", "body_hits", "word_hits", "location_bonus",
+                    "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
                     "pendelzeit_min", "pendeldistanz_km", "homeoffice",
                     "dimensionen", "qualitaet")

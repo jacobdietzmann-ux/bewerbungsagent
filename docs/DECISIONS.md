@@ -983,43 +983,6 @@ konfigurierbar, Teilfehler mit Treffern, übersprungene Quelle zählt nicht,
 manuelles Aus-/Einschalten, Reset, deaktivierte Quelle wird im Suchlauf nicht
 aufgerufen, Fehler landet in der Statistik.
 
-## ADR-036 – Research beginnt bei 65 %, Unterlagen unter der Schwelle werden verborgen
-
-Ausgangslage: Im Dashboard standen immer wieder Stellen mit 60–64 % im Status
-`Research` — zuletzt ein 62-%-Treffer mit alten Unterlagen. Ursache war das
-Research-Fenster `fit_min = 60`: Der Filter hielt 60–70 %, und eine dokumentierte
-Stelle blieb zusätzlich über die Regel „erzeugte Dokumente bleiben sichtbar“
-im Bestand. Beides zusammen erzeugte sichtbare Research-Fälle unter 65 %.
-
-**Entscheidung.**
-
-1. `research_filter.fit_min` ist standardmäßig **65** (Fenster 65–70 %). Unter
-   65 % ist ein Fund kein Research-Fall; die Unterlagen-Schwelle bleibt 71 %.
-2. Wird der Status einer dokumentierten Stelle unter der Schwelle auf
-   `research` zurückgenommen, wird sie **im selben Lauf** verborgen
-   (`deleted`, Grund `research-kriterium: FIT … < 65 %`). Die Dateien bleiben
-   liegen; es wird nichts gelöscht.
-3. Die Regel „erzeugte Dokumente bleiben sichtbar“ gilt nur noch für
-   ausdrücklich angeforderte Unterlagen (`unterlagen_gewuenscht`) und für
-   echte Aktivität (`sentAt`/`interviewDate`). Das Flag ersetzt die pauschale
-   Annahme, jede alte Datei sei eine bewusste Entscheidung.
-4. Bestehende Research-Fälle unter 65 % wurden am 25.10.2026 einmalig
-   bereinigt (62 Einträge, Grund `research-kriterium`).
-
-**Warum 65 und nicht 60:** Die Unterlagen-Schwelle liegt bei 71 %. Ein Fund
-mit 60–64 % ist acht bis elf Punkte davon entfernt; er bindet Aufmerksamkeit,
-ohne eine Bewerbung zu tragen. 65 % ist der Punkt, ab dem die Lücke klein
-genug für eine Einzelfallprüfung ist.
-
-**Grenzen.** Die Pendelweg-Ausnahme (bis Grenze + 10 min) hält weiterhin auch
-schwache Funde als Research — sie sind ohne Unterlagen und ohne
-`research_sichtbar` unsichtbar. Die Grenze ist Konfiguration, keine Messung.
-
-**Testabdeckung.** `test_research_filter.py`: Default 65, 62 % mit Unterlagen
-wird entfernt, 65 % bleibt. `test_enrich_cleanup.py`: dokumentierte Stelle ohne
-Auftrag wird nach Rücknahme verborgen, mit `unterlagen_gewuenscht` bleibt sie
-`docs` und sichtbar.
-
 ## ADR-035 – Fit-Score nachrechenbar: Rollen-Gate, Mehr-Standort, `word_hits`
 
 Ausgangslage: Eine Anzeige „Lead Integration Engineer (m/w/d) im Team
@@ -1073,3 +1036,40 @@ durch, Payload-/HW-SW-/AI-Integration und „Test-Architekt" bleiben; Mehr-Stand
 vs. Adresse/nahe Orte; Bonus 0 für Fernorte, 10 für echte Remote-Stellen;
 `word_hits` wird geliefert, der Score ist aus den Teilen nachrechenbar, und
 `_merge_state` übernimmt das Feld.
+
+## ADR-036 – Research beginnt bei 65 %, Unterlagen unter der Schwelle werden verborgen
+
+Ausgangslage: Im Dashboard standen immer wieder Stellen mit 60–64 % im Status
+`Research` — zuletzt ein 62-%-Treffer mit alten Unterlagen. Ursache war das
+Research-Fenster `fit_min = 60`: Der Filter hielt 60–70 %, und eine dokumentierte
+Stelle blieb zusätzlich über die Regel „erzeugte Dokumente bleiben sichtbar“
+im Bestand. Beides zusammen erzeugte sichtbare Research-Fälle unter 65 %.
+
+**Entscheidung.**
+
+1. `research_filter.fit_min` ist standardmäßig **65** (Fenster 65–70 %). Unter
+   65 % ist ein Fund kein Research-Fall; die Unterlagen-Schwelle bleibt 71 %.
+2. Wird der Status einer dokumentierten Stelle unter der Schwelle auf
+   `research` zurückgenommen, wird sie **im selben Lauf** verborgen
+   (`deleted`, Grund `research-kriterium: FIT … < 65 %`). Die Dateien bleiben
+   liegen; es wird nichts gelöscht.
+3. Die Regel „erzeugte Dokumente bleiben sichtbar“ gilt nur noch für
+   ausdrücklich angeforderte Unterlagen (`unterlagen_gewuenscht`) und für
+   echte Aktivität (`sentAt`/`interviewDate`). Das Flag ersetzt die pauschale
+   Annahme, jede alte Datei sei eine bewusste Entscheidung.
+4. Bestehende Research-Fälle unter 65 % wurden am 25.10.2026 einmalig
+   bereinigt (62 Einträge, Grund `research-kriterium`).
+
+**Warum 65 und nicht 60:** Die Unterlagen-Schwelle liegt bei 71 %. Ein Fund
+mit 60–64 % ist acht bis elf Punkte davon entfernt; er bindet Aufmerksamkeit,
+ohne eine Bewerbung zu tragen. 65 % ist der Punkt, ab dem die Lücke klein
+genug für eine Einzelfallprüfung ist.
+
+**Grenzen.** Die Pendelweg-Ausnahme (bis Grenze + 10 min) hält weiterhin auch
+schwache Funde als Research — sie sind ohne Unterlagen und ohne
+`research_sichtbar` unsichtbar. Die Grenze ist Konfiguration, keine Messung.
+
+**Testabdeckung.** `test_research_filter.py`: Default 65, 62 % mit Unterlagen
+wird entfernt, 65 % bleibt. `test_enrich_cleanup.py`: dokumentierte Stelle ohne
+Auftrag wird nach Rücknahme verborgen, mit `unterlagen_gewuenscht` bleibt sie
+`docs` und sichtbar.

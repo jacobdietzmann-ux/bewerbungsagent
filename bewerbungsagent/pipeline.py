@@ -847,6 +847,14 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     folder = config.bewerbungen_dir / safe_name(f"{job.get('firma', '')} - {job.get('titel', '')}")
     folder.mkdir(parents=True, exist_ok=True)
 
+    # Stellenbezogenes Tailoring (falls im Ordner abgelegt, siehe tailoring.py).
+    from . import tailoring as tal
+    eigene = tal.for_application(folder)
+    if eigene:
+        offen = tal.unbacked_terms(eigene, profile)
+        if offen:
+            print(f"Tailoring {folder.name}: nicht im Profil belegt → {', '.join(offen)}")
+
     template = template or (config.data["documents"].get("lebenslauf_template") or DEFAULT_CV_TEMPLATE)
     languages = config.data["documents"].get("languages", ["de"])
     files: dict[str, str] = {}
@@ -862,7 +870,7 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
         # Eigene DOCX-Vorlage bevorzugen (mit pro-Stelle angepasstem Profil-Absatz);
         # bei fehlender Vorlage fällt die Funktion intern auf ReportLab zurück.
         cv = generate_lebenslauf_vorlage(profile, job, match, folder / names["lebenslauf"], config.data, lang,
-                                         template=template)
+                                         template=template, tailoring=eigene)
         pdfs[f"lebenslauf_{lang}"] = Path(cv)
         files[f"anschreiben_{lang}"] = _rel(ans)
         files[f"lebenslauf_{lang}"] = _rel(cv)

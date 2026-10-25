@@ -1073,3 +1073,54 @@ schwache Funde als Research — sie sind ohne Unterlagen und ohne
 wird entfernt, 65 % bleibt. `test_enrich_cleanup.py`: dokumentierte Stelle ohne
 Auftrag wird nach Rücknahme verborgen, mit `unterlagen_gewuenscht` bleibt sie
 `docs` und sichtbar.
+
+## ADR-036 – Stellenbezogenes Lebenslauf-Tailoring als eigenes File
+
+Ausgangslage: Der Lebenslauf entstand aus der eigenen DOCX-Vorlage, wobei nur
+der Profil-Absatz pro Stelle ersetzt wurde — Stationen, Bullets und
+Fähigkeitsgruppen blieben für jede Bewerbung identisch. Für eine
+Integrationsstelle mit Schwerpunkt Schnittstellen, Systemtests und Automation
+stand damit dasselbe Dokument wie für eine HiL- oder ADAS-Stelle, obwohl 10
+Jahre Material mit genau diesen Schwerpunkten vorhanden sind.
+
+**Entscheidung.** Ein optionales File `Lebenslauf-Tailoring.json` im
+Bewerbungsordner steuert den Lebenslauf:
+
+1. `headline`, `profil`, `kernkompetenzen` — Fließtext und Karten, sprachabhängig.
+2. `berufserfahrung[]` — pro **konsolidierter** Station (Index, siehe
+   `documents._consolidate_experience`) Rollentitel und Bullets.
+3. `skills.gruppen[]` / `skills.weitere` — Auswahl, Reihenfolge und Benennung
+   der Fähigkeitsgruppen.
+
+Liegt das File, wird der Lebenslauf mit ReportLab gebaut statt aus der
+DOCX-Vorlage: die Vorlage erlaubt nur das Ersetzen eines Absatzes, ein
+Tailoring stellt aber Bullets, Gruppen und Karten um. Ohne File bleibt alles
+wie vorher.
+
+**Grenze gegen Erfindungen.** `tailoring.unbacked_terms()` prüft jeden
+Fachbegriff der Fähigkeitslisten gegen die Profil-Datenbank und meldet
+Unbelegtes beim Erzeugen; Begriffe aus `gap_terms` (bestätigte Lücken) werden
+als solche ausgewiesen. Das Tailoring darf auswählen, umformulieren und
+weglassen — nicht hinzufügen. Konkret für die x1F-Stelle blieben REST/SOAP,
+Kafka, Java, Spring Boot, Apache Camel, Guidewire, Docker, SQL,
+UML/Sequenzdiagramme und Versicherungsumfeld außen vor, weil das Profil sie
+nicht hergibt (Docker ist dort ausdrücklich als Lücke vermerkt).
+
+**Nebenbefund, mitbehoben.** `check_application()` benutzte den Schlüssel
+`anschreiben_de`/`anschreiben_en` direkt als Sprachkürzel. Der
+Behauptungs-Abgleich suchte damit `bullets_anschreiben_en`, fand keine Belege
+und meldete jede Aussage des Briefs als unbelegt — der Ordner galt fälschlich
+als fehlerhaft. Die Sprache wird jetzt aus dem Schlüssel abgeleitet, und jeder
+Brief-Befund trägt sie im Detail (`[EN] …`).
+
+**Grenzen.** Indizes beziehen sich auf die konsolidierte Stationsliste; ändert
+sich `work_experience`, muss das File nachgezogen werden (die Bullets werden
+dann stillschweigend falsch zugeordnet). Die Seitenlänge ist nicht garantiert:
+ein zu üppiges Tailoring erzeugt eine dritte Seite, was nur der Blick ins PDF
+zeigt. Der Tailoring-Text selbst wird nicht gegen das Profil geprüft (nur die
+Fähigkeitslisten) — Fließtext bleibt Autorenverantwortung.
+
+**Testabdeckung.** `test_tailoring.py`: Datei lesen/fehlerhaft, Sprachwahl mit
+Deutsch-Rückfall, Index-Überschreibungen, Gruppen-Reihenfolge, Karten,
+Beleg-Prüfung inklusive bestätigter Lücke, Profilabsatz und PDF-Erzeugung.
+`test_quality.py`: Sprachschlüssel, Sprach-Marker im Befund.

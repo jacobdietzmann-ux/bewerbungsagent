@@ -42,6 +42,7 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | `salary.py` | Gehalt schätzen, wenn Anzeige keine Zahl nennt | ✅ deterministisch |
 | `commute.py` | Pendelweg (Nominatim + OSRM), mit Cache; Obergrenze `max_pendelzeit_min` | ⚠️ Netzwerk |
 | `documents.py` | Anschreiben + Lebenslauf als PDF (ReportLab-Vorlagen oder eigene DOCX-Vorlage) | ✅ deterministisch |
+| `tailoring.py` | Stellenbezogene Auswahl/Formulierung für den Lebenslauf, prüft Belege gegen das Profil | ✅ deterministisch |
 | `quality.py` | Prüft erzeugte Unterlagen gegen Profil, Anzeige und Datei (P0b) | ✅ deterministisch |
 | `followup.py` | Fällige Nachfassen erkennen und Texte erzeugen | ✅ deterministisch |
 | `dashboard.py` | HTML-Dashboard rendern (Template + Daten) | ✅ deterministisch |
@@ -76,6 +77,13 @@ genau dafür gibt es `tests/`.
    ReportLab-Vorlagen zurück (`documents.lebenslauf_template`:
    `classic` | `awesome` | `deedy` | `mcdowell` | `sidebar` | `elegant` |
    `clean`), optional per CLI `--template`.
+   Liegt im Bewerbungsordner eine **`Lebenslauf-Tailoring.json`**, wird der
+   Lebenslauf daraus gebaut (ReportLab, `tailoring.py`): Headline, Profilabsatz,
+   Stations-Bullets, Fähigkeitsgruppen und Kernkompetenz-Karten kommen aus dem
+   File. Die DOCX-Vorlage wird dann bewusst nicht verwendet — sie erlaubt nur
+   das Ersetzen eines Absatzes. Das Tailoring wählt aus und formuliert um, es
+   erfindet nichts: `tailoring.unbacked_terms()` prüft jeden Fachbegriff gegen
+   das Profil und meldet Unbelegtes beim Erzeugen.
 4. **dashboard** rendert `dashboard.html` aus SQLite; Jobs ohne tatsächlich
    vorhandenes Bewerbungsdokument bleiben in der Datenbank und erscheinen nur
    nicht in der Tabelle (``visible``-Flag). Status-Verteilung und KPIs zeigen

@@ -51,7 +51,10 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
    Mit `documents.anschreiben_quellen` wird jeder Anspruch im Anschreiben mit **Quelle und
    Zeitraum belegt** (Retrieval-Schicht `bewerbungsagent/rag.py`); mit
    `documents.anschreiben_luecken` werden bestätigte Lücken transparent benannt statt
-   verschwiegen.
+   verschwiegen. Liegt im Bewerbungsordner eine `Lebenslauf-Tailoring.json`, wird der
+   Lebenslauf daraus gebaut (Headline, Profilabsatz, Stations-Bullets, Fähigkeitsgruppen,
+   Kernkompetenzen) — Auswahl und Formulierung kommen aus der Profil-Datenbank, unbelegte
+   Fachbegriffe werden beim Erzeugen gemeldet (`bewerbungsagent/tailoring.py`).
 6. **Dashboard** – interaktives HTML-Dashboard (angelehnt an das alte `00_Dashboard`):
    Suche, Profil-Fit-Filter, Status-Sichtfilter, KPI-Karten, Status- und Wochen-Diagramme,
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
@@ -89,6 +92,7 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
     │   ├── matching.py       # Fit-Scoring
     │   ├── statuses.py       # Kanonische Statuswerte (6-Stufen-Funnel)
     │   ├── documents.py      # Anschreiben + Lebenslauf (ReportLab-PDF)
+    │   ├── tailoring.py      # Stellenbezogene Lebenslauf-Auswahl (JSON im Bewerbungsordner)
     │   ├── dashboard.py      # Template des interaktiven HTML-Dashboards
     │   ├── importer.py       # Import des alten Dashboards
     │   ├── pipeline.py       # Orchestrierung der Schritte

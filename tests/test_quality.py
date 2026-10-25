@@ -198,6 +198,32 @@ class TestCheckApplication:
         assert res["ok"] is True
         assert res["umfang"] == "voll"
 
+    def test_sprachschluessel_wird_als_sprache_gelesen(self, demo_profile):
+        """``anschreiben_de`` ist ein Dokument-Schlüssel, keine Sprache.
+
+        Wurde der Schlüssel unverändert als Sprache benutzt, suchte der
+        Behauptungs-Abgleich ``bullets_anschreiben_de`` und meldete jede
+        Aussage als unbelegt — der Ordner galt dann fälschlich als fehlerhaft.
+        """
+        res = check_application(demo_profile, JOB, JOB, {"documents": {}},
+                                texte={"anschreiben_de": _letter()},
+                                pdfs={})
+        assert not _findings(res["befunde"], "Behauptung"), res["befunde"]
+
+    def test_befund_nennt_die_sprache(self, demo_profile):
+        res = check_application(demo_profile, JOB, JOB, {"documents": {}},
+                                texte={"anschreiben_en": _letter(opening="Hello,")},
+                                pdfs={})
+        anrede = _findings(res["befunde"], "Pflichtteile")[0]
+        assert anrede["sprache"] == "en"
+        assert anrede["detail"].startswith("[EN] ")
+
+    def test_unbekannter_schluessel_faellt_auf_deutsch_zurueck(self, demo_profile):
+        res = check_application(demo_profile, JOB, JOB, {"documents": {}},
+                                texte={"brief": _letter()},
+                                pdfs={})
+        assert not [f for f in res["befunde"] if f["schwere"] == "fehler"], res["befunde"]
+
 
 class TestDashboardSummary:
     def test_ohne_pruefung(self):

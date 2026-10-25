@@ -24,9 +24,11 @@ keine Font-Dateien benötigt werden.
 
 from __future__ import annotations
 
+import inspect
 import io
 import re
 from datetime import date
+from functools import cache
 from xml.sax.saxutils import escape as _xmlescape
 
 from reportlab.lib.colors import HexColor
@@ -71,12 +73,18 @@ _CHIP_HINTS = (
 )
 
 
-def _headline(job: dict, match: dict, lang: str, config: dict | None = None) -> str:
+def _headline(job: dict, match: dict, lang: str, config: dict | None = None,
+              tailoring: dict | None = None) -> str:
     """Wählt die passende Profil-Headline (Test vs. Hardware/Embedded).
 
-    Liest zuerst aus ``config["documents"]["personal"]["headline_<lang>[_chip]"]``.
-    Fallback auf die hardkodierten Module-Konstanten (Abwärtskompatibilität).
+    Reihenfolge: Tailoring der Stelle → ``config["documents"]["personal"]
+    ["headline_<lang>[_chip]"]`` → hardkodierte Module-Konstanten.
     """
+    from . import tailoring as tal
+
+    eigen = tal.text(tailoring, "headline", lang)
+    if eigen:
+        return eigen
     if config is not None:
         personal = config.get("documents", {}).get("personal", {})
         key = f"headline_{'chip_' if _is_chip_role(job, match) else ''}{lang}"
@@ -913,7 +921,13 @@ def _letter_story(profile: Profile, job: dict, match: dict, config: dict, lang: 
 # Lebenslauf
 # --------------------------------------------------------------------------
 
-def _cv_profile_summary(profile: Profile, job: dict, match: dict, lang: str) -> str:
+def _cv_profile_summary(profile: Profile, job: dict, match: dict, lang: str,
+                        tailoring: dict | None = None) -> str:
+    from . import tailoring as tal
+
+    eigen = tal.text(tailoring, "profil", lang)
+    if eigen:
+        return esc(eigen)
     skills = ", ".join(_summary_skills(profile, job, match, lang, n=4))
     is_chip = _is_chip_role(job, match)
     if lang == "en":
@@ -942,12 +956,16 @@ def _cv_profile_summary(profile: Profile, job: dict, match: dict, lang: str) -> 
     )
 
 
-def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
+def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, lang: str,
+                      tailoring: dict | None = None) -> list:
     """Vorlage „Klassisch": einspaltig, klare Sektionen mit Akzentlinien."""
+    from . import tailoring as tal
+
     st = _styles()
     personal = profile.personal
     accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
     is_en = lang == "en"
+    rollen = tal.role_overrides(tailoring)
 
     story: list = []
     contact = " · ".join(x for x in [
@@ -958,7 +976,7 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
     if photo:
         left = Paragraph(
             f"<b>{esc(personal.get('name', ''))}</b><br/>"
-            f"{esc(_headline(job, match, lang))}<br/>"
+            f"{esc(_headline(job, match, lang, tailoring=tailoring))}<br/>"
             f"{esc(contact)}",
             st["contact"],
         )
@@ -973,19 +991,20 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
         story.append(header_table)
     else:
         story.append(Paragraph(esc(personal.get("name", "")), st["name"]))
-        story.append(Paragraph(esc(_headline(job, match, lang)), st["headline"]))
+        story.append(Paragraph(esc(_headline(job, match, lang, tailoring=tailoring)), st["headline"]))
         story.append(Paragraph(esc(contact), st["contact"]))
     story.append(Spacer(1, 5 * mm))
 
     # Profil
     _section(story, st, "Profile" if is_en else "Profil", accent)
-    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
+    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang, tailoring), st["body"]))
     story.append(Spacer(1, 4 * mm))
 
     # Berufserfahrung
     _section(story, st, "Work Experience" if is_en else "Berufserfahrung", accent)
-    for we in _consolidate_experience(profile.work_experience):
-        role = _role_label(we, lang)
+    for index, we in enumerate(_consolidate_experience(profile.work_experience)):
+        eigen = rollen.get(index, {})
+        role = tal.text(eigen, "rolle", lang) or _role_label(we, lang)
         employer = we.get("employer_of_record", "")
         client = we.get("client", "")
         where = f"{employer} · {client}" if client else employer
@@ -993,7 +1012,8 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
         story.append(_role_period_table(st, role, we.get("period", ""), where))
         story.append(Paragraph(esc(where), st["company"]))
         key = "bullets_en" if is_en else "bullets_de"
-        bullets = [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]
+        eigene_bullets = tal.items(eigen, "bullets", lang)
+        bullets = eigene_bullets or [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]
         for bullet in bullets:
             story.append(Paragraph(f"•  {esc(bullet)}", st["bullet"]))
         story.append(Spacer(1, 3 * mm))
@@ -1011,26 +1031,30 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
 
     # Fachkenntnisse & Software (2-Spalten)
     _section(story, st, "Skills & Software" if is_en else "Fachkenntnisse & Software", accent)
-    story.append(_skills_two_columns(profile, st, lang, match))
+    story.append(_skills_two_columns(profile, st, lang, match, tailoring))
     story.append(Spacer(1, 3 * mm))
 
     # Sprachen & Zertifizierung
     _section(story, st, "Languages & Certification" if is_en else "Sprachen & Zertifizierung", accent)
-    langs = []
-    for entry in profile.languages:
-        if isinstance(entry, dict):
-            sprache = _translate(entry.get("sprache", ""), _LANGUAGE_TRANSLATIONS_EN, lang)
-            niveau = _translate(entry.get("niveau", ""), _LANGUAGE_LEVEL_TRANSLATIONS_EN, lang)
-            langs.append(f"{sprache} ({niveau})")
-        else:
-            langs.append(_translate(str(entry), _LANGUAGE_TRANSLATIONS_EN, lang))
-    story.append(Paragraph(esc(" · ".join(langs)), st["body"]))
+    eigene_sprachen = tal.text(tailoring, "sprachen", lang)
+    if eigene_sprachen:
+        story.append(Paragraph(esc(eigene_sprachen), st["body"]))
+    else:
+        langs = []
+        for entry in profile.languages:
+            if isinstance(entry, dict):
+                sprache = _translate(entry.get("sprache", ""), _LANGUAGE_TRANSLATIONS_EN, lang)
+                niveau = _translate(entry.get("niveau", ""), _LANGUAGE_LEVEL_TRANSLATIONS_EN, lang)
+                langs.append(f"{sprache} ({niveau})")
+            else:
+                langs.append(_translate(str(entry), _LANGUAGE_TRANSLATIONS_EN, lang))
+        story.append(Paragraph(esc(" · ".join(langs)), st["body"]))
     for cert in profile.certifications:
         story.append(Paragraph(f"<b>{esc(_translate(cert, _CERTIFICATION_TRANSLATIONS_EN, lang))}</b>", st["body"]))
     story.append(Spacer(1, 4 * mm))
 
     # Kernkompetenzen auf einen Blick
-    story.append(_key_competencies(story, st, lang))
+    story.append(_key_competencies(story, st, lang, tailoring))
     return story, accent
 
 
@@ -1115,14 +1139,30 @@ _MAX_SKILLS_PER_GROUP = 6
 _MAX_CV_OVERFLOW_SHOWN = 12
 
 
-def _curate_skill_groups(profile: Profile, match: dict | None, lang: str):
+def _curate_skill_groups(profile: Profile, match: dict | None, lang: str,
+                         tailoring: dict | None = None):
     """Kürzt die Fachkenntnisse auf die relevantesten Einträge.
 
     Pro Gruppe werden stellenrelevante (gematchte) Skills zuerst gezeigt, danach
     die restlichen in Original-Reihenfolge. Die Gesamtzahl wird auf
     ``_MAX_CV_SKILLS`` begrenzt; der Rest landet in ``overflow`` (kompakte
     „Weitere"-Zeile). Das zugrunde liegende Profil bleibt unverändert.
+
+    Liegt ein Tailoring mit expliziten Gruppen vor, gilt dessen Auswahl und
+    Reihenfolge — die Hervorhebung gematchter Skills bleibt.
     """
+    from . import tailoring as tal
+
+    matched_norm = {normalize(s) for s in (match or {}).get("matched_skills", [])}
+    eigene = tal.skill_groups(tailoring, lang)
+    if eigene:
+        groups = [(label, [(entry,
+                            any(normalize(entry) == m or m in normalize(entry)
+                                for m in matched_norm if m))
+                           for entry in entries])
+                  for label, entries in eigene]
+        return groups, tal.extra_skills(tailoring, lang)
+
     labels = _SKILL_LABELS_EN if lang == "en" else _SKILL_LABELS
     matched_norm = {normalize(s) for s in (match or {}).get("matched_skills", [])}
 
@@ -1992,24 +2032,33 @@ _CV_BUILDERS = {
 
 
 def _cv_story(profile: Profile, job: dict, match: dict, config: dict, lang: str,
-              template: str = DEFAULT_CV_TEMPLATE) -> list:
+              template: str = DEFAULT_CV_TEMPLATE, tailoring: dict | None = None) -> list:
     builder = _CV_BUILDERS.get(template)
     if builder is None:
         raise ValueError(
             f"Unbekannte Lebenslauf-Vorlage: {template!r} "
             f"(verfügbar: {', '.join(CV_TEMPLATES)})"
         )
+    if _supports_tailoring(builder):
+        return builder(profile, job, match, config, lang, tailoring)
     return builder(profile, job, match, config, lang)
 
 
-def _skills_two_columns(profile: Profile, st: dict, lang: str, match: dict | None = None) -> Table:
+@cache
+def _supports_tailoring(builder) -> bool:
+    """True, wenn der Vorlagen-Builder einen ``tailoring``-Parameter hat."""
+    return "tailoring" in inspect.signature(builder).parameters
+
+
+def _skills_two_columns(profile: Profile, st: dict, lang: str, match: dict | None = None,
+                        tailoring: dict | None = None) -> Table:
     """Fähigkeitsgruppen in zwei Spalten (Vorlagen-Layout).
 
     Passende Skills (aus ``match['matched_skills']``) werden hervorgehoben. Die
     Menge wird über ``_curate_skill_groups`` begrenzt; überzählige Einträge
     erscheinen als kompakte „Weitere"-Zeile unterhalb der Spalten.
     """
-    groups, overflow = _curate_skill_groups(profile, match, lang)
+    groups, overflow = _curate_skill_groups(profile, match, lang, tailoring)
 
     blocks: list[tuple[int, str]] = []
     for label, items in groups:
@@ -2054,10 +2103,12 @@ def _skills_two_columns(profile: Profile, st: dict, lang: str, match: dict | Non
     return t
 
 
-def _key_competencies(story, st: dict, lang: str):
+def _key_competencies(story, st: dict, lang: str, tailoring: dict | None = None):
     """Vier Kernkompetenz-Karten am CV-Ende (Vorlagen-Stil)."""
+    from . import tailoring as tal
+
     is_en = lang == "en"
-    cards = (
+    cards = tal.competencies(tailoring, lang) or (
         [
             ("10+", "years automotive", "test & integration"),
             ("HiL / XiL", "test benches, automation", "& Python tools"),
@@ -2195,16 +2246,25 @@ def _replace_profile_paragraph(doc, summary: str, lang: str) -> None:
             return
 
 
-def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None) -> str:
+def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None, tailoring: dict | None = None) -> str:
     """Lebenslauf aus der eigenen DOCX-Vorlage (statt ReportLab-Generierung).
 
     Kopiert die aktuelle Lebenslauf-DOCX, ersetzt nur den Profil-Absatz durch
     den auf die Stelle zugeschnittenen Text und konvertiert zu PDF (soffice).
     Fällt auf ``generate_lebenslauf`` zurück, wenn keine Vorlage konfiguriert
     ist, die Datei fehlt oder die Konvertierung scheitert.
+
+    Liegt ein Tailoring vor, wird die DOCX-Vorlage **nicht** verwendet: sie
+    erlaubt nur das Ersetzen eines Absatzes, während ein Tailoring Stationen-
+    Bullets, Fähigkeitsgruppen und Kernkompetenzen umstellt. In diesem Fall
+    entsteht der Lebenslauf direkt aus dem Profil (``generate_lebenslauf``).
     """
     def _fallback():
-        return generate_lebenslauf(profile, job, match, out_path, config, lang, template=template)
+        return generate_lebenslauf(profile, job, match, out_path, config, lang,
+                                   template=template, tailoring=tailoring)
+
+    if tailoring:
+        return _fallback()
 
     vorlage = (config.get("documents", {}) or {}).get("lebenslauf_vorlage") or {}
     rel = vorlage.get(lang) or vorlage.get("de")
@@ -2260,9 +2320,10 @@ def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_pa
     return str(out_path)
 
 
-def generate_lebenslauf(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None) -> str:
+def generate_lebenslauf(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None, tailoring: dict | None = None) -> str:
     template = template or (config.get("documents", {}).get("lebenslauf_template") or DEFAULT_CV_TEMPLATE)
-    story, accent = _cv_story(profile, job, match, config, lang, template=template)
+    story, accent = _cv_story(profile, job, match, config, lang, template=template,
+                              tailoring=tailoring)
     doc = SimpleDocTemplate(
         str(out_path), pagesize=A4,
         leftMargin=22 * mm, rightMargin=22 * mm, topMargin=20 * mm, bottomMargin=18 * mm,

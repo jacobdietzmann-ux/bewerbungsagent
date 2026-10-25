@@ -253,6 +253,19 @@ def check_pdf(path: Path, *, max_pages: int | None = None,
     return findings
 
 
+def _sprache(key: str) -> str:
+    """Sprachkürzel aus einem Text-Schlüssel (``anschreiben_en`` → ``en``).
+
+    ``_generate_one`` übergibt die Brieftexte als ``anschreiben_de``/``anschreiben_en``.
+    Vorher wurde dieser Schlüssel direkt als Sprache benutzt — der Abgleich der
+    Behauptungen suchte dann ``bullets_anschreiben_en``, fand keine Profil-Belege
+    und meldete **jede** Aussage des englischen Briefs als unbelegt (und in der
+    Folge den ganzen Ordner als fehlerhaft).
+    """
+    tail = str(key or "").rsplit("_", 1)[-1]
+    return tail if len(tail) == 2 else "de"
+
+
 def check_application(profile: Profile, job: dict, match: dict, config: dict,
                       texte: dict[str, str] | None = None,
                       pdfs: dict[str, Path] | None = None,
@@ -262,8 +275,12 @@ def check_application(profile: Profile, job: dict, match: dict, config: dict,
     texte = texte or {}
     pdfs = pdfs or {}
 
-    for lang, text in texte.items():
-        findings.extend(check_letter(profile, job, match, config, lang, text))
+    for key, text in texte.items():
+        lang = _sprache(key)
+        for finding in check_letter(profile, job, match, config, lang, text):
+            finding.setdefault("sprache", lang)
+            finding["detail"] = f"[{lang.upper()}] {finding['detail']}"
+            findings.append(finding)
 
     for label, path in pdfs.items():
         max_pages = 2 if label.startswith("anschreiben") else None

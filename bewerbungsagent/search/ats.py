@@ -20,7 +20,7 @@ import json
 import re
 import time
 from html import unescape as html_unescape
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import requests
 
@@ -399,6 +399,91 @@ def _mtu_description(url: str, user_agent: str | None) -> str:
     except (requests.RequestException, ValueError):
         return ""
     return _texts(data.get("description") or "")
+
+
+# --------------------------------------------------------------------------
+# Diehl (TYPO3-Jobbörse der Diehl-Gruppe, serverseitig gerenderte Liste)
+# --------------------------------------------------------------------------
+
+# Jede Stelle ist ein <li> mit Link, Bereichs-Tag („Diehl Aviation"), Titel,
+# Datum und Ort. Die Detailseite liefert die Abschnitte als
+# ``<h2>…</h2><div class="ezrichtext-field">…</div>``.
+_DIEHL_LI_RE = re.compile(r"<li[^>]*>(.*?)</li>", re.S)
+_DIEHL_LINK_RE = re.compile(r'<a href="([^"]*vacancies/[^"]+)"', re.S)
+_DIEHL_TAG_RE = re.compile(r'<div class="tag[^"]*">([^<]+)</div>', re.S)
+_DIEHL_TITLE_RE = re.compile(r"<h3[^>]*>(.*?)</h3>", re.S)
+_DIEHL_CITY_RE = re.compile(r'<div class="city">.*?<span>([^<]+)</span>', re.S)
+_DIEHL_SECTION_RE = re.compile(
+    r"<h2[^>]*>(.*?)</h2>\s*<div class=\"ezrichtext-field\">(.*?)</div>", re.S)
+_DIEHL_BASE = "https://new.diehl.com"
+
+
+def _diehl_items(html: str) -> list[tuple[str, str, str, str]]:
+    out = []
+    for block in _DIEHL_LI_RE.findall(html):
+        link = _DIEHL_LINK_RE.search(block)
+        title = _DIEHL_TITLE_RE.search(block)
+        if not link or not title:
+            continue
+        tag = _DIEHL_TAG_RE.search(block)
+        city = _DIEHL_CITY_RE.search(block)
+        out.append((
+            clean_html(html_unescape(title.group(1))).strip(),
+            clean_html(html_unescape(tag.group(1))).strip() if tag else "",
+            clean_html(html_unescape(city.group(1))).strip() if city else "",
+            urljoin(_DIEHL_BASE, link.group(1).strip()),
+        ))
+    return out
+
+
+def _diehl_detail(url: str, user_agent: str | None) -> str:
+    r = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
+    r.raise_for_status()
+    teile = []
+    for heading, block in _DIEHL_SECTION_RE.findall(r.text):
+        teile.append(clean_html(html_unescape(heading)).strip())
+        teile.append(clean_html(html_unescape(block)).strip())
+    return "\n\n".join(t for t in teile if t)[:12000]
+
+
+def diehl(list_url: str, firma: str, *, division: str | None = None,
+          only_near_munich: bool = True, max_pages: int = 12,
+          max_jobs: int = 400, user_agent: str | None = None) -> list[dict]:
+    """Diehl-Karriereseite (``new.diehl.com/career/…/job-offers``).
+
+    Die Liste ist serverseitig gerendert und paginiert über ``?p=N`` (12 je
+    Seite); ``?d=4`` filtert auf Diehl Aviation. Orte stehen direkt in der
+    Liste, deshalb werden Detailseiten nur für die Stellen im Umkreis geladen.
+    """
+    gesehen: set[str] = set()
+    treffer: list[tuple[str, str, str]] = []
+    for page in range(1, max(1, max_pages) + 1):
+        sep = "&" if "?" in list_url else "?"
+        r = requests.get(f"{list_url}{sep}p={page}", headers=_ua(user_agent), timeout=_TIMEOUT)
+        r.raise_for_status()
+        items = _diehl_items(r.text)
+        if not items:
+            break
+        neu = 0
+        for titel, tag, ort, url in items:
+            if url in gesehen:
+                continue
+            gesehen.add(url)
+            neu += 1
+            if division and division.lower() not in tag.lower():
+                continue
+            if only_near_munich and not is_near_munich(ort):
+                continue
+            treffer.append((titel, ort, url))
+        if not neu:
+            break
+    treffer = treffer[:max_jobs]
+    if not treffer:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        beschreibungen = list(pool.map(lambda t: _diehl_detail(t[2], user_agent), treffer))
+    return [_job(firma=firma, titel=titel, ort=ort, url=url, beschreibung=desc)
+            for (titel, ort, url), desc in zip(treffer, beschreibungen)]
 
 
 def typo3_jobboard(list_url: str, firma: str, *,
@@ -1003,6 +1088,23 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                     user_agent=user_agent,
                     only_near_munich=only_near_munich,
                     max_jobs=entry.get("max_jobs", 500),
+                )
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "diehl":
+            list_url = str(entry.get("list_url") or "").strip()
+            if not list_url:
+                errors.append("ats (diehl: list_url fehlt)")
+                continue
+            try:
+                found = diehl(
+                    list_url, firma,
+                    division=entry.get("division"),
+                    user_agent=user_agent,
+                    only_near_munich=only_near_munich,
+                    max_pages=int(entry.get("max_pages", 12)),
+                    max_jobs=int(entry.get("max_jobs", 400)),
                 )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")

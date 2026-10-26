@@ -338,6 +338,9 @@ Die freie Websuche ist bewusst **pluggable**:
     HTML-Tiles in `/tile-search-results/` und werden geparst (HENSOLDT, 25 pro Seite).
   - **SmartRecruiters** (`company`, optional `city`/`country`) liefert den **vollständigen
     Anzeigentext** über die Detail-URL (`jobAd.sections`) — kein Browser-Fetch nötig (Renesas).
+  - **Diehl** (`list_url`, optional `division`) ist die TYPO3-Jobbörse der Diehl-Gruppe:
+    serverseitig gerenderte Liste, paginiert über `?p=N`, Orte stehen direkt in der Liste.
+    Detailseiten werden nur für Stellen im Umkreis geladen (Diehl Aviation, Gilching/Dresden).
   - **Oracle Cloud HCM** (`host` + `site`, optional `location`) ist das System von Texas
     Instruments; der Index liefert 25 Stellen pro Aufruf, den Text holt der Browser-Fetch.
   - **TYPO3-Jobbörse** (`list_url`) ist die eigene Jobbörse von MTU Aero Engines: alle
@@ -468,6 +471,17 @@ Das Fit-Scoring (`bewerbungsagent/matching.py`) ist transparent und deterministi
 Deutsch/englische Varianten werden über eine Synonym-Brücke zusammengeführt („Testautomatisierung“
 matcht auch „test automation“/„testautomation“). Kategorien: `hoch` ≥ 65, `mittel` ≥ 40, sonst
 `niedrig`.
+
+Seit ADR-038 gibt es zusätzlich einen **Stack-Abgleich**: Nennt eine Anzeige mindestens drei
+Technologien (Java, Spring Boot, Kafka, SOAP, SQL, Docker, Guidewire …), von denen **keine**
+im Profil belegt ist, und ist der Titel keine Test-/Verifikationsrolle, wird der Fit auf 60 %
+gedeckelt. Grund: generische Wörter wie „Integration“, „Schnittstellen“ und „Anforderungen“
+erzeugten sonst hohe Werte für Rollen, deren Stack im Profil vollständig fehlt.
+
+Seit ADR-039 gilt dasselbe für **Entwickler-/Produktrollen ohne Testbezug** (Software, Firmware,
+Embedded, AI, CAD …): Sie werden auf 60 % gedeckelt, weil der Keyword-Fit dort nur die Domäne
+belohnt. Bereits versendete, interviewte oder abgelehnte Bewerbungen behalten ihre historische
+Bewertung — neue Regeln ändern alte Entscheidungen nicht rückwirkend.
 
 Zusätzlich bewertet `bewerbungsagent/dimensions.py` dieselbe Stelle in sieben Dimensionen
 (Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell, Entwicklung) —

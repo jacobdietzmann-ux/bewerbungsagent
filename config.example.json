@@ -27,6 +27,7 @@
       { "firma": "Renesas", "ats": "smartrecruiters", "company": "RenesasElectronics", "city": "Munich" },
       { "firma": "Texas Instruments", "ats": "oracle", "host": "edbz.fa.us2.oraclecloud.com", "site": "CX", "location": "Germany" },
       { "firma": "MTU Aero Engines", "ats": "typo3", "list_url": "https://www.mtu.de/de/karriere/jobboerse/s/all/all/all/all/" },
+      { "firma": "Diehl Aviation", "ats": "diehl", "list_url": "https://new.diehl.com/career/en/jobs-application/job-offers/?d=4", "division": "Diehl Aviation", "max_pages": 12 },
       { "firma": "E.ON", "ats": "sitemap", "sitemap": "https://jobs.eon.com/sitemap.xml", "url_must_contain": "muenchen", "max_jobs": 40 }
     ],
     "ats_only_near_munich": true,
@@ -83,6 +84,9 @@
     "commute_grace_min": 10
   },
   "matching": {
+    "company_aliases": {
+      "nxp semiconductors": "nxp"
+    },
     "dimensions": {
       "gewichte": {
         "kompetenz": 0.30,

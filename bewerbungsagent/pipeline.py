@@ -79,8 +79,23 @@ def _job_key(job: dict) -> str:
 # Identitätsprüfung nicht.
 _ORT_ALIAS = {"munich": "münchen", "muenchen": "münchen", "munchen": "münchen"}
 
+# Rechtsformen und Firmenzusätze, die für die Identität nichts unterscheiden:
+# „BWI GmbH" und „BWI" sind dieselbe Anzeige, „NXP Semiconductors" wird über
+# ``matching.company_aliases`` auf „NXP" abgebildet.
+_LEGAL_SUFFIX = ("gmbh", "mbh", "ag", "se", "kg", "co", "deutschland", "group", "holding")
 
-def _identity(job: dict) -> tuple[str, str, str]:
+
+def _company_key(name: str | None, aliases: dict | None = None) -> str:
+    s = normalize(name or "")
+    for w in _LEGAL_SUFFIX:
+        s = re.sub(rf"\b{w}\b", " ", s)
+    s = " ".join(s.split())
+    if aliases:
+        s = aliases.get(s, s)
+    return s
+
+
+def _identity(job: dict, aliases: dict | None = None) -> tuple[str, str, str]:
     """Identität einer Anzeige über die Börsen hinweg: Firma + Titel + Ort.
 
     Die URL taugt dafür nicht: dieselbe Stelle hat bei JobLeads, Labo, XING und
@@ -88,7 +103,7 @@ def _identity(job: dict) -> tuple[str, str, str]:
     eine zweite Bewerbung für eine Stelle an, auf die schon beworben wurde
     (Advantest R&D Engineer: JobLeads ``sent`` + Labo ``docs``).
     """
-    firma = normalize(job.get("firma") or "")
+    firma = _company_key(job.get("firma"), aliases)
     titel = normalize(job.get("titel") or "")
     ort = normalize(job.get("ort") or "")
     return (firma, titel, _ORT_ALIAS.get(ort, ort))
@@ -223,7 +238,8 @@ def run_match(config: Config, profile: Profile) -> dict:
         m["key"] = _job_key(m)
     save_json(config.matches_path(), matches)
     store = _store(config)
-    state = _merge_state(store.load_state(), matches, limit=_commute_limit_minutes(config))
+    state = _merge_state(store.load_state(), matches, limit=_commute_limit_minutes(config),
+                         aliases=(config.data.get("matching") or {}).get("company_aliases"))
     neu = state.get("neu") or []
     if neu:
         # Alle Stellen eines Laufs erhalten denselben ``created``-Stempel; der
@@ -763,8 +779,24 @@ def run_full(config: Config, profile: Profile) -> dict:
 # Interna
 # --------------------------------------------------------------------------
 
+# Status, deren Bewertung historisch ist: Der Fit zum Entscheidungszeitpunkt
+# bleibt stehen — neue Scoring-Regeln (Rollen-/Stack-Gate) ändern ihn nicht
+# rückwirkend. Sonst verschieben sich die Labels der Evaluation, und eine
+# bereits versendete Bewerbung sähe plötzlich wie eine Fehlentscheidung aus
+# (ADR-039).
+_HISTORISCHE_STATUS = ("sent", "followup", "interview", "rejected")
+
+# Felder, die ausschließlich die Bewertung tragen (nicht die Anzeige-Daten).
+_SCORE_FELDER = frozenset({
+    "score", "fit_geschaetzt", "begruendung", "matched_skills", "title_hits",
+    "body_hits", "word_hits", "location_bonus", "stack_found", "stack_missing",
+    "stack_cap", "role_cap",
+})
+
+
 def _merge_state(existing: dict, matches: list[dict],
-                 limit: int = MAX_COMMUTE_MINUTES) -> dict:
+                 limit: int = MAX_COMMUTE_MINUTES,
+                 aliases: dict | None = None) -> dict:
     apps = existing.get("applications", []) if isinstance(existing, dict) else []
     by_key = {a.get("key"): a for a in apps if a.get("key")}
     # Felder, die aus dem Matching-Ergebnis übernommen werden.
@@ -775,6 +807,7 @@ def _merge_state(existing: dict, matches: list[dict],
     # landete fälschlich das Badge „abgelaufen".
     score_fields = ("score", "fit_geschaetzt", "begruendung", "matched_skills",
                     "title_hits", "body_hits", "word_hits", "location_bonus",
+                    "stack_found", "stack_missing", "stack_cap", "role_cap",
                     "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
                     "pendelzeit_min", "pendeldistanz_km", "homeoffice",
@@ -787,13 +820,16 @@ def _merge_state(existing: dict, matches: list[dict],
     # URL erneut gefunden wird, darf keine zweite Bewerbung erzeugen — sonst
     # entstehen zwei Ordner und im schlimmsten Fall zwei Bewerbungen auf
     # dieselbe Stelle.
-    vorhandene_identitaet = {_identity(a) for a in apps if a.get("key")}
+    vorhandene_identitaet = {_identity(a, aliases) for a in apps if a.get("key")}
     for m in matches:
         key = m["key"]
         if key in by_key:
             old = by_key[key]
+            historisch = old.get("status") in _HISTORISCHE_STATUS
             for f in score_fields:
                 if f in m and m[f] is not None:
+                    if historisch and f in _SCORE_FELDER:
+                        continue
                     old[f] = m[f]
             old.setdefault("status", "research")
             old.setdefault("dokumente", {})
@@ -801,7 +837,7 @@ def _merge_state(existing: dict, matches: list[dict],
             _flag_far_commute(old, limit)
             result.append(old)
         else:
-            ident = _identity(m)
+            ident = _identity(m, aliases)
             if ident in vorhandene_identitaet:
                 # Dieselbe Stelle, andere Quelle: der bestehende Eintrag
                 # dokumentiert den Vorgang (Status, Unterlagen, Notizen) und

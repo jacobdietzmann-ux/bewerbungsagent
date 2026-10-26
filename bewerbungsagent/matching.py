@@ -89,6 +89,107 @@ def has_role_signal(title: str | None) -> bool:
     return test_kern or not architektur
 
 
+# Technologie-Stack, den Anzeigen als Anforderung nennen können. Der Abgleich
+# ist bewusst eng: Sprachen, Frameworks, Messaging, Datenbanken, Container und
+# Plattformen — also Begriffe, deren Fehlen die Ausübbarkeit der Rolle berührt.
+# Reine Testwerkzeuge (CANoe, ECU-Test) fehlen absichtlich: die stehen im Profil
+# und sind kein Ausschlusskriterium für Integrationsrollen.
+#
+# ``\brest\b`` fehlt bewusst — im Deutschen ist „der Rest" zu häufig, das würde
+# jede zweite Anzeige als REST-Stelle zählen.
+_STACK_TERMS: dict[str, str] = {
+    "Java": r"\bjava\b(?!script)",
+    "JavaScript": r"\bjavascript\b",
+    "TypeScript": r"\btypescript\b",
+    "Python": r"\bpython\b",
+    "C++": r"\bc\+\+",
+    "C#/.NET": r"\bc#\b|\.net\b",
+    "Spring Boot": r"\bspring\s*boot\b",
+    "Apache Camel": r"\bapache\s*camel\b",
+    "Kafka": r"\bkafka\b",
+    "RabbitMQ": r"\brabbit\s*mq\b|\brabbitmq\b",
+    "SOAP": r"\bsoap\b",
+    "SQL": r"\bsql\b",
+    "Oracle": r"\boracle\b",
+    "PostgreSQL": r"\bpostgres\w*",
+    "MySQL": r"\bmysql\b",
+    "Docker": r"\bdocker\b",
+    "Kubernetes": r"\bkubernetes\b|\bk8s\b",
+    "Postman": r"\bpostman\b",
+    "SoapUI": r"\bsoapui\b",
+    "Grafana": r"\bgrafana\b",
+    "Guidewire": r"\bguidewire\b",
+    "MATLAB/Simulink": r"\bmatlab\b|\bsimulink\b",
+    "SAP": r"\bsap\b",
+    "Salesforce": r"\bsalesforce\b",
+    "React": r"\breact\b",
+    "Angular": r"\bangular\b",
+    "Node.js": r"\bnode\.?js\b",
+}
+
+# Höchstwert für Stellen, deren genannter Stack vollständig außerhalb des
+# Profils liegt und deren Titel keinen Test-/Verifikationskern hat. 60 liegt
+# unter dem Research-Fenster (65) und über der Ausblendegrenze (50): die Stelle
+# bleibt auffindbar, ist aber kein Research- oder Bewerbungsfall.
+STACK_CAP = 60
+
+# Dasselbe Prinzip für Rollen, die keine Test-/Integrationsrolle sind: Ein
+# „Principal Engineer – AI-Enabled Embedded Software" (NXP) oder ein
+# „Senior Manager CAD Infrastructure" (Infineon) erreichte 100 %, weil der
+# Keyword-Fit die Domänenüberschneidung (Embedded, Software, AI) belohnt — die
+# ausgeübte Rolle ist aber Produktentwicklung, nicht Test/Absicherung.
+ROLE_CAP = 60
+
+# Domänenwörter, die eine Entwickler-/Produktrolle anzeigen …
+_DEV_DOMAIN_RE = re.compile(
+    r"\bsoftware\w*|\bfirmware\w*|\bembedded\w*|\bbackend\w*|\bfrontend\w*"
+    r"|\bfull[\s-]?stack\w*|\bweb\w*|\bmobile\w*|\bcloud\w*|\bdevops\w*"
+    r"|\bdata\b|\bml\b|\bai\b|\bmachine\s+learning\b|\brobotik\w*|\brobotics?\b"
+    r"|\bchip\w*|\bfpga\w*|\bhalbleiter\w*|\bsemiconductor\w*|\bcad\b"
+)
+
+# … und die Rollenwörter, die daraus eine Stelle machen (kein „System",
+# „Integration" oder „Test" — die bleiben außen vor).
+_DEV_ROLE_RE = re.compile(
+    r"\bentwickler\w*|\bdeveloper\w*|\bengineer\w*|\bingenieur\w*"
+    r"|\barchitekt\w*|\barchitect\w*|\bdesigner\w*|\bmanager\w*|\bleiter\w*"
+    r"|\blead\b|\bhead\b"
+)
+
+
+def is_development_role(title: str | None) -> bool:
+    """True, wenn der Titel eine Entwickler-/Produktrolle ohne Testbezug nennt.
+
+    „Software Test Engineer", „Testingenieur Embedded Software" und
+    „Entwicklungsingenieur Testsysteme" bleiben erlaubt: Sie tragen einen
+    Test-Kern. „Systemingenieur" und „Integrationsingenieur" bleiben ebenfalls
+    erlaubt — dort fehlt ein Domänenwort aus ``_DEV_DOMAIN_RE``.
+    """
+    t = normalize(title or "")
+    if _TEST_KERN_RE.search(t):
+        return False
+    return bool(_DEV_DOMAIN_RE.search(t) and _DEV_ROLE_RE.search(t))
+
+# Erst ab drei genannten Stack-Begriffen wird gedeckelt. Eine Anzeige, die nur
+# MATLAB nennt („Embedded Software Engineer"), ist damit kein Ausschluss — ein
+# einzelner Werkzeugname neben einem passenden Profil ist eine Einarbeitung,
+# keine falsche Rolle.
+MIN_STACK_TERMS = 3
+
+
+def stack_gap(profile: Profile, text: str) -> tuple[list[str], list[str]]:
+    """Genannter Technologie-Stack und davon nicht im Profil belegte Begriffe.
+
+    Rückgabe: ``(gefunden, fehlend)`` als sortierte Anzeigenamen. Beide Listen
+    sind leer, wenn die Anzeige keinen der Begriffe nennt.
+    """
+    t = normalize(text or "")
+    gefunden = [name for name, rx in _STACK_TERMS.items() if re.search(rx, t)]
+    belegt = profile.evidence_text
+    fehlend = [name for name in gefunden if not re.search(_STACK_TERMS[name], belegt)]
+    return sorted(gefunden), sorted(fehlend)
+
+
 # Studenten-/Praktikums-/Ausbildungsrollen sind für einen Vollzeit-Ingenieur
 # kategorisch irrelevant — sie werden gar nicht erst angelegt (keine Unterlagen,
 # kein Eintrag im Dashboard). ``\b`` verhindert False-Positives wie „internal"
@@ -243,6 +344,24 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     location_bonus = location_bonus_for(job, location)
     score = min(100, score + location_bonus)
 
+    # Stack-Abgleich: Nennt die Anzeige Technologien, die im Profil überhaupt
+    # nicht vorkommen, und ist der Titel keine Test-/Verifikationsrolle, dann
+    # ist die Keyword-Überschneidung kein Fit. Beispiel: „Lead Integration
+    # Engineer (m/w/d) im Team Technology Consulting" kam über generische Wörter
+    # wie „Integration", „Schnittstellen" und „Anforderungen" auf 74 %, obwohl
+    # Java, Spring Boot, Kafka, SOAP und Guidewire im Profil nicht belegt sind.
+    stack_found, stack_missing = stack_gap(profile, f"{title} {desc}")
+    stack_cap = None
+    if (len(stack_found) >= MIN_STACK_TERMS and len(stack_missing) == len(stack_found)
+            and not _TEST_KERN_RE.search(normalize(title))):
+        stack_cap = STACK_CAP
+        score = min(score, stack_cap)
+
+    role_cap = None
+    if is_development_role(title):
+        role_cap = ROLE_CAP
+        score = min(score, role_cap)
+
     if score >= 65:
         category = "hoch"
     elif score >= 40:
@@ -253,6 +372,15 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
     matched = sorted(set(title_hits + body_hits))
     begruendung = _reasoning(category, len(title_hits), len(body_hits), len(word_hits),
                              location_bonus, _as_minutes(job.get("pendelzeit_min")))
+    if stack_cap:
+        begruendung += (
+            f" Deckel {stack_cap} %: kein Test-/Verifikationskern im Titel und keiner der "
+            f"genannten Stack-Begriffe im Profil ({', '.join(stack_missing[:6])})."
+        )
+    if role_cap:
+        begruendung += (
+            f" Deckel {role_cap} %: Entwickler-/Produktrolle ohne Testbezug im Titel."
+        )
 
     return {
         "score": score,
@@ -267,6 +395,10 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
         # 6*title + 4*body + 2*word + location_bonus.
         "word_hits": word_hits,
         "location_bonus": location_bonus,
+        "stack_found": stack_found,
+        "stack_missing": stack_missing,
+        "stack_cap": stack_cap,
+        "role_cap": role_cap,
     }
 
 

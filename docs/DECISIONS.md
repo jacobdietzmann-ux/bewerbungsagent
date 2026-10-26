@@ -1124,3 +1124,145 @@ Fähigkeitslisten) — Fließtext bleibt Autorenverantwortung.
 Deutsch-Rückfall, Index-Überschreibungen, Gruppen-Reihenfolge, Karten,
 Beleg-Prüfung inklusive bestätigter Lücke, Profilabsatz und PDF-Erzeugung.
 `test_quality.py`: Sprachschlüssel, Sprach-Marker im Befund.
+
+## ADR-038 – Fit-Deckel bei komplett fremdem Technologie-Stack
+
+Ausgangslage: Die Stelle „Lead Integration Engineer (m/w/d) im Team Technology
+Consulting" (x1F) erreichte 74 %. Die Anzeige verlangt Java, Spring Boot,
+Kafka, SOAP, SQL, Docker, Postman, SoapUI, Grafana und Guidewire — nichts
+davon ist im Profil belegt. Der hohe Wert entstand aus generischen Wörtern:
+„Integration", „Schnittstellen", „Anforderungen", „Testen", „Debugging" — alles
+Begriffe, die auch eine Testrolle beschreiben. Der Rollen-Gate (ADR-035)
+verhindert inzwischen die automatische Unterlagenerzeugung, aber der Fit-Wert
+selbst behauptete weiterhin eine hohe Passung.
+
+**Entscheidung.** `matching.score_job` gleicht den in der Anzeige genannten
+Technologie-Stack gegen die **belegten** Kompetenzen ab (`stack_gap`). Sind
+mindestens drei Stack-Begriffe genannt und **keiner** davon im Profil belegt,
+und enthält der Titel keinen Test-/Verifikationskern (`_TEST_KERN_RE`), wird
+der Score auf **60 %** gedeckelt. Die Begründung nennt den Deckel und die
+fehlenden Begriffe.
+
+**Warum 60:** unter dem Research-Fenster (65), über der Ausblendegrenze (50).
+Die Stelle bleibt auffindbar und nachvollziehbar, ist aber kein Research- oder
+Bewerbungsfall. Der Deckel ist keine Aussage über die Person, sondern über die
+Passung zur konkreten Anzeige.
+
+**Warum mindestens drei Begriffe:** Eine Anzeige, die nur MATLAB nennt
+(Embedded-Rolle mit CAN/AUTOSAR), ist kein Ausschluss — ein einzelner
+Werkzeugname neben passendem Profil ist eine Einarbeitung. Erst wenn der
+genannte Stack überwiegend fremd ist, trägt die Keyword-Überschneidung nicht.
+
+**Warum nur ohne Test-Kern im Titel:** Testrollen in Java-/Kafka-Umgebungen
+bleiben unangetastet. Wer eine Java-Anwendung testet, muss sie nicht
+implementieren; der Stack ist dort Umgebung, nicht Eignung.
+
+**Belegquelle:** `Profile.evidence_text` (Skills, Berufserfahrung, Ausbildung,
+Zertifikate) — bewusst **ohne** `_meta`, `gap_terms` und
+`confirmed_gaps_do_not_overclaim`. Dort stehen Technologien, die gerade
+*fehlen* („Keine Docker-Erfahrung"); ein Abgleich gegen den vollen JSON-Text
+würde diese Lücken als Kompetenz zählen.
+
+**Grenzen.** Die Begriffstabelle (`_STACK_TERMS`) ist bewusst klein und
+endlich; sie deckt die üblichen Sprachen, Frameworks, Messaging-, Datenbank-,
+Container- und Plattformbegriffe ab. `REST` fehlt absichtlich, weil „der Rest"
+im Deutschen zu häufig ist. Neue Begriffe werden nur mit Test aufgenommen.
+
+**Folgen.** Drei bestehende Einträge wurden am 25.10.2026 nachträglich
+korrigiert: x1F Lead Integration Engineer 74 → 60, Upflow Senior Full Stack
+Engineer 68 → 60, AlmavivA Backend Developer .NET 66 → 60. Alle übrigen
+Scores blieben unverändert.
+
+**Testabdeckung.** `test_scoring_stack.py`: Stack-Erkennung, belegter Begriff,
+Lückenlisten zählen nicht als Beleg, Deckel bei Architekturrolle, kein Deckel
+bei Testrolle, bei teilweise belegtem Stack, ohne Stack und bei nur einem
+genannten Begriff.
+
+## ADR-039 – Rollen-Gate für Entwicklerstellen, historische Bewertungen eingefroren
+
+Ausgangslage: Die Spitze der Trefferliste war voll von Entwicklerrollen —
+„Principal Engineer – AI-Enabled Embedded Software" (NXP) 100 %,
+„Senior Manager CAD Infrastructure" (Infineon) 100 %, „Firmware-Entwickler
+Embedded Systems" (ALPHA LASER) 98 %. Der Keyword-Fit belohnt die
+Domänenüberschneidung (Embedded, Software, AI), nicht die ausgeübte Rolle:
+Das Profil beschreibt Test, Absicherung und Integration, nicht Produktentwicklung.
+
+**Entscheidung.**
+
+1. `matching.is_development_role(title)` erkennt Entwickler-/Produktrollen:
+   ein Domänenwort (Software, Firmware, Embedded, Backend, Frontend, Cloud,
+   DevOps, Data/ML/AI, Robotik, Chip/FPGA, CAD) **und** ein Rollenwort
+   (Entwickler, Developer, Engineer, Ingenieur, Architekt, Designer, Manager,
+   Leiter, Lead, Head) im Titel. Fehlt ein Test-Kern im Titel, wird der Score
+   auf **60 %** gedeckelt (`role_cap`).
+2. Der Test-Kern hat Vorrang: „Software Test Engineer", „Testingenieur Embedded
+   Software" und „Entwicklungsingenieur Testsysteme" bleiben unangetastet.
+   „Systemingenieur" und „Integrationsingenieur" ebenso — dort fehlt ein
+   Domänenwort.
+3. **Historische Bewertungen bleiben stehen.** `_merge_state` überschreibt die
+   Score-Felder nicht mehr, wenn der Status `sent`, `followup`, `interview`
+   oder `rejected` ist. Eine versendete Bewerbung behält den Fit zum
+   Entscheidungszeitpunkt.
+
+**Warum das Einfrieren:** Die Evaluation (`eval/`) lernt aus echten
+Entscheidungen. Würde ein neues Gate alte Bewerbungen rückwirkend auf 60 %
+setzen, verschöben sich die Labels — und die Aussage „AUC 0,715" wäre nicht
+mehr mit derselben Datenbasis vergleichbar. Außerdem sieht eine bereits
+versendete Bewerbung sonst wie eine Fehlentscheidung aus, obwohl sie zum
+damaligen Zeitpunkt begründet war.
+
+**Grenzen.** Das Gate arbeitet nur auf dem Titel; eine Anzeige
+„Softwareentwickler (m/w/d) Testsysteme" bleibt erlaubt, obwohl sie Entwicklung
+ist. Die Domänenliste ist endlich und muss bei Bedarf erweitert werden.
+
+**Folgen (25.10.2026 gemessen).** Von 275 sichtbaren Stellen fallen 31 durch das
+Gate, davon 25 mit Status `neu` (NXP 100 → 60, Infineon 100 → 60, ALPHA LASER
+98 → 60, MTU 96 → 60 …). Sechs bereits versendete/abgelehnte Bewerbungen
+behalten ihren historischen Wert.
+
+**Testabdeckung.** `test_scoring_roles.py`: sieben Titelerkennungen (inkl.
+Test-Kern-Ausnahmen), fünf Score-Fälle (Deckel bei Embedded/CAD, kein Deckel
+bei Test-/Systemrollen). Der Einfrier-Mechanismus wird über den Live-Lauf
+verifiziert (sechs historische Einträge unverändert).
+
+## ADR-040 – Diehl als ATS-Quelle, Firmen-Aliase, täglicher Mail-Abgleich
+
+Ausgangslage: Der Gmail-Abgleich am 26.10.2026 zeigte sieben Leads, die der
+Agent nie gefunden hatte. Vier lagen außerhalb des 30-Minuten-Radius (Ulm,
+Egelsbach, Donauwörth, Dresden), zwei waren Recruiter-Anzeigen (SEG MUC,
+SThree), eine war eine echte Lücke im Radius. Zusätzlich fehlte Diehl Aviation
+komplett als Quelle, obwohl dort regelmäßig passende Stellen stehen.
+
+**Entscheidungen.**
+
+1. **Diehl-Provider** (`ats: "diehl"`): Die Karriereseite ist eine
+   TYPO3-Jobbörse mit serverseitig gerenderter Liste (`?p=N`, 12 je Seite,
+   `?d=4` filtert Diehl Aviation). Titel, Bereich, Ort und URL stehen im
+   Listen-HTML; Detailseiten liefern die Abschnitte als
+   `<h2>…</h2><div class="ezrichtext-field">…</div>`. Detailseiten werden nur
+   für Stellen im Umkreis geladen. Ergebnis im Test: 6 Stellen im Umkreis von
+   111 Diehl-Aviation-Anzeigen, Beschreibungen 900–2.100 Zeichen.
+2. **Firmen-Aliase** (`matching.company_aliases`): Die Identitätsprüfung
+   entfernt jetzt Rechtsformen (GmbH, AG, SE …) und bildet konfigurierte
+   Aliase ab. „NXP Semiconductors" und „NXP" sind damit dieselbe Anzeige —
+   vorher blieb ein Duplikat bei 100 %, während das andere über das Rollen-Gate
+   auf 60 % fiel. Schlüssel werden normalisiert erwartet (`nxp semiconductors`).
+   Recruiter→Endkunde lässt sich nur eintragen, wenn der Endkunde bekannt ist;
+   der Mail-Abgleich meldet solche Leads separat, statt sie als „nie gefunden"
+   zu zählen.
+3. **Täglicher Mail-Abgleich** (`bewerbung_mailcheck.py`, Cron 07:40): liest
+   JobLeads- und StepStone-Jobagent-Mails der letzten zwei Tage, extrahiert
+   Firma/Titel und prüft gegen `data/jobs.json` und `data/state.json`. Ausgabe:
+   Anzahl Leads, gefunden/offen/Recruiter, Liste der offenen. Der Abgleich ist
+   bewusst streng (Firma + vier gemeinsame Wörter oder Titelähnlichkeit ≥ 0,85),
+   weil ein falsches „gefunden" eine echte Lücke verdeckt.
+
+**Grenzen.** Der Mailcheck lebt in `~/AppData/Local/hermes/scripts/`, nicht im
+Repo: er braucht die Google-Bibliotheken der Hermes-Umgebung. Die
+Recruiter-Erkennung ist eine Namensliste; neue Recruiter müssen ergänzt werden.
+Diehl-Seiten sind englisch/deutsch gemischt; die Beschreibung wird als Klartext
+übernommen.
+
+**Testabdeckung.** `test_identity_alias.py`: Rechtsform-Normalisierung,
+Alias-Zusammenführung, Identität mit/ohne Alias. Der Diehl-Provider wurde live
+gegen die Karriereseite getestet (6 Treffer, Beschreibungen vorhanden).

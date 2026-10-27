@@ -93,6 +93,54 @@ class TestSystemMap:
         assert height > 440
 
 
+class TestToolchainMap:
+    """Arbeitsplatz → GitHub/Drive → Raspberry Pi → Telegram → Handy."""
+
+    def test_renders_svg_with_all_tool_nodes(self, mod):
+        svg = mod._build_toolchain_svg()
+        assert svg.startswith("<svg") and svg.endswith("</svg>")
+        for key, _name, _sub, _status in [t for _title, entries in mod._TOOLCHAIN for t in entries]:
+            assert f'data-node="{key}"' in svg, key
+
+    def test_boxes_do_not_overlap(self, mod):
+        assert _overlaps(_rects(mod._build_toolchain_svg())) == []
+
+    def test_stays_within_viewbox(self, mod):
+        svg = mod._build_toolchain_svg()
+        width, height = re.search(r'viewBox="0 0 (\d+) (\d+)"', svg).groups()
+        width, height = int(width), int(height)
+        for x, y, w, h in _rects(svg):
+            assert x + w <= width and y + h <= height, (x, y, w, h)
+
+    def test_jeder_status_hat_eine_legende(self, mod):
+        """Ein Kasten mit unbekanntem Status würde die Farbe nicht finden."""
+        used = {status for _title, entries in mod._TOOLCHAIN for *_rest, status in entries}
+        used |= {status for *_rest, status, _beleg in mod._TOOLS_EXTRA}
+        assert used <= set(mod._TOOL_STATUS)
+
+    def test_knoten_haben_detailtexte(self, mod):
+        """Jeder Kasten der Grafik braucht einen Eintrag, sonst bleibt der Klick leer."""
+        keys = [t[0] for _title, entries in mod._TOOLCHAIN for t in entries]
+        for key in keys:
+            assert key in mod._TOOL_NODES, key
+            assert mod._TOOL_NODES[key].get("title")
+
+    def test_keine_erfundene_verbindung(self, mod):
+        """Kanten dürfen nur zwischen existierenden Spalten/Zeilen verlaufen."""
+        layout = [
+            [(i, j) for j in range(len(entries))]
+            for i, (_title, entries) in enumerate(mod._TOOLCHAIN)
+        ]
+        valid = {node for column in layout for node in column}
+        for src, dst in mod._TOOL_EDGES:
+            assert src in valid and dst in valid, (src, dst)
+
+    def test_pi_ist_als_dauerlauf_gekennzeichnet(self, mod):
+        titles = " ".join(title for title, _entries in mod._TOOLCHAIN)
+        assert "RASPBERRY PI" in titles
+        assert "Pi" in mod._TOOL_NODES["tool-6"]["title"] or "Pi" in mod._TOOL_NODES["tool-6"]["body"]
+
+
 class TestGeoMap:
     def test_projection_keeps_points_inside_bbox(self, mod):
         f = mod._project(

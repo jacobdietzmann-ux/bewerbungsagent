@@ -59,7 +59,11 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
    Suche, Profil-Fit-Filter, Status-Sichtfilter, KPI-Karten, Status- und Wochen-Diagramme,
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
    Änderungen werden über einen lokalen Server dauerhaft in `data/jobs.db` (SQLite)
-   gespeichert.
+   gespeichert. Die Tabelle ist auf **Dichte** gebaut: eine Zeile pro Stelle (Titel max.
+   zwei Zeilen), feste Spaltenbreiten in Pixeln und alle Zusatzinfos (Profil-Treffer,
+   Prüfbefunde, Versanddatum, Homeoffice-Original, km/Restluft, Bewertungsdimensionen)
+   im Tooltip. Dokumente werden nicht mehr einzeln verlinkt — geöffnet wird der
+   Bewerbungsordner, der Tooltip des Ordner-Links nennt die enthaltenen Dateien.
 7. **Ablauf als Graph** (`ablauf`, optional) – dieselben Stufen, aber als
    Zustandsgraph mit Verzweigung: Stellen, deren Titel für die Relevanz-Triage
    nicht reicht, werden gezielt nachgeladen (`fetch --only-unsure`), statt für
@@ -207,7 +211,10 @@ für bisync/Backup bestehen. Ohne Server (direktes Öffnen der `dashboard.html` 
 funktioniert die Anzeige, aber Statusänderungen werden nur lokal im Browser gehalten
 (bis der Server läuft).
 Über „Ordner ↗“ in der Links-Spalte öffnet der Server den jeweiligen Bewerbungsordner im
-Dateimanager.
+Dateimanager; `⧉` kopiert den absoluten Pfad. Die Dokumente selbst sind nicht mehr
+einzeln verlinkt (sie machten die Zeilen unnötig hoch) — sie liegen im Ordner, und der
+Tooltip des Links nennt Anzahl und Dateinamen. Reicht die Fensterbreite nicht für die
+Spalten, scrollt die Tabelle horizontal statt sich zu überlagern.
 
 **Verknüpfung auf dem Desktop (Linux).** Ein `.desktop`-Launcher zeigt auf das Skript;
 ein reiner Symlink auf die `.sh` genügt nicht, weil der Dateimanager ihn sonst im
@@ -300,6 +307,14 @@ Enthalten sind:
   Dienste-Schicht; jeder Knoten erklärt Eingang und Ausgang.
 - **Geografie-Map** — echte Koordinaten der Stellen aus dem Geocode-Cache, Mittelpunkt
   ist der Wohnort, Linien zeigen den Pendelweg, gefärbt nach Fahrzeit.
+- **Toolchain** — Arbeitsplatz, Versionsverwaltung, Dauerlauf und Benachrichtigung:
+  Windows-PC (VS Code/Copilot, MCP-Server, venv, Git) → GitHub/Google Drive →
+  Raspberry Pi (systemd-Timer, `agent.py`, `jobwatch.py`) → Telegram → Handy. Jeder
+  Kasten trägt einen **Belegt-Status**: `geprüft` (auf diesem Rechner nachgesehen),
+  `konfiguriert` (steht im Code/der `config.json`), `laut Auskunft` (vom Nutzer
+  bestätigt, von hier nicht prüfbar) oder `nicht vorhanden`. Damit behauptet die
+  Karte keine Gleichheit, wo nur eine Konfiguration vorliegt — LibreOffice etwa fehlt
+  hier und ist als fehlend markiert.
 - **Befehle, Ablageplan, Dienste und Module** mit Verantwortung und Reichweite
   (Netzwerk vs. deterministisch).
 
@@ -337,7 +352,8 @@ Die freie Websuche ist bewusst **pluggable**:
   - **SuccessFactors „Jobs2Web"** (`host`) hat keinen JSON-Endpunkt: die Stellen liegen als
     HTML-Tiles in `/tile-search-results/` und werden geparst (HENSOLDT, 25 pro Seite).
   - **SmartRecruiters** (`company`, optional `city`/`country`) liefert den **vollständigen
-    Anzeigentext** über die Detail-URL (`jobAd.sections`) — kein Browser-Fetch nötig (Renesas).
+    Anzeigentext** über die Detail-URL (`jobAd.sections`) — kein Browser-Fetch nötig (Renesas,
+    Sopra Steria: `SopraSteria1`, `city: "München"`, 23 Stellen im Umkreis).
   - **Diehl** (`list_url`, optional `division`) ist die TYPO3-Jobbörse der Diehl-Gruppe:
     serverseitig gerenderte Liste, paginiert über `?p=N`, Orte stehen direkt in der Liste.
     Detailseiten werden nur für Stellen im Umkreis geladen (Diehl Aviation, Gilching/Dresden).
@@ -347,6 +363,17 @@ Die freie Websuche ist bewusst **pluggable**:
     Stellen auf einer Seite, Eckdaten als `data-*`-Attribute, Volltext als `ld+json` auf der
     Detailseite — ohne Browser. Die Detailseiten werden nur für die Stellen geladen, die den
     Ortsfilter passieren (rund 190 von 400).
+  - **vbjoblist** (`api_url`, `work_locations`, optional `max_pages`/`max_jobs`) ist der
+    TYPO3-„JobScout", den ALTEN Consulting Services (ehemals OSB AG, `jobs.osb-ag.de`)
+    betreibt: `?eID=txVbJoblistAjaxDispatcher&targetAction=jobs-list` liefert 10 Stellen pro
+    Blatt als JSON — mit Arbeitsort, PLZ, Veröffentlichungsdatum, **Gehaltsspanne**
+    (`salaryMin/Max`) und **Volltext** (`volltext`, HTML-escaped), also mehr als jeder
+    Aggregator, ohne Browser. Zwei Eigenheiten: `location`/`distance` der Portalseite werden
+    serverseitig **ignoriert** (die Trefferzahl bleibt bei jedem Radius gleich), nur
+    `workLocation` filtert exakt auf einen Ort — deshalb wird pro konfiguriertem Ort geblättert
+    (München, Taufkirchen, Gilching, Garching, Poing) und der Umkreis danach lokal geprüft;
+    und die Seitengröße ist fest (10), `numScoutJobs`/`limit` wirken nicht. Live: 130 Treffer,
+    123 im Münchner Umkreis, 132 Blätter à ~0,3 s Pause.
   - **Sitemap** (`sitemap`, optional `url_must_contain`, `max_jobs`) ist der generische Weg für
     Karriereseiten ohne ATS-API, die aber eine `sitemap.xml` mit den Anzeigen-URLs ausliefern.
     Jede Detailseite wird gelesen und das `JobPosting`-JSON-LD ausgewertet (Titel, Arbeitgeber,
@@ -359,6 +386,13 @@ Die freie Websuche ist bewusst **pluggable**:
     Konzerntöchter verschwinden (`E.ON Drive Germany GmbH`, `E.ON Digital Technology GmbH`, …).
     Und die Sitemap ist **unvollständig/veraltet**: 4 der 9 München-URLs antworteten mit 404 und
     werden übersprungen, ohne den Lauf abzubrechen.
+- **Bewusst nicht angebunden: FERCHAU.** `touch.ferchau.com` untersagt Crawling im
+  `robots.txt` ausdrücklich („Please do not spider for jobs and projects from this website")
+  und verweist auf eine XML-API, die man per Mail an `marketing.ps@ferchau.com` bekommt.
+  Die FERCHAU-Stellen kommen deshalb weiter über StepStone/Indeed/LinkedIn. Ebenfalls offen:
+  in-tech (SuccessFactors-CSB mit eigenem Such-Endpunkt, `/tile-search-results/` gibt 404),
+  msg (`jobs.msg.group` listet nur Titel ohne Ort), EDAG/Akkodis (JS-SPA bzw. Next.js) und
+  ARRK (`persis`-Portal) — jeweils ohne öffentlichen JSON-Endpunkt.
 - **Arbeitnow** ist eine kostenlose Job-Board-API ohne Schlüssel (`search.arbeitnow_pages`,
   Standard 3). Sie liefert 300 Stellen pro Seite **ohne serverseitigen Filter** — der Ort wird
   lokal gefiltert, und es kommt nur eine Kurzfassung mit, der Volltext muss per `fetch` nach.

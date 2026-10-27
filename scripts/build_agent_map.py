@@ -120,6 +120,219 @@ _SVC_SVG = [
     ("ReportLab", "PDF-Fallback", "#f59e0b"),
 ]
 
+
+# --------------------------------------------------------------------------
+# Toolchain: Arbeitsplatz, Dauerlauf, Ziele
+# --------------------------------------------------------------------------
+# Vier Status, damit die Karte nicht Gleichheit behauptet, wo nur Konfiguration
+# vorliegt: „geprüft" heißt auf **diesem** Rechner nachgesehen, „konfiguriert"
+# steht im Code bzw. in der config.json, „Auskunft" ist vom Nutzer bestätigt und
+# von hier aus nicht prüfbar, „fehlt" ist nachweislich nicht vorhanden.
+_TOOL_STATUS = {
+    "geprueft": ("geprüft", "b-rein", "#22c55e"),
+    "konfiguriert": ("konfiguriert", "b-teils", "#f59e0b"),
+    "auskunft": ("laut Auskunft", "b-io", "#a78bfa"),
+    "fehlt": ("nicht vorhanden", "b-exp", "#64748b"),
+}
+
+# (Knoten-Schlüssel, Name, Untertitel, Status)
+_TOOLCHAIN = [
+    ("ARBEITSPLATZ · WINDOWS-PC", [
+        ("tool-0", "VS Code + Copilot", "Agent-Host dieser Sitzung", "geprueft"),
+        ("tool-1", "MCP-Server", "GitHub MCP · Pylance MCP", "geprueft"),
+        ("tool-2", "Python 3.12 (venv)", ".venvs\\bewerbungsagent", "geprueft"),
+        ("tool-3", "Git + GitHub-CLI", "Commit, Push, PR", "geprueft"),
+    ]),
+    ("VERSIONSVERWALTUNG · SYNC", [
+        ("tool-4", "GitHub", "origin/main · CI in der Cloud", "geprueft"),
+        ("tool-5", "Google Drive", "Drive Desktop (PC) · rclone (Pi)", "konfiguriert"),
+    ]),
+    ("DAUERLAUF · RASPBERRY PI", [
+        ("tool-6", "systemd-User-Timer", "tageslauf 12:00 · wochenlauf", "konfiguriert"),
+        ("tool-7", "agent.py ablauf", "Suche → Match → Dokumente", "konfiguriert"),
+        ("tool-8", "jobwatch.py", "Digest der neuen Stellen", "konfiguriert"),
+    ]),
+    ("BENACHRICHTIGUNG", [
+        ("tool-9", "Telegram Bot-API", "Digest per sendMessage", "auskunft"),
+        ("tool-10", "Handy", "Empfänger des Durchlaufs", "auskunft"),
+    ]),
+]
+
+# Verbindungen zwischen den Spalten (Spalte, Zeile) → (Spalte, Zeile).
+_TOOL_EDGES = [
+    ((0, 3), (1, 0)),   # Git → GitHub (push/pull)
+    ((1, 0), (2, 1)),   # GitHub → Pi (pull)
+    ((1, 1), (2, 1)),   # Drive ⇄ Pi (bisync)
+    ((2, 2), (3, 0)),   # jobwatch → Telegram
+    ((3, 0), (3, 1)),   # Telegram → Handy
+]
+
+_TOOL_EDGE_LABELS = [
+    "push / pull", "git pull", "bisync", "sendMessage", "Zustellung",
+]
+
+# Werkzeuge, die nicht als Kasten in der Grafik stehen, aber zum Arbeitsplatz
+# gehören — mit dem, was auf diesem Rechner tatsächlich vorliegt.
+_TOOLS_EXTRA = [
+    ("Playwright + Chromium", "Rendert XING/Indeed, druckt das PDF dieser Karte",
+     "geprueft", "Chromium 1243 unter %LOCALAPPDATA%\\ms-playwright"),
+    ("ReportLab", "Erzeugt Anschreiben und Lebenslauf als PDF",
+     "geprueft", "in der venv installiert; x1F-Lebenslauf 2 Seiten erzeugt"),
+    ("SQLite (jobs.db)", "Quelle der Wahrheit für den Bestand",
+     "geprueft", "%LOCALAPPDATA%\\bewerbungsagent\\jobs.db, 7,4 MB"),
+    ("LibreOffice (soffice)", "DOCX-Vorlage → PDF",
+     "fehlt", "nicht im PATH, C:\\Program Files\\LibreOffice fehlt → ReportLab"),
+    ("rclone-Bisync", "Spiegelt den Arbeitsordner zu Google Drive",
+     "fehlt", "auf diesem PC nicht installiert (läuft auf dem Linux-Host)"),
+    ("Telegram-Bot-Config", "Token und Chat-ID für den Versand",
+     "geprueft", "C:\\Users\\Admin\\telegram-bot\\config.json, 322 Byte"),
+]
+
+# Detailtexte für die Toolchain-Knoten (Klick in der Grafik).
+_TOOL_NODES = {
+    "tool-0": {"title": "VS Code + GitHub Copilot",
+               "body": "Arbeitsplatz des Agenten: hier werden Codeänderungen "
+                       "gemacht, Tests gefahren und die Karte erzeugt. Der Agent "
+                       "läuft als Copilot-Sitzung im Editor, nicht als Dienst.",
+               "in": "Repo-Ordner", "out": "Commits, Karten, PDFs"},
+    "tool-1": {"title": "MCP-Server",
+               "body": "Model-Context-Protocol-Server, die der Agent-Host dieser "
+                       "Sitzung bereitstellt: der <strong>GitHub MCP Server</strong> "
+                       "(Issues, PRs, Actions) und <strong>Pylance MCP</strong> "
+                       "(Typen, Diagnosen, Referenzen in Python). Beide werden pro "
+                       "Sitzung verbunden, nicht im Repo konfiguriert.",
+               "in": "Sitzung", "out": "Werkzeuge für den Agenten"},
+    "tool-2": {"title": "Python 3.12 (venv)",
+               "body": "Eigene virtuelle Umgebung unter "
+                       "<code>C:\\Users\\Admin\\.venvs\\bewerbungsagent</code> — nicht "
+                       "das System-Python. Enthält ReportLab, requests, SQLAlchemy, "
+                       "Playwright und pytest.",
+               "in": "pyproject.toml", "out": "Interpreter für alle Läufe"},
+    "tool-3": {"title": "Git + GitHub-CLI",
+               "body": "Versionierung im Repo <code>~/git/bewerbungsagent</code>. "
+                       "Die <code>gh</code>-CLI wird für GitHub-Operationen genutzt; "
+                       "Commits tragen den Co-Authored-by-Trailer.",
+               "in": "Änderungen", "out": "origin/main"},
+    "tool-4": {"title": "GitHub",
+               "body": "<code>https://github.com/jacobdietzmann-ux/bewerbungsagent</code> — "
+                       "öffentliches Remote mit CI (pytest + ruff auf 3.10/3.11/3.12). "
+                       "Die Karte verlinkt es in der Kopf- und Fußzeile, damit ein "
+                       "geteiltes PDF auf den nachprüfbaren Code zeigt.",
+               "in": "git push", "out": "CI-Läufe, Backup"},
+    "tool-5": {"title": "Google Drive",
+               "body": "Zwei Wege, ein Ziel: unter Windows spiegelt die "
+                       "<strong>Drive Desktop</strong>-App den Arbeitsordner (ohne "
+                       "Datei-Ausschlüsse — deshalb liegt <code>jobs.db</code> unter "
+                       "<code>%LOCALAPPDATA%</code>), auf dem Linux-Host erledigt das "
+                       "<code>rclone bisync</code> alle 15 Minuten.",
+               "in": "Arbeitsordner", "out": "Cloud-Backup"},
+    "tool-6": {"title": "systemd-User-Timer (Pi)",
+               "body": "Der Raspberry Pi läuft dauerhaft. Ein systemd-User-Timer startet "
+                       "<code>scripts/tageslauf.sh</code> um 12:00 und "
+                       "<code>scripts/wochenlauf.sh</code> am Montag; <code>flock</code> "
+                       "verhindert zwei gleichzeitige Läufe, das Ergebnis landet in "
+                       "<code>data/tageslauf-status.json</code>.",
+               "in": "Zeitplan", "out": "Lauf"},
+    "tool-7": {"title": "agent.py ablauf (Pi)",
+               "body": "Derselbe Ablauf wie auf dem PC: Suche → Match → Unterlagen → "
+                       "Dashboard. Auf dem Pi ist das der produktive Weg, weil der "
+                       "Rechner immer an ist.",
+               "in": "config.json", "out": "Bestand, PDFs, Dashboard"},
+    "tool-8": {"title": "jobwatch.py (Pi)",
+               "body": "Führt die Pipeline aus und schickt einen Digest der neuen "
+                       "Stellen per Telegram. Protokoll in <code>data/watch_runs.json</code>, "
+                       "die Zugangsdaten kommen aus <code>~/telegram-bot/config.json</code>.",
+               "in": "neue Stellen", "out": "Digest"},
+    "tool-9": {"title": "Telegram Bot-API",
+               "body": "Versand über <code>sendMessage</code> an die konfigurierte "
+                       "Chat-ID. Auf diesem PC liegt die Konfiguration unter "
+                       "<code>C:\\Users\\Admin\\telegram-bot\\config.json</code> "
+                       "(322 Byte, Token und Chat-ID — bewusst nicht im Repo); "
+                       "gesendet wird vom Pi.",
+               "in": "Digest-Text", "out": "Nachricht"},
+    "tool-10": {"title": "Handy",
+                "body": "Empfänger: dort kommt der Durchlauf an. Damit ist der Agent "
+                        "ohne offenes Dashboard beobachtbar.",
+                "in": "Telegram-Nachricht"},
+}
+
+
+def _build_toolchain_svg(tools=None, width=1180, height=None) -> str:
+    """Toolchain-Karte: Arbeitsplatz → Versionsverwaltung → Pi → Benachrichtigung.
+
+    Vier Spalten mit unterschiedlich vielen Kästen; die Kanten verbinden
+    gezielt einzelne Kästen (nicht Spalten), damit die Linien im schmalen Spalt
+    zwischen zwei Spalten bleiben und keinen fremden Kasten kreuzen.
+    """
+    tools = tools or _TOOLCHAIN
+    cols = len(tools)
+    gap = 44
+    col_w = (width - (cols - 1) * gap) / cols
+    box_h, box_gap = 62, 14
+    top = 66
+    max_rows = max(len(entries) for _, entries in tools)
+    boxes_bottom = top + max_rows * box_h + (max_rows - 1) * box_gap
+    height = height or boxes_bottom + 56
+
+    col_x = [i * (col_w + gap) for i in range(cols)]
+    pos: dict[tuple[int, int], tuple[float, float, float, float]] = {}
+
+    parts = [
+        f'<svg viewBox="0 0 {width} {height:.0f}" xmlns="http://www.w3.org/2000/svg" '
+        f'style="width:100%;height:auto;display:block" role="img" '
+        f'aria-label="Toolchain des Bewerbungsagenten">',
+        f'<rect width="{width}" height="{height:.0f}" fill="#0d1626" rx="12"/>',
+    ]
+
+    for ci, (title, entries) in enumerate(tools):
+        x = col_x[ci]
+        parts.append(f'<text x="{x + col_w / 2:.0f}" y="34" text-anchor="middle" fill="#64748b" '
+                     f'font-size="11" font-weight="700" letter-spacing="1.2" '
+                     f'font-family="system-ui,sans-serif">{_esc(title)}</text>')
+        for ri, (key, name, sub, status) in enumerate(entries):
+            y = top + ri * (box_h + box_gap)
+            pos[(ci, ri)] = (x, y, col_w, box_h)
+            color = _TOOL_STATUS[status][2]
+            parts.append(
+                f'<g class="node" data-node="{key}" tabindex="0" role="button" '
+                f'aria-label="{_esc(name)}">'
+                f'<rect x="{x:.0f}" y="{y:.0f}" width="{col_w:.0f}" height="{box_h}" rx="9" '
+                f'fill="#16243b" stroke="{color}" stroke-width="1.3"/>'
+                f'<circle cx="{x + 16:.0f}" cy="{y + 21:.0f}" r="4" fill="{color}"/>'
+                f'<text x="{x + 28:.0f}" y="{y + 25:.0f}" fill="#e2e8f0" font-size="12" '
+                f'font-weight="600" font-family="system-ui,sans-serif">{_esc(name)}</text>'
+                f'<text x="{x + 16:.0f}" y="{y + 45:.0f}" fill="#8ba0bd" font-size="10.5" '
+                f'font-family="system-ui,sans-serif">{_esc(sub)}</text>'
+                f'</g>'
+            )
+
+    # Kanten: immer von Kastenrand zu Kastenrand, nie durch einen Kasten.
+    for (src, dst), label in zip(_TOOL_EDGES, _TOOL_EDGE_LABELS, strict=False):
+        if src not in pos or dst not in pos:
+            continue
+        sx, sy, sw, sh = pos[src]
+        dx, dy_, dw, dh = pos[dst]
+        if src[0] == dst[0]:                      # gleiche Spalte: senkrecht
+            same_col_ok = dst[1] == src[1] + 1
+            if not same_col_ok:
+                continue
+            x1, y1 = sx + sw / 2, sy + sh
+            x2, y2 = dx + dw / 2, dy_
+        else:                                     # verschiedene Spalten: waagerecht
+            x1, y1 = sx + sw, sy + sh / 2
+            x2, y2 = dx, dy_ + dh / 2
+        parts.append(f'<line x1="{x1:.0f}" y1="{y1:.0f}" x2="{x2:.0f}" y2="{y2:.0f}" '
+                     f'stroke="#475569" stroke-width="1.6" marker-end="url(#arwT)"/>')
+        parts.append(f'<text x="{(x1 + x2) / 2:.0f}" y="{(y1 + y2) / 2 - 6:.0f}" '
+                     f'text-anchor="middle" fill="#7f93b0" font-size="9.5" '
+                     f'font-family="ui-monospace,monospace">{_esc(label)}</text>')
+
+    parts.insert(1,
+                 '<defs><marker id="arwT" markerWidth="9" markerHeight="9" refX="7" refY="3" '
+                 'orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#475569"/></marker></defs>')
+    parts.append("</svg>")
+    return "".join(parts)
+
 # --------------------------------------------------------------------------
 # SVG-Geografie-Map
 # --------------------------------------------------------------------------
@@ -559,6 +772,20 @@ def _render(stats, system_svg, geo_svg, geo_meta):
         for label, v, s in stats["kpis"]
     )
 
+    def rows_tool(t):
+        name, resp, status, beleg = t
+        label, cls, _color = _TOOL_STATUS[status]
+        return (f'<tr><td><strong>{_esc(name)}</strong></td><td>{_esc(resp)}</td>'
+                f'<td><span class="badge {cls}">{label}</span></td>'
+                f'<td class="muted">{_esc(beleg)}</td></tr>')
+
+    tool_legend = "".join(
+        f'<span class="lg"><i style="background:{color}"></i>{label}</span>'
+        for label, _cls, color in _TOOL_STATUS.values()
+    )
+    toolchain_svg = stats.get("toolchain_svg", "")
+    tool_rows = "".join(rows_tool(t) for t in _TOOLS_EXTRA)
+
     # ``</`` maskieren, damit die Inline-<script>-Daten nie als Tag-Ende gelesen
     # werden (gleiches Muster wie im Dashboard).
     data_json = json.dumps(stats["nodes"], ensure_ascii=False).replace("</", "<\\/")
@@ -698,6 +925,26 @@ Stand {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
 <h2>7 · Module &amp; Verantwortlichkeiten</h2>
 <table><thead><tr><th>Modul</th><th>Verantwortung</th><th>Art</th><th>Bereich</th></tr></thead>
 <tbody>{''.join(rows_module(m) for m in _MODULES)}</tbody></table>
+
+<h2>8 · Toolchain — womit gearbeitet wird</h2>
+<div class="card">
+  <p class="sub">Arbeitsplatz, Versionsverwaltung, Dauerlauf und Benachrichtigung.
+  Jeder Kasten trägt seinen Belegt-Status: was auf <em>diesem</em> Rechner
+  nachgesehen wurde, was nur konfiguriert ist, was der Nutzer bestätigt hat und
+  was fehlt. Klick auf einen Kasten zeigt die Details.</p>
+  {toolchain_svg}
+  <div style="margin-top:12px">{tool_legend}</div>
+  <div class="note" style="margin-bottom:0">
+    <strong>Warum die Trennung wichtig ist:</strong> Der PC ist der Arbeitsplatz
+    (schreiben, prüfen, committen), der Raspberry Pi der Dauerlauf (immer an,
+    führt den Lauf aus und schickt den Digest). Beide arbeiten auf demselben
+    Repository — deshalb steht zwischen ihnen GitHub, nicht ein gemeinsamer
+    Ordner.
+  </div>
+</div>
+
+<table><thead><tr><th>Werkzeug</th><th>Rolle</th><th>Status</th><th>Beleg auf diesem Rechner</th></tr></thead>
+<tbody>{tool_rows}</tbody></table>
 
 <div class="note">
 <strong>Merksatz:</strong> Nur die Module mit dem Label
@@ -974,11 +1221,13 @@ def _collect(config: Config) -> dict:
                   "die Caches für Geocoding und Routen — sie machen wiederholte Läufe schnell und "
                   "netzwerkschonend.", "in": "laufend"},
     }
+    nodes.update(_TOOL_NODES)
 
     return {
         "kpis": kpis, "stages": stages, "commands": commands, "filesystem": fs,
         "nodes": nodes, "apps": apps, "geocache": geocache, "limit": limit,
         "sources": sources, "status": status,
+        "toolchain_svg": _build_toolchain_svg(),
     }
 
 

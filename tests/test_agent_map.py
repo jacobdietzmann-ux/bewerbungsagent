@@ -70,6 +70,28 @@ class TestSystemMap:
             assert x + w <= width, f"Box ragt rechts heraus: {x}+{w} > {width}"
             assert y + h <= height, f"Box ragt unten heraus: {y}+{h} > {height}"
 
+    def test_jede_quelle_und_jeder_dienst_hat_einen_knoten(self, mod):
+        """Die Listen sind die Wahrheit — ein neuer Provider darf nicht fehlen.
+
+        Vorher standen die Kästen als feste Liste in der Funktion, während
+        ``_SRC_SVG``/``_SVC_SVG`` daneben lagen; eine Ergänzung an einer Stelle
+        hätte die Karte stillschweigend veraltet gelassen.
+        """
+        svg = mod._build_system_svg()
+        for i in range(len(mod._SRC_SVG)):
+            assert f'data-node="src-{i}"' in svg
+        for i in range(len(mod._SVC_SVG)):
+            assert f'data-node="svc-{i}"' in svg
+        assert f'data-node="src-{len(mod._SRC_SVG)}"' not in svg
+
+    def test_hoehe_waechst_mit_der_quellenzahl(self, mod):
+        """Neun Quellen brauchen mehr Platz als fünf — sonst fehlt der unterste Kasten."""
+        svg = mod._build_system_svg()
+        height = int(re.search(r'viewBox="0 0 \d+ (\d+)"', svg).group(1))
+        boxes = _rects(svg)
+        assert max(y + h for _, y, _, h in boxes) <= height
+        assert height > 440
+
 
 class TestGeoMap:
     def test_projection_keeps_points_inside_bbox(self, mod):

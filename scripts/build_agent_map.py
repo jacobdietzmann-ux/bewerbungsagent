@@ -39,38 +39,85 @@ REPO_URL = "https://github.com/jacobdietzmann-ux/bewerbungsagent"
 # --------------------------------------------------------------------------
 
 _MODULES = [
-    ("search/*", "Provider ausführen: StepStone, DuckDuckGo, Bing, JobSpy, manueller Import", "netz", "Suche"),
-    ("search/__init__.py", "Deduplizieren, Aggregator-/Lexikon-Seiten filtern, URLs bereinigen", "rein", "Suche"),
-    ("fetch_descriptions.py", "Volltext der Anzeige per Headless-Chromium laden (Playwright)", "netz", "Anreicherung"),
+    ("search/__init__.py", "Provider auswählen und ausführen, Treffer deduplizieren, "
+     "Aggregator-/Lexikon-Seiten filtern, URLs bereinigen", "teils", "Suche"),
+    ("search/stepstone.py", "StepStone: Suchbegriff und Ort getrennt, echte Anzeigen", "netz", "Suche"),
+    ("search/duckduckgo.py", "Web-Suche als Lückenfüller (Übersichts-/Lexikonseiten werden verworfen)", "netz", "Suche"),
+    ("search/bing.py", "Web-Suche als Lücke", "netz", "Suche"),
+    ("search/ats.py", "Firmen-Karriereseiten (ATS-Boards), Arbeitnow, JobLeads, "
+     "Jobbörsen-Sitemaps (u. a. jobs.eon.com)", "netz", "Suche"),
+    ("search/arbeitnow.py", "Arbeitnow-API (viele Treffer, Firmenname teils ohne Leerzeichen)", "netz", "Suche"),
+    ("search/manual.py", "Manuell gepflegte Anzeigen aus data/import_jobs.json", "io", "Suche"),
+    ("search/browser.py", "Gemeinsamer Playwright-Helfer für Quellen ohne HTML-Antwort", "netz", "Suche"),
+    ("search/xing.py", "XING über den Browser (JS-Anzeigen, Consent, Nachladen)", "netz", "Suche"),
+    ("search/indeed.py", "Indeed über den Browser; Volltext per Klick auf den Titel", "netz", "Suche"),
+    ("search/labo.py", "jobs.labo.de per HTTP (Suchergebnis + Anzeigentext)", "netz", "Suche"),
+    ("search/jobspy.py", "JobSpy (LinkedIn/Indeed/Google) als Aggregator", "netz", "Suche"),
+    ("saved_searches.py", "Benannte, wiederholbare Suchläufe", "rein", "Suche"),
+    ("provider_health.py", "Fehlserien je Quelle zählen, Quelle nach N Fehlläufen abschalten", "io", "Suche"),
+    ("triage.py", "Vorfilter vor dem Scoring (Studenten-/Technikerrollen, Ausschlüsse)", "rein", "Bewertung"),
     ("profile.py", "Profil laden; Keywords und Inhaltswörter extrahieren", "rein", "Bewertung"),
-    ("matching.py", "Fit-Score 0–100 (Titel ×6, Text ×4, Wort ×2, Ort +10)", "rein", "Bewertung"),
+    ("matching.py", "Fit-Score 0–100 (Titel ×6, Text ×4, Wort ×2, Ort 0–10), Rollen-Gate", "rein", "Bewertung"),
+    ("dimensions.py", "Sieben Dimensionen als zweites, berichtendes Urteil (ADR-031)", "rein", "Bewertung"),
+    ("rag.py", "Belege zu einer Behauptung aus dem Profil holen (Quelle + Zeitraum)", "rein", "Ausgabe"),
+    ("tailoring.py", "Stellenbezogener Lebenslauf-Zuschnitt aus JSON, prüft Belege", "rein", "Ausgabe"),
     ("industry.py", "Branche zuordnen (Arbeitgeber → Text → Titel)", "rein", "Anreicherung"),
     ("salary.py", "Gehalt schätzen aus Rolle, Seniorität, Branche, Ort", "rein", "Anreicherung"),
+    ("homeoffice.py", "Homeoffice-Anteil aus der Anzeige lesen", "rein", "Anreicherung"),
     ("commute.py", "Pendelweg via Nominatim + OSRM, mit Cache; Grenze 30 min", "netz", "Anreicherung"),
     ("documents.py", "Anschreiben + Lebenslauf als PDF (eigene DOCX-Vorlage oder ReportLab)", "rein", "Ausgabe"),
+    ("quality.py", "Erzeugte Unterlagen unabhängig prüfen (Belege, Pflichtteile, PDF)", "rein", "Ausgabe"),
     ("dashboard.py", "Interaktives HTML-Dashboard rendern", "rein", "Ausgabe"),
     ("db.py", "SQLite-Speicher: Provider-/Nutzer-Felder getrennt, History-Schutz", "io", "Speicher"),
     ("pipeline.py", "Orchestrierung der Stufen, State-Merge, Bereinigung", "teils", "Steuerung"),
+    ("orchestrator.py", "Derselbe Ablauf als Graph (LangGraph, optional)", "teils", "Steuerung"),
+    ("followup.py", "Fällige Nachfassen erkennen und Text danebenlegen", "io", "Pflege"),
     ("importer.py", "Bestand des alten Dashboards übernehmen", "io", "Steuerung"),
     ("cleanup.py", "Alte Bewerbungsordner in den Trash verschieben", "io", "Pflege"),
-    ("saved_searches.py", "Benannte, wiederholbare Suchläufe", "rein", "Suche"),
     ("statuses.py", "Status-Funnel + Normalisierung alter Werte", "rein", "Steuerung"),
-    ("storage.py", "JSON lesen/schreiben", "io", "Speicher"),
+    ("storage.py", "JSON lesen/schreiben, Zeitstempel", "io", "Speicher"),
     ("server.py", "Lokaler HTTP-Server: Dashboard, /state-API, Ordner öffnen", "netz", "Ausgabe"),
     ("semantic.py", "Embedding-Matching — Experiment, Hypothese widerlegt (ADR-015)", "exp", "Experiment"),
     ("rerank.py", "Cross-Encoder-Reranking — Experiment zur Alternative", "exp", "Experiment"),
 ]
 
 _SERVICES = [
-    ("StepStone", "Stellenanzeigen (HTML-Scraping)", "netz", "requests"),
-    ("DuckDuckGo", "Web-Suche nach Anzeigen", "netz", "requests"),
-    ("Bing", "Web-Suche nach Anzeigen", "netz", "requests"),
-    ("JobSpy → LinkedIn / Indeed / Google", "strukturierte Jobs (derzeit oft blockiert: 403/429)", "netz", "python-jobspy"),
+    ("StepStone", "Stellenanzeigen (HTML, <code>requests</code>)", "netz", "requests"),
+    ("JobLeads", "Stellenanzeigen; max. 25 Karten je Anfrage, keine Paginierung", "netz", "requests"),
+    ("XING", "Stellenanzeigen nur im gerenderten DOM", "netz", "playwright"),
+    ("Indeed", "Trefferliste + Volltext; Cloudflare blockt einfache Clients (403)", "netz", "playwright"),
+    ("jobs.labo.de", "Stellenanzeigen (reines HTML, Folge-Seite per Knopf-URL)", "netz", "requests"),
+    ("Firmen-Karriereseiten", "ATS-Boards, Arbeitnow, Jobbörsen-Sitemap (z. B. jobs.eon.com)", "netz", "requests"),
+    ("JobSpy → LinkedIn / Indeed / Google", "strukturierte Jobs (LinkedIn drosselt mit 429)", "netz", "python-jobspy"),
     ("Nominatim (OpenStreetMap)", "Adressen zu Koordinaten auflösen (Politeness ≥ 1 s)", "netz", "requests + Cache"),
     ("OSRM", "Fahrroute Auto → Distanz und Dauer", "netz", "requests + Cache"),
-    ("Chromium / Playwright", "Vollständige Anzeige rendern (Umgehung des Bot-Schutzes)", "netz", "playwright"),
-    ("LibreOffice (soffice)", "DOCX-Vorlage → PDF konvertieren", "lokal", "subprocess"),
+    ("Chromium / Playwright", "Anzeigen rendern und Volltext holen, wo HTML nicht reicht", "netz", "playwright"),
+    ("LibreOffice (soffice)", "DOCX-Vorlage → PDF; fehlt es, greift die ReportLab-Vorlage", "lokal", "subprocess, optional"),
     ("Tectonic / Typst", "Externe CV-Vorlagen kompilieren (LaTeX / Typst)", "lokal", "CLI, offline"),
+]
+
+# Quellen für die Ablaufkarte (Reihenfolge = Reihenfolge im SVG).
+_SRC_SVG = [
+    ("StepStone", "#38bdf8"),
+    ("JobLeads", "#38bdf8"),
+    ("XING", "#38bdf8"),
+    ("Indeed", "#38bdf8"),
+    ("jobs.labo.de", "#38bdf8"),
+    ("Firmen-Karriereseiten (ATS / Sitemap)", "#22c55e"),
+    ("JobSpy (LinkedIn)", "#38bdf8"),
+    ("Manueller Import", "#a78bfa"),
+    ("Alt-Dashboard", "#a78bfa"),
+]
+
+# Dienste für die Ablaufkarte.
+_SVC_SVG = [
+    ("Nominatim + OSRM", "Pendelweg", "#38bdf8"),
+    ("Chromium", "Volltext", "#38bdf8"),
+    ("Profil-Datenbank", "Skills", "#a78bfa"),
+    ("DOCX-Vorlage", "Lebenslauf", "#f59e0b"),
+    ("Tailoring-JSON", "Zuschnitt", "#f59e0b"),
+    ("LibreOffice", "DOCX → PDF", "#f59e0b"),
+    ("ReportLab", "PDF-Fallback", "#f59e0b"),
 ]
 
 # --------------------------------------------------------------------------
@@ -292,10 +339,39 @@ def _stage_box(x, y, w, h, key, title, sub, color, icon):
     )
 
 
-def _build_system_svg(width=1180, height=440):
-    """Ablaufkarte: Quellen → vier Stufen → Ausgabe, mit Diensteschicht darunter."""
+def _build_system_svg(width=1180, height=None):
+    """Ablaufkarte: Quellen → vier Stufen → Ausgabe, mit Diensteschicht darunter.
+
+    Die Höhe wird aus der Anzahl der Quellen berechnet: die Liste ist in den
+    letzten Ausbaustufen von fünf auf neun Einträge gewachsen, und ein festes
+    Raster hätte die unteren Kästen aus dem viewBox geschoben.
+    """
+    sx, sw = 0, 236                 # Quellen (breiter: „Firmen-Karriereseiten …")
+    sy, sh, sg = 64, 44, 12
+    src_count = len(_SRC_SVG)
+    src_total = src_count * sh + (src_count - 1) * sg
+
+    bx, bw, bg = 272, 156, 14       # Stufen (muss vor der Ausgabespalte ab 952 enden)
+    by, bh = sy + src_total / 2 - 43, 86
+    if by < sy:                     # wenige Quellen: Stufen nicht nach oben ziehen
+        by = sy
+
+    dw, dgx = 124, 12               # Dienste: 5 je Zeile in der Pipeline-Spalte
+    svc_cols = 5
+    svc_rows = max(1, -(-len(_SVC_SVG) // svc_cols))
+    dy, dh, dgy = by + bh + 78, 44, 14
+
+    ox, ow, oh, og = 952, 212, 62, 16   # Ausgabe
+    svc_bottom = dy + svc_rows * dh + (svc_rows - 1) * dgy
+    needed = max(sy + src_total + 24, svc_bottom + 28)
+    height = max(440, needed) if height is None else max(height, needed)
+
+    bus_l = sx + sw + 8
+    stage_x = [bx + i * (bw + bg) for i in range(4)]
+    stage_cy = by + bh / 2
+
     parts = [
-        f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" '
+        f'<svg viewBox="0 0 {width} {height:.0f}" xmlns="http://www.w3.org/2000/svg" '
         f'style="width:100%;height:auto;display:block" role="img" '
         f'aria-label="Ablaufkarte des Bewerbungsagenten">',
         '<defs>'
@@ -304,20 +380,8 @@ def _build_system_svg(width=1180, height=440):
         '<marker id="arwG" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">'
         '<path d="M0,0 L0,6 L7,3 z" fill="#22c55e"/></marker>'
         '</defs>',
-        f'<rect width="{width}" height="{height}" fill="#0d1626" rx="12"/>',
+        f'<rect width="{width}" height="{height:.0f}" fill="#0d1626" rx="12"/>',
     ]
-
-    # --- Geometrie (feste Rasterwerte, damit nichts überlappt) ---
-    sx, sw = 0, 196                 # Quellen
-    sy, sh, sg = 64, 44, 14
-    bus_l = sx + sw + 8             # Sammelschiene links (204)
-    bx, bw, bg = 232, 156, 26       # Stufen
-    by, bh = 196, 86
-    ox, ow, oh, og = 952, 212, 62, 16   # Ausgabe
-    dw, dgx = 128, 10               # Dienste (bleiben in der Pipeline-Spalte)
-
-    stage_x = [bx + i * (bw + bg) for i in range(4)]
-    stage_cy = by + bh / 2
 
     for x, label in ((sx + sw / 2, "QUELLEN"),
                      ((bx + stage_x[-1] + bw) / 2, "VERARBEITUNG (Pipeline)"),
@@ -327,13 +391,7 @@ def _build_system_svg(width=1180, height=440):
                      f'font-family="system-ui,sans-serif">{label}</text>')
 
     # --- Quellen ---
-    sources = [
-        ("StepStone", "#38bdf8"),
-        ("Web-Suche (DuckDuckGo/Bing)", "#38bdf8"),
-        ("JobSpy (LinkedIn/Indeed)", "#38bdf8"),
-        ("Manueller Import", "#a78bfa"),
-        ("Alt-Dashboard", "#a78bfa"),
-    ]
+    sources = _SRC_SVG
     src_cy = []
     for i, (name, color) in enumerate(sources):
         y = sy + i * (sh + sg)
@@ -376,34 +434,30 @@ def _build_system_svg(width=1180, height=440):
                          f'marker-end="url(#arwG)"/>')
 
     # --- Dienste (Schicht unter der Pipeline) ---
-    services = [
-        ("Nominatim + OSRM", "Pendelweg", "#38bdf8"),
-        ("Chromium", "Beschreibung", "#38bdf8"),
-        ("Profil-Datenbank", "Skills", "#a78bfa"),
-        ("DOCX-Vorlage", "Lebenslauf", "#f59e0b"),
-        ("LibreOffice", "DOCX → PDF", "#f59e0b"),
-    ]
-    dx = bx + 14
-    dy, dh = 350, 40
-    parts.append(f'<text x="{bx}" y="{dy - 14}" fill="#64748b" font-size="11" font-weight="700" '
+    services = _SVC_SVG
+    dx = bx + 2
+    parts.append(f'<text x="{bx}" y="{dy - 14:.0f}" fill="#64748b" font-size="11" font-weight="700" '
                  f'letter-spacing="1.2" font-family="system-ui,sans-serif">'
                  f'DIENSTE &amp; WERKZEUGE</text>')
     # Verteilschiene: Dienste speisen die Pipeline.
-    parts.append(f'<line x1="{bx}" y1="304" x2="{stage_x[-1] + bw}" y2="304" '
+    rail_y = by + bh + 34
+    parts.append(f'<line x1="{bx}" y1="{rail_y:.0f}" x2="{stage_x[-1] + bw}" y2="{rail_y:.0f}" '
                  f'stroke="#334155" stroke-width="1.2" stroke-dasharray="4 3"/>')
     for i, (name, sub, color) in enumerate(services):
-        x = dx + i * (dw + dgx)
+        row, col = divmod(i, svc_cols)
+        x = dx + col * (dw + dgx)
+        y = dy + row * (dh + dgy)
         parts.append(
             f'<g class="node" data-node="svc-{i}" tabindex="0" role="button" aria-label="{_esc(name)}">'
-            f'<rect x="{x}" y="{dy}" width="{dw}" height="{dh}" rx="9" fill="#131f33" '
+            f'<rect x="{x}" y="{y:.0f}" width="{dw}" height="{dh}" rx="9" fill="#131f33" '
             f'stroke="{color}" stroke-width="1.2" stroke-dasharray="4 3"/>'
-            f'<text x="{x + dw/2:.0f}" y="{dy + 17}" text-anchor="middle" fill="#cbd5e1" '
-            f'font-size="11" font-weight="600" font-family="system-ui,sans-serif">{_esc(name)}</text>'
-            f'<text x="{x + dw/2:.0f}" y="{dy + 31}" text-anchor="middle" fill="#64748b" '
+            f'<text x="{x + dw/2:.0f}" y="{y + 18:.0f}" text-anchor="middle" fill="#cbd5e1" '
+            f'font-size="10.5" font-weight="600" font-family="system-ui,sans-serif">{_esc(name)}</text>'
+            f'<text x="{x + dw/2:.0f}" y="{y + 33:.0f}" text-anchor="middle" fill="#64748b" '
             f'font-size="9.5" font-family="system-ui,sans-serif">{_esc(sub)}</text>'
             f'</g>'
         )
-        parts.append(f'<line x1="{x + dw/2:.0f}" y1="{dy}" x2="{x + dw/2:.0f}" y2="304" '
+        parts.append(f'<line x1="{x + dw/2:.0f}" y1="{y:.0f}" x2="{x + dw/2:.0f}" y2="{rail_y:.0f}" '
                      f'stroke="#334155" stroke-width="1" stroke-dasharray="3 3"/>')
 
     # --- Ausgabe (vertikal zentriert zur Pipeline) ---
@@ -686,6 +740,12 @@ document.querySelectorAll(".node").forEach(g => {{
 # Zahlen sammeln
 # --------------------------------------------------------------------------
 
+def _boards(config: Config) -> list:
+    """Konfigurierte ATS-Boards (leere/fehlende Liste → leer)."""
+    boards = (config.data.get("search") or {}).get("ats_boards") or []
+    return [b for b in boards if isinstance(b, dict)]
+
+
 def _collect(config: Config) -> dict:
     store = None
     apps = []
@@ -765,65 +825,96 @@ def _collect(config: Config) -> dict:
         ("04_Agent/data/state.json", "Abgeleiteter Snapshot (Backup)", "laufend"),
         ("04_Agent/data/geocode_cache.json", "Adresse → Koordinaten", "nach match"),
         ("04_Agent/data/commute_cache.json", "Route → km / Minuten", "nach match"),
+        ("04_Agent/data/jobs.db → provider_health", "Fehlserien je Quelle (Tabelle)", "nach search"),
         ("01_Bewerbungen/<Firma - Titel>/", "Anschreiben, Lebenslauf, Anzeige, Referenz", "nach generate"),
+        ("01_Bewerbungen/<…>/Lebenslauf-Tailoring.json", "Zuschnitt für diese eine Stelle (optional)", "vor generate"),
         ("04_Agent/data/trash/", "Aufgeräumte Ordner (reversibel)", "nach cleanup"),
         ("04_Agent/dashboard.html", "Interaktives Bewerbungs-Dashboard", "nach dashboard"),
         ("04_Agent/output/agent-map.html", "Diese Landkarte", "manuell"),
     ]
 
     stages = [
-        ("search", "SEARCH", "Provider abfragen, Treffer deduplizieren, Aggregator- und "
+        ("search", "SEARCH", "Neun Provider abfragen, Treffer deduplizieren, Aggregator- und "
          "Lexikon-Seiten herausfiltern. Anschließend Branche zuordnen und Pendelweg berechnen.",
          "jobs.json", "#38bdf8"),
         ("match", "MATCH", "Jede Stelle gegen das Profil scoren: Titel-Treffer ×6, Text-Treffer ×4, "
-         "Inhaltswörter ×2, Standort +10. Merge in SQLite mit History-Schutz.", "matches.json", "#22c55e"),
+         "Inhaltswörter ×2, Standort 0–10 (Mehr-Standort-Angaben: 0). Merge in SQLite mit "
+         "History-Schutz.", "matches.json", "#22c55e"),
         ("generate", "GENERATE", "Anschreiben pro Stelle formulieren; Lebenslauf aus der eigenen "
-         "DOCX-Vorlage mit pro Stelle angepasstem Profil-Absatz. PDFs in den Bewerbungsordner.",
-         "01_Bewerbungen/", "#f59e0b"),
+         "DOCX-Vorlage oder — wenn ein Tailoring-File vorliegt — aus dem zugeschnittenen "
+         "ReportLab-Layout. PDFs in den Bewerbungsordner.", "01_Bewerbungen/", "#f59e0b"),
         ("dashboard", "DASHBOARD", "HTML-Board rendern: nur Stellen mit Dokumenten und Pendelweg "
          "≤ 30 min in der Tabelle, Status-Verteilung und Wochenverlauf darüber.",
          "dashboard.html", "#a78bfa"),
     ]
 
     commands = [
-        ("search", "Web-Suche über alle Provider ausführen"),
+        ("search", "Web-Suche über alle aktiven Provider ausführen"),
         ("fetch", "Vollständige Anzeigentexte per Browser nachladen (bessere Bewertung)"),
         ("match", "Fit-Scoring gegen das Skill-Profil, Merge in die Datenbank"),
         ("enrich", "Pendelweg + Gehalt + Bereinigung + automatische Bewerbung"),
         ("generate --all", "Bewerbungsunterlagen für alle passenden Stellen"),
+        ("generate --ids 1,2", "Unterlagen für bestimmte Stellen (umgeht Fit, Rollen-Gate, Dubletten)"),
+        ("quality", "Erzeugte Unterlagen unabhängig prüfen (Belege, Pflichtteile, PDF)"),
+        ("followup --days 14", "Fällige Nachfassen anzeigen; --write legt den Text daneben"),
+        ("providers", "Zustand der Quellen anzeigen, --disable/--enable schalten einzelne ab"),
+        ("searches", "Gespeicherte Suchläufe auflisten und wiederholen"),
         ("import-old", "Bestand des alten Dashboards übernehmen"),
         ("cleanup --dry-run", "Alte Bewerbungsordner anzeigen, nichts verschieben"),
         ("dashboard", "HTML-Dashboard neu erzeugen"),
         ("status", "Aktuelle Stellen in der Konsole anzeigen"),
         ("pipeline", "Kompletter Durchlauf: Suche → Match → Dokumente → Dashboard"),
+        ("ablauf", "Derselbe Ablauf als Graph (LangGraph)"),
     ]
 
     nodes = {
         "src-0": {"title": "StepStone", "body": "Strukturierte Jobbörse. Wird per <code>requests</code> "
                   "abgefragt; Suchbegriff und Ort getrennt. Diese Treffer sind echte Anzeigen und "
                   "werden nicht durch die Aggregator-Filter geprüft.", "out": "jobs.json"},
-        "src-1": {"title": "Web-Suche (DuckDuckGo / Bing)", "body": "Breite Suche nach dem Muster "
-                  "„<em>Begriff</em> Jobs <em>Ort</em>“. Treffer werden auf Übersichtsseiten "
-                  "(„50 Jobs in München“) und Lexikon-/Shop-Domains geprüft und aussortiert.", "out": "jobs.json"},
-        "src-2": {"title": "JobSpy (LinkedIn / Indeed / Google)", "body": "Aggregiert mehrere Portale auf "
-                  "einmal. Aktuell oft blockiert (LinkedIn 429, Indeed 403, Google liefert keine Daten); "
-                  "läuft nur auf einem Teil der Suchbegriffe, um nicht zu bremsen.", "out": "jobs.json"},
-        "src-3": {"title": "Manueller Import", "body": "Stellen aus <code>data/import_jobs.json</code> — "
+        "src-1": {"title": "JobLeads", "body": "Liefert maximal 25 Karten je Anfrage und ignoriert "
+                  "sämtliche Paginierungsparameter — die Begriffsliste entscheidet, was man sieht. "
+                  "Bei zu vielen parallelen Abrufen drosselt Cloudflare mit HTTP 429; deshalb wenige "
+                  "Threads und Wiederholungen mit Wartezeit.", "out": "jobs.json"},
+        "src-2": {"title": "XING", "body": "Antwortet mit HTTP 200, enthält die Anzeigen aber erst im "
+                  "gerenderten DOM. Deshalb über Chromium: Consent setzen, „mehr laden“ klicken, dann "
+                  "Firma und Ort <em>relativ zum Titel</em> lesen — ein Badge wie „Dringend gesucht“ "
+                  "steht davor und wurde früher als Ort missverstanden.", "out": "jobs.json"},
+        "src-3": {"title": "Indeed", "body": "Cloudflare blockt einfache Clients (403), auch RSS und "
+                  "JobSpy. Im Browser ist die Trefferliste lesbar; den Volltext gibt es erst nach "
+                  "einem Klick auf den Titel (Master-Detail mit <code>&amp;vjk=…</code>).", "out": "jobs.json"},
+        "src-4": {"title": "jobs.labo.de", "body": "Reines HTML, kein Browser nötig. Drei Eigenheiten: "
+                  "die Firmenzeile trägt <code>data-*</code>-Attribute vor <code>class</code>, Titel "
+                  "enthalten weiche Trennzeichen (<code>&amp;shy;</code>), und die Folgeseite gibt es "
+                  "nur über die Knopf-URL mit Sitzungs-ID.", "out": "jobs.json"},
+        "src-5": {"title": "Firmen-Karriereseiten", "body": (
+            f"{len(_boards(config))} ATS-Boards (SuccessFactors, Greenhouse, Workday, Personio …), "
+            "die Arbeitnow-API und Jobbörsen-Sitemaps. E.ON zum Beispiel ist nur über "
+            "<code>jobs.eon.com/sitemap.xml</code> erreichbar (Ort im Slug); einzelne "
+            "Sitemap-Einträge laufen in HTTP 404 und werden übersprungen."),
+            "out": "jobs.json"},
+        "src-6": {"title": "JobSpy (LinkedIn)", "body": "Aggregiert mehrere Portale auf einmal. "
+                  "LinkedIn drosselt regelmäßig (429); die Quelle zählt deshalb nur dann als "
+                  "Fehllauf, wenn sie Meldungen liefert <em>und</em> nichts findet.", "out": "jobs.json"},
+        "src-7": {"title": "Manueller Import", "body": "Stellen aus <code>data/import_jobs.json</code> — "
                   "z. B. von Firmen-Karriereseiten, die keine offene Schnittstelle haben. Läuft bei jeder "
                   "Suche automatisch mit.", "out": "jobs.json"},
-        "src-4": {"title": "Alt-Dashboard", "body": "Bestand aus dem früheren Dashboard "
+        "src-8": {"title": "Alt-Dashboard", "body": "Bestand aus dem früheren Dashboard "
                   "(<code>agent.py import-old</code>). Behält den ursprünglichen Fit-Wert.", "out": "state.json"},
         "search": {"title": "SEARCH", "body": "Führt alle Provider aus, entfernt Duplikate anhand der "
                    "bereinigten URL und ergänzt die Branche. Danach wird der Pendelweg berechnet — "
                    "das ist der Schritt, der Netzwerk braucht.", "in": "Provider-Treffer", "out": "data/jobs.json"},
         "match": {"title": "MATCH", "body": "Deterministisches Scoring gegen das Profil. Das Ergebnis ist "
-                  "nachvollziehbar (Titel ×6, Text ×4, Inhaltswort ×2, Standort +10) und reproduzierbar — "
-                  "kein Sprachmodell. Danach Merge in SQLite: Nutzerfelder bleiben unangetastet.",
+                  "nachvollziehbar (Titel ×6, Text ×4, Inhaltswort ×2, Standort 0–10) und reproduzierbar — "
+                  "kein Sprachmodell. Alle Summanden werden gespeichert, jeder Score bleibt nachrechenbar. "
+                  "Danach Merge in SQLite: Nutzerfelder bleiben unangetastet.",
                   "in": "data/jobs.json", "out": "data/matches.json → data/jobs.db"},
-        "generate": {"title": "GENERATE", "body": "Erzeugt pro Stelle Anschreiben und Lebenslauf. Der "
-                    "Lebenslauf kommt aus der eigenen DOCX-Vorlage: nur der Profil-Absatz wird pro Stelle "
-                    "ausgetauscht, dann Konvertierung zu PDF. Stellen mit zu weitem Pendelweg werden "
-                    "übersprungen.", "in": "data/matches.json", "out": "01_Bewerbungen/<Firma - Titel>/"},
+        "generate": {"title": "GENERATE", "body": "Erzeugt pro Stelle Anschreiben und Lebenslauf. "
+                    "Standard ist die eigene DOCX-Vorlage, in der nur der Profil-Absatz ersetzt wird. "
+                    "Liegt im Ordner eine <code>Lebenslauf-Tailoring.json</code>, entsteht der "
+                    "Lebenslauf stattdessen aus dem zugeschnittenen ReportLab-Layout (Headline, "
+                    "Profil, Stations-Bullets, Fähigkeitsgruppen, Kernkompetenzen). Fachbegriffe, die "
+                    "das Profil nicht belegt, werden gemeldet. Stellen mit zu weitem Pendelweg "
+                    "werden übersprungen.", "in": "data/matches.json", "out": "01_Bewerbungen/<Firma - Titel>/"},
         "dashboard": {"title": "DASHBOARD", "body": "Rendert das interaktive Board als einzelne HTML-Datei. "
                      "Der lokale Server (<code>server.py</code>) speichert Statusänderungen über "
                      "<code>POST /state</code> zurück in die Datenbank.", "in": "data/jobs.db",
@@ -840,9 +931,18 @@ def _collect(config: Config) -> dict:
         "svc-3": {"title": "DOCX-Vorlage", "body": "Die eigene, aktuelle Lebenslauf-Vorlage. Sie wird "
                   "1:1 übernommen; nur der Profil-Absatz wird pro Stelle ersetzt. Fällt bei fehlender "
                   "Datei automatisch auf die eingebauten ReportLab-Vorlagen zurück.", "in": "Vorlage-Aktuell/*.docx"},
-        "svc-4": {"title": "LibreOffice", "body": "Konvertiert das angepasste DOCX zu PDF. Nötig, weil "
+        "svc-4": {"title": "Tailoring-JSON", "body": "Optionale <code>Lebenslauf-Tailoring.json</code> im "
+                  "Bewerbungsordner: wählt Stationen-Bullets, Fähigkeitsgruppen und Kernkompetenzen für "
+                  "diese eine Stelle aus und benennt sie um. Darf auswählen und weglassen, nicht "
+                  "hinzufügen — unbelegte Fachbegriffe werden beim Erzeugen gemeldet.", "in": "Tailoring-JSON",
+                  "out": "zugeschnittener Lebenslauf"},
+        "svc-5": {"title": "LibreOffice", "body": "Konvertiert das angepasste DOCX zu PDF. Nötig, weil "
                   "die Bewerbung als PDF verschickt wird und das Layout exakt der Vorlage entsprechen soll.",
                   "in": "DOCX", "out": "Lebenslauf.pdf"},
+        "svc-6": {"title": "ReportLab", "body": "Baut die PDFs direkt in Python — ohne externe Programme. "
+                  "Greift immer dann, wenn keine DOCX-Vorlage konfiguriert ist, <code>soffice</code> fehlt "
+                  "(auf diesem Rechner ist es nicht installiert) oder ein Tailoring vorliegt.",
+                  "in": "Profil + Vorlage", "out": "Anschreiben / Lebenslauf.pdf"},
         "out-0": {"title": "dashboard.html", "body": "Das interaktive Bewerbungs-Board: Tabelle nur mit "
                   "Stellen, die Dokumente haben und innerhalb der Pendelgrenze liegen; darüber "
                   "Status-Verteilung und Wochenverlauf.", "in": "data/jobs.db"},
@@ -873,15 +973,23 @@ def export_pdf(html_path: Path, pdf_path: Path, landscape: bool = False) -> Path
     ``landscape`` ist für die breiten Karten besser: bei A4 hochkant schrumpft
     die 1180 px breite Karte auf rund 60 % und die kleinsten Ortslabels landen
     bei ~5 pt; im Querformat sind es ~89 % und ~7 pt.
+
+    Das Executable wird nur gesetzt, wenn ein System-Chromium existiert
+    (``/usr/bin/chromium`` unter Linux). Auf Windows gibt es diesen Pfad nicht —
+    ein fester Pfad ließ den Export dort mit „BrowserType.launch: Executable
+    doesn't exist“ scheitern, statt Playwrights eigenes Chromium zu nehmen.
     """
     from playwright.sync_api import sync_playwright
 
+    executable = Path("/usr/bin/chromium")
+    launch_kwargs = {"headless": True,
+                     "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"]}
+    if executable.is_file():
+        launch_kwargs["executable_path"] = str(executable)
+
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            executable_path="/usr/bin/chromium", headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-        )
+        browser = p.chromium.launch(**launch_kwargs)
         page = browser.new_page(viewport={"width": 1240, "height": 1754})
         page.goto(html_path.resolve().as_uri(), wait_until="load")
         page.wait_for_timeout(1200)

@@ -758,12 +758,30 @@ def run_dashboard(config: Config) -> dict:
     all_applications = state.get("applications", [])
     documented = documented_applications(all_applications)
     applications = dashboard_applications(all_applications, _commute_limit_minutes(config))
+
+    # Die drei Zahlen der Zusammenfassung müssen zusammen den aktiven Bestand
+    # ergeben. Vorher wurden Äpfel und Birnen verglichen: „ohne
+    # Bewerbungsdokumente" zählte **alle** Einträge (auch gelöschte) gegen die
+    # dokumentierten, und „zu weit" rechnete ``documented - applications`` —
+    # das wurde negativ (-39), weil in ``applications`` auch Stellen ohne
+    # Dokumente stehen (Research-Funde, Neuzugänge des letzten Laufs).
+    aktive = [app for app in all_applications if not app.get("deleted")]
+    sichtbar = [app for app in applications if not app.get("deleted")]
+    sichtbar_ids = {id(app) for app in sichtbar}
+    # „Hat Unterlagen" heißt: die Datei liegt auf der Platte. Ein Pfad in
+    # ``dokumente`` ohne Datei ist kein Beleg — dieselbe Prüfung, die auch
+    # ``dashboard_applications`` anwendet.
+    dokument_ids = {id(app) for app in documented}
     return {
         "path": str(path),
-        "applications": sum(not bool(app.get("deleted")) for app in applications),
-        "with_documents": len(documented),
-        "hidden_without_documents": len(all_applications) - len(documented),
-        "hidden_too_far": len(documented) - len(applications),
+        "applications": len(sichtbar),
+        "with_documents": sum(1 for app in aktive if id(app) in dokument_ids),
+        "hidden_without_documents": sum(1 for app in aktive
+                                        if id(app) not in sichtbar_ids
+                                        and id(app) not in dokument_ids),
+        "hidden_too_far": sum(1 for app in aktive
+                              if id(app) not in sichtbar_ids
+                              and id(app) in dokument_ids),
     }
 
 

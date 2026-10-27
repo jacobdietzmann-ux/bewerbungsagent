@@ -814,6 +814,109 @@ def successfactors_j2w(host: str, firma: str, *,
 
 
 # --------------------------------------------------------------------------
+# TYPO3-„JobScout" mit JSON-Endpunkt (vbjoblist): ALTEN/OSB u. a.
+# --------------------------------------------------------------------------
+
+# Der Endpunkt liefert fest 10 Stellen pro Blatt — ``numScoutJobs``, ``limit``
+# und ``count`` werden ignoriert (live geprüft). Die Pause zwischen zwei
+# Blättern hält den Crawl höflich; bei 12 Blättern kostet sie ~4 s.
+_VB_PAGE_PAUSE = 0.3
+
+
+def _vb_salary(raw: dict) -> str:
+    """Gehaltsspanne als Anzeigentext (deutsche Tausenderpunkte)."""
+    def num(value) -> float | None:
+        try:
+            return float(str(value).replace(".", "").replace(",", "."))
+        except (TypeError, ValueError):
+            return None
+
+    lo, hi = num(raw.get("salaryMin")), num(raw.get("salaryMax"))
+
+    def fmt(value: float) -> str:
+        return f"{value:,.0f}".replace(",", ".")
+
+    if lo and hi and lo != hi:
+        return f"{fmt(lo)}–{fmt(hi)} €"
+    if lo or hi:
+        return f"{fmt(lo or hi)} €"
+    return ""
+
+
+def vbjoblist(api_url: str, firma: str, *,
+              work_locations: list[str] | None = None,
+              user_agent: str | None = None,
+              only_near_munich: bool = True,
+              max_pages: int = 15,
+              max_jobs: int = 150) -> list[dict]:
+    """Stellenliste eines TYPO3-JobScouts mit JSON-Endpunkt (ALTEN/OSB).
+
+    Kein Browser nötig: ``…?eID=txVbJoblistAjaxDispatcher&targetAction=jobs-list``
+    liefert 10 Stellen pro Blatt als JSON — mit Arbeitsort, PLZ,
+    Veröffentlichungsdatum, Gehaltsspanne **und dem Volltext der Anzeige**.
+    Damit ist der Treffer besser bewertbar als ein Aggregator-Snippet, und
+    ``fetch_descriptions`` muss nichts nachladen.
+
+    ``location``/``distance`` der Portalseite werden serverseitig ignoriert
+    (live geprüft: die Trefferzahl bleibt bei allen Radien gleich),
+    ``workLocation`` filtert exakt auf einen Ort. Deshalb wird pro konfiguriertem
+    Ort geblättert und der Umkreis anschließend lokal über ``is_near_munich``
+    geprüft.
+    """
+    if not api_url:
+        raise ValueError("vbjoblist: api_url fehlt")
+    headers = _ua(user_agent)
+    orte = [str(o).strip() for o in (work_locations or []) if str(o).strip()] or [""]
+    jobs: list[dict] = []
+    seen: set[str] = set()
+
+    def add(rows: list[dict]) -> None:
+        for raw in rows:
+            titel = clean_html(raw.get("titel") or "")
+            url = (raw.get("stellenlink") or "").strip()
+            ort = (raw.get("arbeitsort") or raw.get("ort") or "").strip()
+            if not titel or not url or url in seen:
+                continue
+            if only_near_munich and not is_near_munich(ort):
+                continue
+            job = _job(firma=firma, titel=titel, ort=ort, url=url,
+                       # Der Volltext kommt HTML-escaped an (``&lt;p&gt;…``) —
+                       # erst entschlüsseln, sonst stehen die Tags als Text in
+                       # der Beschreibung und im Snippet.
+                       beschreibung=html_unescape(raw.get("volltext") or ""))
+            salary = _vb_salary(raw)
+            if salary:
+                job["gehalt"] = salary
+                job["gehalt_quelle"] = "Anzeige"
+            seen.add(url)
+            jobs.append(job)
+            if len(jobs) >= max_jobs:
+                return
+
+    for ort_filter in orte:
+        offset = 0
+        for _ in range(max(1, max_pages)):
+            params: dict = {"offset": offset}
+            if ort_filter:
+                params["workLocation"] = ort_filter
+            r = requests.get(api_url, params=params, headers=headers, timeout=_TIMEOUT)
+            r.raise_for_status()
+            data = r.json() or {}
+            rows = data.get("xmldata") or []
+            if not rows:
+                break
+            add(rows)
+            if len(jobs) >= max_jobs:
+                return jobs
+            offset += len(rows)
+            total = int(data.get("cnt") or 0)
+            if total and offset >= total:
+                break
+            time.sleep(_VB_PAGE_PAUSE)
+    return jobs
+
+
+# --------------------------------------------------------------------------
 # Firmen-Jobbörse über die Sitemap (generisch)
 # --------------------------------------------------------------------------
 
@@ -1121,6 +1224,23 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                     only_near_munich=only_near_munich,
                     with_description=entry.get("with_description", True),
                     max_jobs=entry.get("max_jobs", 100),
+                )
+            except requests.RequestException as exc:
+                errors.append(f"ats ({firma}): {type(exc).__name__}")
+                continue
+        elif ats == "vbjoblist":
+            api_url = str(entry.get("api_url") or "").strip()
+            if not api_url:
+                errors.append("ats (vbjoblist: api_url fehlt)")
+                continue
+            try:
+                found = vbjoblist(
+                    api_url, firma,
+                    work_locations=entry.get("work_locations") or [],
+                    user_agent=user_agent,
+                    only_near_munich=only_near_munich,
+                    max_pages=int(entry.get("max_pages", 15)),
+                    max_jobs=int(entry.get("max_jobs", 150)),
                 )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")

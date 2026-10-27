@@ -18,17 +18,96 @@
     ],
     "jobspy_max_terms": 4,
     "ats_boards": [
-      { "firma": "Isar Aerospace", "ats": "greenhouse", "board": "isaraerospace" },
-      { "firma": "Airbus", "ats": "workday", "tenant": "ag", "site": "Airbus" },
-      { "firma": "NXP", "ats": "workday", "tenant": "nxp", "site": "careers" },
-      { "firma": "Qualcomm", "ats": "eightfold", "host": "careers.qualcomm.com", "domain": "qualcomm.com", "location": "munich" },
-      { "firma": "Infineon", "ats": "eightfold", "host": "jobs.infineon.com", "domain": "infineon.com", "location": "munich" },
-      { "firma": "HENSOLDT", "ats": "successfactors", "host": "jobs.hensoldt.net" },
-      { "firma": "Renesas", "ats": "smartrecruiters", "company": "RenesasElectronics", "city": "Munich" },
-      { "firma": "Texas Instruments", "ats": "oracle", "host": "edbz.fa.us2.oraclecloud.com", "site": "CX", "location": "Germany" },
-      { "firma": "MTU Aero Engines", "ats": "typo3", "list_url": "https://www.mtu.de/de/karriere/jobboerse/s/all/all/all/all/" },
-      { "firma": "Diehl Aviation", "ats": "diehl", "list_url": "https://new.diehl.com/career/en/jobs-application/job-offers/?d=4", "division": "Diehl Aviation", "max_pages": 12 },
-      { "firma": "E.ON", "ats": "sitemap", "sitemap": "https://jobs.eon.com/sitemap.xml", "url_must_contain": "muenchen", "max_jobs": 40 }
+      {
+        "firma": "Isar Aerospace",
+        "ats": "greenhouse",
+        "board": "isaraerospace"
+      },
+      {
+        "firma": "Airbus",
+        "ats": "workday",
+        "tenant": "ag",
+        "site": "Airbus"
+      },
+      {
+        "firma": "NXP",
+        "ats": "workday",
+        "tenant": "nxp",
+        "site": "careers"
+      },
+      {
+        "firma": "Qualcomm",
+        "ats": "eightfold",
+        "host": "careers.qualcomm.com",
+        "domain": "qualcomm.com",
+        "location": "munich"
+      },
+      {
+        "firma": "Infineon",
+        "ats": "eightfold",
+        "host": "jobs.infineon.com",
+        "domain": "infineon.com",
+        "location": "munich"
+      },
+      {
+        "firma": "HENSOLDT",
+        "ats": "successfactors",
+        "host": "jobs.hensoldt.net"
+      },
+      {
+        "firma": "Renesas",
+        "ats": "smartrecruiters",
+        "company": "RenesasElectronics",
+        "city": "Munich"
+      },
+      {
+        "firma": "Texas Instruments",
+        "ats": "oracle",
+        "host": "edbz.fa.us2.oraclecloud.com",
+        "site": "CX",
+        "location": "Germany"
+      },
+      {
+        "firma": "MTU Aero Engines",
+        "ats": "typo3",
+        "list_url": "https://www.mtu.de/de/karriere/jobboerse/s/all/all/all/all/"
+      },
+      {
+        "firma": "Diehl Aviation",
+        "ats": "diehl",
+        "list_url": "https://new.diehl.com/career/en/jobs-application/job-offers/?d=4",
+        "division": "Diehl Aviation",
+        "max_pages": 12
+      },
+      {
+        "firma": "E.ON",
+        "ats": "sitemap",
+        "sitemap": "https://jobs.eon.com/sitemap.xml",
+        "url_must_contain": "muenchen",
+        "max_jobs": 40
+      },
+      {
+        "firma": "ALTEN Consulting Services",
+        "ats": "vbjoblist",
+        "api_url": "https://www.alten-consulting.de/karriere/stellenangebote?eID=txVbJoblistAjaxDispatcher&targetAction=jobs-list",
+        "work_locations": [
+          "München",
+          "Taufkirchen",
+          "Gilching",
+          "Garching",
+          "Poing"
+        ],
+        "max_pages": 14,
+        "max_jobs": 150
+      },
+      {
+        "firma": "Sopra Steria",
+        "ats": "smartrecruiters",
+        "company": "SopraSteria1",
+        "city": "München",
+        "country": "de",
+        "max_jobs": 120
+      }
     ],
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,
@@ -36,14 +115,24 @@
     "jobleads_min_salary": 0,
     "jobleads_max_terms": 6,
     "xing_terms": [
-      "Testingenieur", "Test Engineer", "Integrationsingenieur",
-      "Integration Engineer", "Systemtestingenieur", "System Test Engineer",
-      "Software Test Engineer", "HiL Test Engineer"
+      "Testingenieur",
+      "Test Engineer",
+      "Integrationsingenieur",
+      "Integration Engineer",
+      "Systemtestingenieur",
+      "System Test Engineer",
+      "Software Test Engineer",
+      "HiL Test Engineer"
     ],
     "indeed_terms": [
-      "Testingenieur", "Test Engineer", "Integrationsingenieur",
-      "Integration Engineer", "Systemtestingenieur", "System Test Engineer",
-      "Software Test Engineer", "HiL Test Engineer"
+      "Testingenieur",
+      "Test Engineer",
+      "Integrationsingenieur",
+      "Integration Engineer",
+      "Systemtestingenieur",
+      "System Test Engineer",
+      "Software Test Engineer",
+      "HiL Test Engineer"
     ],
     "xing_max_results": 25,
     "indeed_max_results": 25,
@@ -89,12 +178,12 @@
     },
     "dimensions": {
       "gewichte": {
-        "kompetenz": 0.30,
-        "aufgaben": 0.20,
+        "kompetenz": 0.3,
+        "aufgaben": 0.2,
         "senioritaet": 0.15,
-        "technologie": 0.10,
-        "gehalt": 0.10,
-        "arbeitsmodell": 0.10,
+        "technologie": 0.1,
+        "gehalt": 0.1,
+        "arbeitsmodell": 0.1,
         "entwicklung": 0.05
       },
       "gehalt_ziel_tsd": 65,

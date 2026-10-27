@@ -746,6 +746,25 @@ def _boards(config: Config) -> list:
     return [b for b in boards if isinstance(b, dict)]
 
 
+_ATS_LABELS = {
+    "workday": "Workday", "successfactors": "SuccessFactors",
+    "smartrecruiters": "SmartRecruiters", "eightfold": "Eightfold",
+    "greenhouse": "Greenhouse", "oracle": "Oracle", "typo3": "TYPO3",
+    "sitemap": "Jobbörsen-Sitemap", "diehl": "Diehl", "vbjoblist": "vbjoblist",
+}
+
+
+def _board_kinds(config: Config) -> str:
+    """Die vertretenen ATS-Arten als lesbare Aufzählung (aus der Config)."""
+    kinds = sorted({_ATS_LABELS.get(str(b.get("ats") or ""), str(b.get("ats") or "ATS"))
+                    for b in _boards(config)})
+    if not kinds:
+        return "verschiedene Systeme"
+    if len(kinds) == 1:
+        return kinds[0]
+    return ", ".join(kinds[:-1]) + " und " + kinds[-1]
+
+
 def _collect(config: Config) -> dict:
     store = None
     apps = []
@@ -887,8 +906,8 @@ def _collect(config: Config) -> dict:
                   "enthalten weiche Trennzeichen (<code>&amp;shy;</code>), und die Folgeseite gibt es "
                   "nur über die Knopf-URL mit Sitzungs-ID.", "out": "jobs.json"},
         "src-5": {"title": "Firmen-Karriereseiten", "body": (
-            f"{len(_boards(config))} ATS-Boards (SuccessFactors, Greenhouse, Workday, Personio …), "
-            "die Arbeitnow-API und Jobbörsen-Sitemaps. E.ON zum Beispiel ist nur über "
+            f"{len(_boards(config))} ATS-Boards ({_board_kinds(config)}), die Arbeitnow-API und "
+            "Jobbörsen-Sitemaps. E.ON zum Beispiel ist nur über "
             "<code>jobs.eon.com/sitemap.xml</code> erreichbar (Ort im Slug); einzelne "
             "Sitemap-Einträge laufen in HTTP 404 und werden übersprungen."),
             "out": "jobs.json"},

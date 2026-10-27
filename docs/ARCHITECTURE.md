@@ -131,7 +131,10 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   mildern die Titel-Dominanz gegenüber dem früheren 7/3/1. Alle Summanden
   werden gespeichert (`title_hits`, `body_hits`, `word_hits`,
   `location_bonus`) — jeder Score ist damit aus dem Bestand nachrechenbar
-  (ADR-035).
+  (ADR-035). Seit ADR-038 kommt der **Stack-Abgleich** hinzu: Sind mindestens
+  drei genannte Technologien der Anzeige im Profil nicht belegt und hat der
+  Titel keinen Test-Kern, wird der Score auf 60 % gedeckelt
+  (`stack_found`, `stack_missing`, `stack_cap` werden mitgespeichert).
 - **HTML als Datei + lokaler Server**: Das Dashboard funktioniert als
   statische Datei *und* live (Status-Änderungen via `POST /state`).
 - **ReportLab** statt HTML→PDF: keine externen Abhängigkeiten, exakte

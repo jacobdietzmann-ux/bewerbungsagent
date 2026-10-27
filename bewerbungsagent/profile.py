@@ -206,6 +206,25 @@ class Profile:
 
     # ---- Zugriffe auf Rohdaten -----------------------------------------
     @property
+    def evidence_text(self) -> str:
+        """Normalisierter Text der **belegten** Kompetenzen (gecacht).
+
+        Grundlage des Stack-Abgleichs in ``matching``. Bewusst ohne ``_meta``,
+        ``gap_terms`` und ``confirmed_gaps``: Dort werden Technologien genannt,
+        die gerade *nicht* belegt sind („Keine Docker-Erfahrung") — ein Abgleich
+        gegen den vollen JSON-Text würde diese Lücken als Kompetenz zählen.
+        """
+        cached = getattr(self, "_evidence_text", None)
+        if cached is None:
+            teile: list[str] = []
+            for key in ("skills", "work_experience", "education", "certifications"):
+                _flatten_strings(self.data.get(key), teile)
+            teile.append(str(self.data.get("kombiniertes_kompetenzprofil") or ""))
+            cached = normalize(" · ".join(teile))
+            self._evidence_text = cached
+        return cached
+
+    @property
     def personal(self) -> dict:
         return self.data.get("personal", {})
 

@@ -88,7 +88,12 @@ class TestCopyButtonTemplate:
         html = _build(tmp_path, [_app()])
         assert "button.copy-btn" in html
         assert 'data-copy="${encodeURIComponent(r.folderAbs)}"' in html
-        assert "Pfad kopieren" in html
+        # Im dichten Layout ist die Beschriftung ein Kürzel (⧉), damit die Zeile
+        # flach bleibt. Der Klartext steht im Tooltip und im aria-label — ohne
+        # das läse ein Screenreader nur „⧉".
+        assert ">⧉</button>" in html
+        assert 'aria-label="Pfad kopieren"' in html
+        assert 'title="Absoluten Ordnerpfad kopieren"' in html
 
     def test_button_nur_mit_ordner(self, tmp_path, monkeypatch):
         """Ohne ``folderAbs`` wird der Button nicht gerendert (JS-Guard)."""

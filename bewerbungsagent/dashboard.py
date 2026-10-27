@@ -488,10 +488,10 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
-         background:var(--bg); color:var(--text); padding:24px; }
+         background:var(--bg); color:var(--text); padding:14px 16px; }
   header { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between;
-           gap:12px; margin-bottom:20px; }
-  h1 { font-size:22px; margin:0; }
+           gap:10px; margin-bottom:8px; }
+  h1 { font-size:19px; margin:0; }
   .sub { color:var(--muted); font-size:13px; }
   .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
           gap:14px; margin-bottom:24px; }
@@ -512,20 +512,51 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .dist-fill { height:100%; border-radius:5px; }
   .dist-num { width:52px; text-align:right; flex:none; color:var(--text); }
   .table-scroll { overflow-x:auto; }
-  table { width:100%; min-width:1080px; border-collapse:collapse; font-size:13px; table-layout:fixed; }
-  th, td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle;
-           overflow-wrap:break-word; word-break:break-word; }
-  th { background:var(--panel-2); color:var(--muted); font-weight:600; position:sticky; top:0; }
+  /* Kompakte Tabelle: pro Stelle möglichst eine Zeile (Titel max. zwei), alle
+     Zusatzinfos stehen im Tooltip. Die Spaltenbreiten sind in Pixeln festgelegt
+     (colgroup), damit die Badges auf einem kleinen Monitor nicht in die
+     Nachbarspalte laufen; reicht die Fensterbreite nicht, scrollt der Container
+     horizontal statt zu überlappen. */
+  table { width:100%; min-width:1180px; border-collapse:collapse; font-size:12.5px; table-layout:fixed; }
+  th, td { padding:4px 6px; text-align:left; border-bottom:1px solid var(--line);
+           vertical-align:middle; overflow:hidden; }
+  th { background:var(--panel-2); color:var(--muted); font-weight:600; position:sticky; top:0;
+       z-index:2; font-size:10.5px; white-space:nowrap; }
   th[data-col] { cursor:pointer; user-select:none; }
   th[data-col]:hover { color:var(--text); }
-  th .arw { color:#64748b; font-size:11px; margin-left:2px; }
+  th .arw { color:#64748b; font-size:9px; margin-left:1px; }
   tbody tr:hover { background:rgba(56,189,248,.06); }
   td.center, th.center { text-align:center; }
+  /* Geklemmter Text: clip1 = eine Zeile mit Auslassungspunkten, clip2 = zwei.
+     Der volle Inhalt steht jeweils im title-Tooltip. */
+  .clip1 { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .clip2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+           overflow:hidden; line-height:1.25; }
+  .pos-line { display:flex; align-items:flex-start; gap:5px; min-width:0; }
+  .pos-title { flex:1 1 auto; min-width:0; }
+  .pos-tags { flex:none; display:inline-flex; align-items:center; gap:4px; }
+  .micro { font-size:9.5px; line-height:1.2; color:var(--muted); white-space:nowrap; }
+  .status-cell { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .status-cell input[type=text] { padding:1px 4px; font-size:10.5px; border-radius:6px; }
+  select.status-select { background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:999px; padding:1px 3px; font-size:10.5px; font-weight:600; width:100%;
+    text-align:center; text-align-last:center; cursor:pointer; }
+  select.status-select option { background:var(--panel); color:var(--text); }
+  select.status-select.s-research { background:#334155; color:#cbd5e1; border-color:#475569; }
+  select.status-select.s-docs     { background:#1d4ed833; color:#93c5fd; border-color:#1d4ed855; }
+  select.status-select.s-sent     { background:#7c3aed33; color:#c4b5fd; border-color:#7c3aed55; }
+  select.status-select.s-followup { background:#b4530933; color:#fdba74; border-color:#b4530955; }
+  select.status-select.s-interview{ background:#15803d33; color:#86efac; border-color:#15803d55; }
+  select.status-select.s-rejected { background:#7f1d1d33; color:#fca5a5; border-color:#7f1d1d66; }
+  .linkcell { display:flex; flex-direction:column; align-items:center; gap:1px; line-height:1.15; }
+  .link-line { display:inline-flex; align-items:center; gap:4px; }
   select, input[type=text], input[type=date] { background:var(--bg); color:var(--text);
-    border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:12px; width:100%; }
+    border:1px solid var(--line); border-radius:8px; padding:5px 7px; font-size:12px; width:100%; }
   input[type=text]::placeholder { color:#64748b; }
   input[type=date]::-webkit-calendar-picker-indicator { filter:invert(.7); }
-  .badge { padding:3px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .badge { padding:1px 6px; border-radius:999px; font-size:10.5px; font-weight:600;
+           white-space:nowrap; display:inline-block; max-width:100%; overflow:hidden;
+           text-overflow:ellipsis; }
   .badge-neu { background:rgba(56,189,248,.18); color:#7dd3fc; border:1px solid rgba(56,189,248,.5); }
   tr.ist-neu > td:first-child { box-shadow:inset 3px 0 0 #38bdf8; }
   .s-research { background:#334155; color:#cbd5e1; }
@@ -534,36 +565,37 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .s-followup { background:#b4530933; color:#fdba74; border:1px solid #b4530955; }
   .s-interview{ background:#15803d33; color:#86efac; border:1px solid #15803d55; }
   .s-rejected { background:#7f1d1d33; color:#fca5a5; border:1px solid #7f1d1d66; }
-  a.folder { color:var(--accent); text-decoration:none; font-size:12px; }
+  a.folder { color:var(--accent); text-decoration:none; font-size:11px; white-space:nowrap; }
   a.folder:hover { text-decoration:underline; }
-  /* „Pfad kopieren" sitzt neben „Ordner ↗" und soll wie ein Link wirken,
-     aber als echter Button anklickbar sein. */
+  /* Pfad-Kopieren sitzt als Icon neben „Ordner ↗" — in der schmalen Spalte ist
+     kein Platz für einen Textlink. */
   button.copy-btn {
-    background:none; border:none; padding:0; margin-left:6px;
+    background:none; border:none; padding:0; margin:0;
     color:var(--muted); font:inherit; font-size:11px; cursor:pointer;
-    text-decoration:underline;
   }
   button.copy-btn:hover { color:var(--accent); }
   button.copy-btn.done { color:#22c55e; text-decoration:none; }
-  button.row-delete { background:transparent; border:1px solid var(--line); border-radius:8px;
-    padding:4px 9px; font-size:13px; cursor:pointer; line-height:1; }
+  button.row-delete { background:transparent; border:1px solid var(--line); border-radius:6px;
+    padding:1px 4px; font-size:11px; cursor:pointer; line-height:1.3; }
   button.row-delete:hover { border-color:var(--red); background:#7f1d1d22; }
-  .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:14px 0; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0; }
   button { background:var(--panel-2); color:var(--text); border:1px solid var(--line);
-    border-radius:8px; padding:8px 14px; font-size:12px; cursor:pointer; }
+    border-radius:8px; padding:5px 11px; font-size:11.5px; cursor:pointer; }
   button:hover { border-color:var(--accent); }
   .toolbar label.toggle { display:inline-flex; align-items:center; gap:8px; font-size:12px;
     background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
-    padding:8px 14px; cursor:pointer; user-select:none; }
+    padding:5px 10px; cursor:pointer; user-select:none; }
   .toolbar label.toggle:hover { border-color:var(--accent); }
-  .toolbar label.toggle input { accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+  .toolbar label.toggle input { accent-color:var(--accent); width:13px; height:13px; cursor:pointer; }
   .toolbar label.toggle .hint { color:var(--muted); }
   .legend { color:var(--muted); font-size:12px; margin-top:16px; line-height:1.6; }
   .legend code { background:var(--panel-2); padding:1px 6px; border-radius:5px; color:var(--text); }
   .hint { color:var(--muted); font-size:11px; margin-top:3px; }
-  .desc-toggle { cursor:pointer; color:var(--accent); font-size:11px; background:none;
-    border:none; padding:0; margin-top:4px; text-decoration:underline dotted; }
-  .desc-toggle:hover { color:var(--text); }
+  .desc-toggle { cursor:pointer; color:var(--accent); font-size:9.5px; background:none;
+    border:1px solid var(--line); border-radius:999px; padding:0 4px; margin:0;
+    line-height:1.45; white-space:nowrap; }
+  .desc-toggle:hover { color:var(--text); border-color:var(--accent); }
+  .desc-toggle[aria-expanded="true"] { color:var(--text); border-color:var(--accent); }
   tr.desc-row td { padding:0 8px 12px; }
   .desc-body { padding:12px 14px; background:var(--panel-2);
     border-radius:8px; font-size:12.5px; line-height:1.6; color:var(--text); width:100%;
@@ -574,9 +606,9 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     box-shadow:0 8px 30px #000a; opacity:0; pointer-events:none; transition:opacity .25s,transform .25s; z-index:999; }
   #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   #toast code { background:var(--panel); padding:2px 6px; border-radius:5px; word-break:break-all; }
-  .tabs { display:flex; gap:4px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+  .tabs { display:flex; gap:4px; margin-bottom:10px; border-bottom:1px solid var(--line); }
   .tab { background:transparent; border:none; border-bottom:2px solid transparent; border-radius:0;
-         padding:11px 18px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; }
+         padding:7px 14px; font-size:12.5px; font-weight:600; color:var(--muted); cursor:pointer; }
   .tab:hover { color:var(--text); }
   .tab.active { color:var(--text); border-bottom-color:var(--accent); }
   .pane[hidden] { display:none; }
@@ -621,33 +653,33 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <div class="table-scroll">
       <table id="table-main">
         <colgroup>
-          <col style="width:12%">
-          <col style="width:17%">
-          <col style="width:9%">
-          <col style="width:11%">
-          <col style="width:5%">
-          <col style="width:5%">
-          <col style="width:6%">
-          <col style="width:12%">
-          <col style="width:5%">
-          <col style="width:6%">
-          <col style="width:8%">
-          <col style="width:4%">
+          <col style="width:140px">  <!-- Unternehmen -->
+          <col>                      <!-- Position: nimmt den Rest der Breite -->
+          <col style="width:84px">   <!-- Branche -->
+          <col style="width:96px">   <!-- Arbeitsort -->
+          <col style="width:86px">   <!-- Homeoffice -->
+          <col style="width:70px">   <!-- Pendelweg -->
+          <col style="width:72px">   <!-- Gefunden am -->
+          <col style="width:120px">  <!-- Status -->
+          <col style="width:78px">   <!-- Profil-Fit -->
+          <col style="width:78px">   <!-- Gehalt -->
+          <col style="width:94px">   <!-- Links -->
+          <col style="width:30px">   <!-- Aktion -->
         </colgroup>
         <thead>
           <tr>
-            <th data-col="0" onclick="sortTable(0)">Unternehmen <span class="arw">↕</span></th>
-            <th data-col="1" onclick="sortTable(1)">Position <span class="arw">↕</span></th>
-            <th data-col="2" onclick="sortTable(2)">Branche <span class="arw">↕</span></th>
-            <th class="center" data-col="3" onclick="sortTable(3)">Arbeitsort <span class="arw">↕</span></th>
-            <th class="center" data-col="4" onclick="sortTable(4)">Homeoffice <span class="arw">↕</span></th>
-            <th class="center" data-col="5" onclick="sortTable(5)">Pendelweg <span class="arw">↕</span></th>
-            <th class="center" data-col="6" onclick="sortTable(6)">Gefunden am <span class="arw">↕</span></th>
-            <th class="center" data-col="7" onclick="sortTable(7)">Status <span class="arw">↕</span></th>
-            <th class="center" data-col="8" onclick="sortTable(8)">Profil-Fit <span class="arw">↕</span></th>
-            <th class="center" data-col="9" onclick="sortTable(9)">Gehalt (ca.) <span class="arw">↕</span></th>
-            <th class="center" data-col="10" onclick="sortTable(10)">Links <span class="arw">↕</span></th>
-            <th class="center">Aktion</th>
+            <th data-col="0" onclick="sortTable(0)" title="Unternehmen">Unternehmen <span class="arw">↕</span></th>
+            <th data-col="1" onclick="sortTable(1)" title="Position">Position <span class="arw">↕</span></th>
+            <th data-col="2" onclick="sortTable(2)" title="Branche">Branche <span class="arw">↕</span></th>
+            <th class="center" data-col="3" onclick="sortTable(3)" title="Arbeitsort">Ort <span class="arw">↕</span></th>
+            <th class="center" data-col="4" onclick="sortTable(4)" title="Homeoffice-Anteil">Homeoffice <span class="arw">↕</span></th>
+            <th class="center" data-col="5" onclick="sortTable(5)" title="Pendelweg (einfach, Auto)">Pendel <span class="arw">↕</span></th>
+            <th class="center" data-col="6" onclick="sortTable(6)" title="Gefunden am">Gefunden <span class="arw">↕</span></th>
+            <th class="center" data-col="7" onclick="sortTable(7)" title="Status">Status <span class="arw">↕</span></th>
+            <th class="center" data-col="8" onclick="sortTable(8)" title="Profil-Fit (Badge) und mehrdimensionale Bewertung (D)">Fit <span class="arw">↕</span></th>
+            <th class="center" data-col="9" onclick="sortTable(9)" title="Gehalt (ca.)">Gehalt <span class="arw">↕</span></th>
+            <th class="center" data-col="10" onclick="sortTable(10)" title="Stellenanzeige und Bewerbungsordner">Links <span class="arw">↕</span></th>
+            <th class="center" title="Eintrag entfernen">–</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -667,6 +699,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <strong>„neu gefunden":</strong> Die Stelle gehört zum jüngsten Fund (blauer Balken links, Badge an der Position, Filter oben). Das bleibt stehen, bis ein Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht.<br>
       <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
       <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
+      <strong>Kompakt-Layout:</strong> Eine Zeile pro Stelle (Titel max. zwei Zeilen); Zusatzinfos stehen im Tooltip — Profil-Treffer (✓n an der Position), Qualitätsprüfung, Versanddatum und Status-Alter, Original-Homeoffice-Text, Kilometer und Restluft beim Pendelweg, mehrdimensionale Bewertung (D) und der ungekürzte Gehaltstext.<br>
+      <strong>Dokumente:</strong> Werden nicht mehr einzeln verlinkt. „Ordner ↗” öffnet den Bewerbungsordner im Dateimanager, der Tooltip nennt die enthaltenen Dateien; <code>⧉</code> kopiert den absoluten Pfad.<br>
       <strong>Prüfung:</strong> Qualitätsprüfung der erzeugten Unterlagen — <span style="color:#22c55e">✓ bestanden</span>, <span style="color:#fbbf24">⚠ nur Hinweise</span>, <span style="color:#fca5a5">✗ Fehler</span>. Der Tooltip nennt die Befunde (Behauptung ohne Profil-Beleg, falscher Zeitraum, fehlender Pflichtteil, PDF-Problem).<br>
       <strong>Nachfassen:</strong> <span style="color:#f59e0b">⏰ Nachfassen fällig</span> erscheint bei versendeten Bewerbungen ohne Reaktion seit ≥ __FOLLOWUP_DAYS__ Tagen (Filter oben). Die Nachfrage-Texte erzeugt <code>python agent.py followup --write</code>; versendet wird nichts automatisch.<br>
       <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
@@ -720,6 +754,12 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <script>
 const STATUS = __STATUS__;
 const ORDER = __ORDER__;
+// Kurzlabels nur für das Dropdown in der schmalen Status-Spalte — Legende,
+// Filter und Diagramme nutzen weiter die vollen Labels.
+const STATUS_SHORT = {
+  research: "Research", docs: "Dokumente", sent: "Versendet",
+  followup: "Follow-up", interview: "Interview", rejected: "Abgelehnt"
+};
 // Alle Status sind einblendbar. „Research" war früher ausgenommen, weil solche
 // Einträge nie sichtbar waren — als „neu gefunden" erscheinen sie jetzt aber,
 // also braucht es den Schalter. Aus den Kennzahlen bleiben sie weiterhin
@@ -896,35 +936,71 @@ function fitBadge(fit) {
   return `<span class="badge" style="background:${bg};color:${color};border:1px solid ${color}55">${f}%</span>`;
 }
 function dimBadge(d) {
-  // Mehrdimensionale Bewertung (berichtend): Gesamtwert + K.O.-Marker.
-  // Der Tooltip nennt alle sieben Teilwerte — der Fit-Wert bleibt unverändert.
+  // Mehrdimensionale Bewertung (berichtend): Gesamtwert + K.O.-Marker, in der
+  // Zeile nur als "D80" — die sieben Teilwerte stehen im Tooltip.
   if (!d) return "";
   const ko = (d.ko && d.ko.length)
-    ? ` <span title="${esc(d.ko.join('; '))}" style="color:#fca5a5;cursor:help">⛔</span>`
+    ? `<span title="${esc(d.ko.join('; '))}" style="color:#fca5a5">⛔</span>`
     : "";
-  return `<div style="margin-top:4px;font-size:10px;color:#94a3b8;cursor:help"
-    title="Mehrdimensionale Bewertung (berichtend): ${esc(d.detail)}">Dim ${d.gesamt}%${ko}</div>`;
+  return `<span class="micro" style="cursor:help"
+    title="Mehrdimensionale Bewertung (berichtend): ${esc(d.detail)}">${ko}D${d.gesamt}</span>`;
 }
 function qualityBadge(q) {
-  // Qualitätsprüfung (P0b): ✓ bestanden, ⚠ nur Hinweise, ✗ Fehler.
+  // Qualitätsprüfung (P0b): ✓ bestanden, ⚠ nur Hinweise, ✗ Fehler — als Icon,
+  // die Befunde stehen im Tooltip.
   if (!q) return "";
-  if (q.umfang !== "voll") {
-    return `<div style="margin-top:4px;font-size:10px;color:#64748b" title="Nur die PDF-Dateien wurden geprüft. Die Textprüfung (Behauptungen, Zeiträume) läuft bei der nächsten Generierung.">Prüfung – Datei</div>`;
-  }
-  if (!q.n) return `<div style="margin-top:4px;font-size:10px;color:#22c55e" title="Qualitätsprüfung: alle Prüfungen bestanden">Prüfung ✓</div>`;
+  // Nur-Datei-Prüfung: kein Icon (in der schmalen Spalte nicht lesbar) — der
+  // Hinweis steht im Tooltip des Ordner-Links.
+  if (q.umfang !== "voll") return "";
+  if (!q.n) return `<span class="micro" style="color:#22c55e" title="Qualitätsprüfung: alle Prüfungen bestanden">✓</span>`;
   const color = q.errors ? "#fca5a5" : "#fbbf24";
   const symbol = q.errors ? "✗" : "⚠";
-  return `<div style="margin-top:4px;font-size:10px;color:${color};cursor:help"
-    title="${esc((q.befunde || []).join(' · '))}">Prüfung ${symbol} ${q.n}</div>`;
+  return `<span class="micro" style="color:${color};cursor:help"
+    title="Qualitätsprüfung ${symbol} ${q.n} Befund(e): ${esc((q.befunde || []).join(' · '))}">${symbol}${q.n}</span>`;
 }
 function salaryBadge(s, source) {
   if (!s) return '<span style="color:#64748b">k. A.</span>';
-  const hint = source === "Schätzung" ? ' <span style="font-size:10px;opacity:.7" title="geschätzt, keine Angabe in der Anzeige">(gesch.)</span>' : "";
-  return `<span class="badge" style="background:#1e293b;color:#94a3b8;border:1px solid #334155">${s}${hint}</span>`;
+  const raw = String(s).trim();
+  const title = raw + (source === "Schätzung" ? " (geschätzt, keine Angabe in der Anzeige)" : (source ? ` (${source})` : ""));
+  // Lange Schreibweisen ("EUR 60,000 - 80,000") auf "60–80 T€" kürzen, damit
+  // die Spalte schmal bleibt; der Originaltext steht im Tooltip.
+  const toNum = v => Number(String(v).replace(/[.,](?=\d{3}\b)/g, "").replace(",", "."));
+  let label = raw;
+  const range = raw.match(/(\d[\d.,]*)\s*(?:-|–|bis)\s*(\d[\d.,]*)/);
+  if (range) {
+    const a = toNum(range[1]), b = toNum(range[2]);
+    if (a >= 1000 && b >= 1000) label = `${Math.round(a / 1000)}–${Math.round(b / 1000)} T€`;
+  } else {
+    const single = raw.match(/(\d[\d.,]{3,})/);
+    if (single) {
+      const v = toNum(single[1]);
+      if (v >= 1000) label = `${Math.round(v / 1000)} T€`;
+    }
+  }
+  return `<span class="badge" title="${esc(title)}" style="background:#1e293b;color:#94a3b8;border:1px solid #334155">${esc(label)}</span>`;
 }
 function homeofficeBadge(h) {
-  if (!h) return '<span style="color:#64748b">k. A.</span>';
-  return `<span class="badge" style="background:#1e293b;color:#93c5fd;border:1px solid #334155">${h}</span>`;
+  // Die Anzeigen liefern dutzende Schreibweisen ("Home Office in Absprache
+  // (40%)", "Bis 80% Remote", ...). Für die schmale Spalte wird daraus eine
+  // Kurzform; der Originaltext steht im Tooltip.
+  const raw = (h || "").trim();
+  if (!raw || /^(k\.\s?a\.?|unbekannt)$/i.test(raw)) {
+    return '<span class="micro" title="Homeoffice: keine Angabe">?</span>';
+  }
+  let label, style = "background:#1e293b;color:#93c5fd;border:1px solid #334155";
+  if (/vor ort/i.test(raw)) {
+    label = "vor Ort";
+    style = "background:#1e293b;color:#94a3b8;border:1px solid #334155";
+  } else if (/hybrid|anteilig|teilweise|tw\.|bis \d/i.test(raw)) {
+    label = "Hybrid";
+  } else if (/remote/i.test(raw)) {
+    label = "Remote";
+  } else if (/home.?office|mobil|absprache|vereinbarung/i.test(raw)) {
+    label = "mögl.";
+  } else {
+    label = raw.length > 9 ? raw.slice(0, 8) + "…" : raw;
+  }
+  return `<span class="badge" title="${esc(raw)}" style="${style}">${esc(label)}</span>`;
 }
 function commuteBadge(r) {
   if (r.commuteMode === "Remote") {
@@ -948,8 +1024,8 @@ function commuteBadge(r) {
   const km = r.commuteKm != null ? ` · ${r.commuteKm} km` : "";
   const rest = COMMUTE_LIMIT - c;
   const luft = rest > 0 ? `noch ${rest} min Luft` : `${-rest} min über der Grenze`;
-  const title = `${c} von ${COMMUTE_LIMIT} min (${Math.round(ratio * 100)} % der Grenze) — ${luft}`;
-  return `<span class="badge" title="${title}" style="background:${bg};color:${color};border:1px solid ${color}55">${c} min${km}</span>`;
+  const title = `${c} von ${COMMUTE_LIMIT} min (${Math.round(ratio * 100)} % der Grenze) — ${luft}${km} · ${hint}`;
+  return `<span class="badge" title="${esc(title)}" style="background:${bg};color:${color};border:1px solid ${color}55">${c} min</span>`;
 }
 function linkBadge(r) {
   if (!r.link) return '<span style="color:#64748b">–</span>';
@@ -968,24 +1044,35 @@ function commuteVal(r) {
   if (r.commute == null) return 9999;
   return +r.commute;
 }
-function statusAgeHint(r) {
-  if (!r.statusChangedAt) return "";
-  const ts = parseISO(r.statusChangedAt);
-  if (!ts) return "";
-  const d = daysSince(ts);
-  const color = d >= 25 ? "#ef4444" : (d >= 14 ? "#f59e0b" : "#64748b");
-  return `<div class="hint" style="color:${color}">seit ${d} Tagen</div>`;
+// Eine einzige Mikrozeile unter dem Status-Select statt drei Hinweiszeilen:
+// Alter des Status, Nachfassen-Fälligkeit (⏰). Das Versanddatum steht im Tooltip.
+function statusMicro(r) {
+  const bits = [], titles = [];
+  if (r.statusChangedAt) {
+    const ts = parseISO(r.statusChangedAt);
+    if (ts) {
+      const d = daysSince(ts);
+      const color = d >= 25 ? "#ef4444" : (d >= 14 ? "#f59e0b" : "#94a3b8");
+      bits.push(`<span style="color:${color}">${d} T.</span>`);
+      titles.push(`Status seit ${d} Tagen (${formatISOToDE(r.statusChangedAt)})`);
+    }
+  }
+  if (r.sentAt) {
+    const ts = parseISO(r.sentAt);
+    if (ts) titles.push(`Versendet: ${formatISOToDE(r.sentAt)} (vor ${daysSince(ts)} Tagen)`);
+  }
+  if (r.followupDue) {
+    bits.push('<span style="color:#f59e0b;font-weight:700">⏰</span>');
+    titles.push(`Nachfassen fällig (${r.followupDays} Tage ohne Reaktion)`);
+  }
+  if (!bits.length) return "";
+  return `<div class="micro" title="${esc(titles.join(" · "))}">${bits.join(" ")}</div>`;
 }
-function sentAtHint(r) {
-  if (!r.sentAt) return "";
-  const ts = parseISO(r.sentAt);
-  if (!ts) return "";
-  return `<div class="hint">Versendet: ${formatISOToDE(r.sentAt)} (vor ${daysSince(ts)} Tagen)</div>`;
-}
-function followupBadge(r) {
-  // Fällig: versendet/followup, seit ≥ __FOLLOWUP_DAYS__ Tagen ohne Reaktion.
-  if (!r.followupDue) return "";
-  return `<div class="hint" style="color:#f59e0b;font-weight:600">⏰ Nachfassen fällig (${r.followupDays} T.)</div>`;
+// Datum in der Tabelle zwei(!)-stellig kürzen, das Jahr ist immer dasselbe.
+function shortDate(d) {
+  if (!d) return '<span style="color:#64748b">k. A.</span>';
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(d).trim());
+  return m ? `${m[1]}.${m[2]}.${m[3].slice(2)}` : String(d);
 }
 
 // Zentrale Aktualisierung aller Ansichten. Tabellen- und Statistik-Ansicht
@@ -1248,37 +1335,49 @@ function renderRows() {
     const tr = document.createElement("tr");
     if (r.neuImLauf) tr.className = "ist-neu";
     const statusOpts = ORDER.map(s =>
-      `<option value="${s}" ${s === r.status ? "selected" : ""}>${STATUS[s].label}</option>`).join("");
-    const docLinks = (r.docs || []).map(d =>
-      `<a class="folder" href="${esc(d.href)}" target="_blank" rel="noopener noreferrer">${esc(d.label)}</a>`).join("<br>");
-    const openBtn = r.folder
-      ? `<br><a class="folder folder-open" href="#" data-folder="${encodeURIComponent(r.folder)}">Ordner ↗</a>`
+      `<option value="${s}" ${s === r.status ? "selected" : ""}>${STATUS_SHORT[s]}</option>`).join("");
+    // Dokumente werden nicht mehr einzeln verlinkt (sie machten die Zeile bis
+    // zu acht Zeilen hoch). Anzahl und Dateinamen stehen im Tooltip des
+    // Ordner-Links; geöffnet wird der Ordner im Dateimanager.
+    const docs = r.docs || [];
+    const docsTitle = (docs.length
+      ? ` · ${docs.length} Dokument(e): ${docs.map(d => d.label).join(", ")}`
+      : " · noch keine Dokumente")
+      + (r.quality && r.quality.umfang !== "voll"
+          ? " · Prüfung: nur die PDF-Dateien geprüft (Textprüfung folgt bei der nächsten Generierung)"
+          : "");
+    const folderLink = r.folder
+      ? `<a class="folder folder-open" href="#" data-folder="${encodeURIComponent(r.folder)}"
+            title="Bewerbungsordner öffnen${esc(docsTitle)}">Ordner ↗</a>`
         + (r.folderAbs
-            ? `<button class="copy-btn" data-copy="${encodeURIComponent(r.folderAbs)}" title="Absoluten Ordnerpfad in die Zwischenablage kopieren">Pfad kopieren</button>`
+            ? `<button class="copy-btn" data-copy="${encodeURIComponent(r.folderAbs)}" aria-label="Pfad kopieren" title="Absoluten Ordnerpfad kopieren">⧉</button>`
             : "")
       : "";
     tr.innerHTML = `
-      <td>${esc(r.company)}</td>
-      <td>${esc(r.position)}${r.verfuegbar === false ? ' <span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.neuImLauf ? ' <span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu gefunden</span>' : ''}
-        ${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false">Beschreibung ▾</button>` : ""}
-        ${(r.matched && r.matched.length) ? `<div class="hint">✓ ${esc(r.matched.slice(0,6).join(", "))}</div>` : ""}
+      <td><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span></td>
+      <td>
+        <div class="pos-line">
+          <span class="pos-title clip2" title="${esc(r.position)}">${esc(r.position)}</span>
+          <span class="pos-tags">${r.verfuegbar === false ? '<span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.neuImLauf ? '<span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu</span>' : ''}${(r.matched && r.matched.length) ? `<span class="micro" title="Treffer im Profil: ${esc(r.matched.join(", "))}">✓${r.matched.length}</span>` : ""}${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false" title="Stellenbeschreibung ein-/ausblenden">Text ▾</button>` : ""}</span>
+        </div>
       </td>
-      <td>${r.branch || '<span style="color:#64748b">k. A.</span>'}</td>
-      <td>${r.location || '<span style="color:#64748b">k. A.</span>'}</td>
+      <td><span class="clip1" title="${esc(r.branch || "k. A.")}">${esc(r.branch || "k. A.")}</span></td>
+      <td><span class="clip2" title="${esc(r.location || "k. A.")}">${esc(r.location || "k. A.")}</span></td>
       <td class="center">${homeofficeBadge(r.homeoffice)}</td>
       <td class="center">${commuteBadge(r)}</td>
-      <td class="center">${r.date || '<span style="color:#64748b">k. A.</span>'}</td>
+      <td class="center"><span title="Gefunden am ${esc(r.date || "unbekannt")}">${shortDate(r.date)}</span></td>
       <td class="center">
-        <span class="badge ${STATUS[r.status].cls}">${STATUS[r.status].label}</span>
-        <div style="margin-top:6px"><select autocomplete="off" data-i="${i}" data-k="status">${statusOpts}</select></div>
-        ${statusAgeHint(r)}
-        ${sentAtHint(r)}
-        ${followupBadge(r)}
-        ${(r.status === "interview" || r.status === "followup") ? `<div style="margin-top:6px"><input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)" style="width:118px"></div>` : ""}
+        <div class="status-cell">
+          <select class="status-select ${STATUS[r.status].cls}" autocomplete="off" data-i="${i}" data-k="status" title="Status ändern">${statusOpts}</select>
+          ${statusMicro(r)}
+          ${(r.status === "interview" || r.status === "followup") ? `<input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)">` : ""}
+        </div>
       </td>
-      <td class="center">${fitBadge(r.fit)}${dimBadge(r.dim)}</td>
+      <td class="center"><span class="clip1">${fitBadge(r.fit)} ${dimBadge(r.dim)}</span></td>
       <td class="center">${salaryBadge(r.salary, r.salarySource)}</td>
-      <td class="center">${linkBadge(r)}${docLinks ? "<br>" + docLinks : ""}${openBtn}${qualityBadge(r.quality)}</td>
+      <td class="center">
+        <div class="linkcell">${linkBadge(r)}${folderLink ? `<span class="link-line">${folderLink}${qualityBadge(r.quality)}</span>` : ""}</div>
+      </td>
       <td class="center"><button class="row-delete" data-i="${i}" title="Eintrag aus dem Dashboard entfernen">🗑</button></td>
     `;
     tb.appendChild(tr);
@@ -1333,7 +1432,7 @@ function onToggleDesc(e) {
   const hidden = row.style.display === "none";
   row.style.display = hidden ? "" : "none";
   btn.setAttribute("aria-expanded", String(hidden));
-  btn.textContent = hidden ? "Beschreibung ▴" : "Beschreibung ▾";
+  btn.textContent = hidden ? "Text ▴" : "Text ▾";
 }
 
 function onEdit(e) {
@@ -1405,7 +1504,7 @@ function copyFolderPath(e) {
     toast("Pfad kopiert:<br><code>" + esc(value) + "</code>");
     btn.classList.add("done");
     const old = btn.textContent;
-    btn.textContent = "kopiert ✓";
+    btn.textContent = "✓";
     setTimeout(() => { btn.textContent = old; btn.classList.remove("done"); }, 1600);
   };
   const failed = () => toast("Kopieren nicht möglich. Pfad:<br><code>" + esc(value) + "</code>");

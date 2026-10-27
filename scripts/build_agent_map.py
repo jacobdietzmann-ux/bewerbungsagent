@@ -28,6 +28,23 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+
+def _db_size() -> str:
+    """Größe der jobs.db live lesen — die Karte soll nicht mit Zahlen veralten."""
+    import os
+
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "bewerbungsagent" / "jobs.db",
+        REPO_ROOT / "data" / "jobs.db",
+    ]
+    for path in candidates:
+        try:
+            mb = path.stat().st_size / (1024 * 1024)
+            return f"{mb:.1f} MB".replace(".", ",")
+        except OSError:
+            continue
+    return "nicht gefunden"
+
 from bewerbungsagent.config import Config  # noqa: E402
 
 # Öffentliches Quellcode-Repository — erscheint als Fußzeile in der Agenten-Map,
@@ -93,7 +110,10 @@ _SERVICES = [
     ("OSRM", "Fahrroute Auto → Distanz und Dauer", "netz", "requests + Cache"),
     ("Chromium / Playwright", "Anzeigen rendern und Volltext holen, wo HTML nicht reicht", "netz", "playwright"),
     ("LibreOffice (soffice)", "DOCX-Vorlage → PDF; fehlt es, greift die ReportLab-Vorlage", "lokal", "subprocess, optional"),
-    ("Tectonic / Typst", "Externe CV-Vorlagen kompilieren (LaTeX / Typst)", "lokal", "CLI, offline"),
+    ("python-docx", "DOCX-Vorlage erzeugen und füllen (Lebenslauf)", "lokal", "python-docx 1.2.0"),
+    ("SQLAlchemy + Alembic", "Schema und Migrationen der jobs.db", "lokal", "sqlalchemy, alembic 1.20.0"),
+    ("LangGraph", "Derselbe Ablauf als Graph (optional, statt linearer Pipeline)", "lokal", "langgraph 1.2.15"),
+    ("sentence-transformers + torch", "Semantisches Matching / Reranking — Experiment, Pakete nicht installiert", "exp", "ADR-015 / ADR-016"),
 ]
 
 # Quellen für die Ablaufkarte (Reihenfolge = Reihenfolge im SVG).
@@ -147,10 +167,10 @@ _TOOLCHAIN = [
         ("tool-4", "GitHub", "origin/main · CI in der Cloud", "geprueft"),
         ("tool-5", "Google Drive", "Drive Desktop (PC) · rclone (Pi)", "konfiguriert"),
     ]),
-    ("DAUERLAUF · RASPBERRY PI", [
-        ("tool-6", "systemd-User-Timer", "tageslauf 12:00 · wochenlauf", "konfiguriert"),
+    ("DAUERLAUF · PC UND PI", [
+        ("tool-6", "Hermes-Gateway", "systemd user · Linger aktiv", "konfiguriert"),
         ("tool-7", "agent.py ablauf", "Suche → Match → Dokumente", "konfiguriert"),
-        ("tool-8", "jobwatch.py", "Digest der neuen Stellen", "konfiguriert"),
+        ("tool-8", "jobwatch.py", "Cron am PC · Digest", "konfiguriert"),
     ]),
     ("BENACHRICHTIGUNG", [
         ("tool-9", "Telegram Bot-API", "Digest per sendMessage", "auskunft"),
@@ -179,7 +199,15 @@ _TOOLS_EXTRA = [
     ("ReportLab", "Erzeugt Anschreiben und Lebenslauf als PDF",
      "geprueft", "in der venv installiert; x1F-Lebenslauf 2 Seiten erzeugt"),
     ("SQLite (jobs.db)", "Quelle der Wahrheit für den Bestand",
-     "geprueft", "%LOCALAPPDATA%\\bewerbungsagent\\jobs.db, 7,4 MB"),
+     "geprueft", f"%LOCALAPPDATA%\\bewerbungsagent\\jobs.db, {_db_size()}"),
+    ("python-docx", "Füllt die DOCX-Vorlage des Lebenslaufs",
+     "geprueft", "venv: python-docx 1.2.0"),
+    ("SQLAlchemy + Alembic", "Schema und Migrationen der jobs.db",
+     "geprueft", "venv: sqlalchemy, alembic 1.20.0"),
+    ("LangGraph", "Graph-Ablauf (agent.py ablauf)",
+     "geprueft", "venv: langgraph 1.2.15"),
+    ("sentence-transformers + torch", "Semantisches Matching, Reranking",
+     "fehlt", "Import schlägt fehl → semantic.py / rerank.py nur Theorie"),
     ("LibreOffice (soffice)", "DOCX-Vorlage → PDF",
      "fehlt", "nicht im PATH, C:\\Program Files\\LibreOffice fehlt → ReportLab"),
     ("rclone-Bisync", "Spiegelt den Arbeitsordner zu Google Drive",
@@ -226,22 +254,25 @@ _TOOL_NODES = {
                        "<code>%LOCALAPPDATA%</code>), auf dem Linux-Host erledigt das "
                        "<code>rclone bisync</code> alle 15 Minuten.",
                "in": "Arbeitsordner", "out": "Cloud-Backup"},
-    "tool-6": {"title": "systemd-User-Timer (Pi)",
-               "body": "Der Raspberry Pi läuft dauerhaft. Ein systemd-User-Timer startet "
-                       "<code>scripts/tageslauf.sh</code> um 12:00 und "
-                       "<code>scripts/wochenlauf.sh</code> am Montag; <code>flock</code> "
-                       "verhindert zwei gleichzeitige Läufe, das Ergebnis landet in "
-                       "<code>data/tageslauf-status.json</code>.",
-               "in": "Zeitplan", "out": "Lauf"},
-    "tool-7": {"title": "agent.py ablauf (Pi)",
-               "body": "Derselbe Ablauf wie auf dem PC: Suche → Match → Unterlagen → "
-                       "Dashboard. Auf dem Pi ist das der produktive Weg, weil der "
-                       "Rechner immer an ist.",
+    "tool-6": {"title": "Hermes-Gateway (Pi)",
+               "body": "Der Raspberry Pi läuft dauerhaft, aber nicht als Job-Runner: er "
+                       "hostet den Hermes-Gateway als systemd-User-Dienst "
+                       "(<code>hermes-gateway.service</code>, Linger aktiv), über den die "
+                       "Telegram-Chats laufen. systemd-Timer für <code>tageslauf.sh</code> "
+                       "gibt es auf dem Pi nicht.",
+               "in": "Telegram-Nachrichten", "out": "Antworten, Cron-Ticks"},
+    "tool-7": {"title": "agent.py ablauf (PC)",
+               "body": "Der Ablauf Suche → Match → Unterlagen → Dashboard läuft auf dem PC, "
+                       "gestartet von Hand oder über den Cron-Job. Der Pi ist nicht der "
+                       "Job-Runner.",
                "in": "config.json", "out": "Bestand, PDFs, Dashboard"},
-    "tool-8": {"title": "jobwatch.py (Pi)",
-               "body": "Führt die Pipeline aus und schickt einen Digest der neuen "
-                       "Stellen per Telegram. Protokoll in <code>data/watch_runs.json</code>, "
-                       "die Zugangsdaten kommen aus <code>~/telegram-bot/config.json</code>.",
+    "tool-8": {"title": "jobwatch.py (Cron am PC)",
+               "body": "Läuft als Hermes-Cronjob auf dem PC (täglich 07:00): search, match, "
+                       "enrich, dashboard, danach Vergleich mit "
+                       "<code>data/watch_snapshot.json</code> und Telegram-Digest nur bei "
+                       "neuen Stellen. Protokoll in <code>data/watch_runs.json</code>, "
+                       "Zugangsdaten aus <code>~/telegram-bot/config.json</code>. Meldet auch, "
+                       "wenn der Bestand schrumpft, und nennt die ausgefallene Quelle.",
                "in": "neue Stellen", "out": "Digest"},
     "tool-9": {"title": "Telegram Bot-API",
                "body": "Versand über <code>sendMessage</code> an die konfigurierte "

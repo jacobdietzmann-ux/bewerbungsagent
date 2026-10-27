@@ -135,10 +135,21 @@ class TestToolchainMap:
         for src, dst in mod._TOOL_EDGES:
             assert src in valid and dst in valid, (src, dst)
 
-    def test_pi_ist_als_dauerlauf_gekennzeichnet(self, mod):
+    def test_pi_ist_als_gateway_nicht_als_job_runner_gekennzeichnet(self, mod):
+        """Der Pi hostet das Telegram-Gateway — der Lauf selbst läuft auf dem PC.
+
+        Diese Unterscheidung ist der eigentliche Punkt der Spalte: der Pi ist
+        kein Job-Runner, systemd-Timer für ``tageslauf.sh`` gibt es dort nicht.
+        Eine frühere Fassung der Karte behauptete das Gegenteil.
+        """
         titles = " ".join(title for title, _entries in mod._TOOLCHAIN)
-        assert "RASPBERRY PI" in titles
-        assert "Pi" in mod._TOOL_NODES["tool-6"]["title"] or "Pi" in mod._TOOL_NODES["tool-6"]["body"]
+        assert "PI" in titles
+        body = mod._TOOL_NODES["tool-6"]["body"]
+        assert "Hermes" in body
+        assert "nicht als Job-Runner" in body
+        assert "gibt es auf dem Pi nicht" in body
+        # Der Ablauf selbst ist dem PC zugeordnet.
+        assert "PC" in mod._TOOL_NODES["tool-7"]["title"]
 
 
 class TestGeoMap:

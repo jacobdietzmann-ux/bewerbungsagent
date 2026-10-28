@@ -1256,6 +1256,17 @@ komplett als Quelle, obwohl dort regelmäßig passende Stellen stehen.
    Anzahl Leads, gefunden/offen/Recruiter, Liste der offenen. Der Abgleich ist
    bewusst streng (Firma + vier gemeinsame Wörter oder Titelähnlichkeit ≥ 0,85),
    weil ein falsches „gefunden" eine echte Lücke verdeckt.
+4. **Absagen-Abgleich im selben Lauf**: Der Mailcheck sucht zusätzlich nach
+   Absageformulierungen („nicht weiter berücksichtigen", „leider müssen wir",
+   „unfortunately" …) der letzten sieben Tage. Eindeutige Treffer werden über
+   `scripts/apply_status.py` (Projekt-venv, `Store.apply_overlay`) auf
+   `rejected` gesetzt, Datum = Mail-Datum, Notiz mit Absender. Zugeordnet wird
+   nur, wenn Firma (voller Name im Text oder Domain-Token) und — falls genannt —
+   die Stelle passen; der Bewerbungstitel darf keine Zusatzbegriffe haben
+   („TOSCA Test Automation Engineer" ist nicht „Test Automation Engineer").
+   Mehrere offene Bewerbungen bei derselben Firma ohne Stellenangabe bleiben
+   **unklar** und werden nur gemeldet. Gmail-Quota: 1,2 s Takt und Backoff bei
+   `rateLimitExceeded` (250 Einheiten/Minute).
 
 **Grenzen.** Der Mailcheck lebt in `~/AppData/Local/hermes/scripts/`, nicht im
 Repo: er braucht die Google-Bibliotheken der Hermes-Umgebung. Die

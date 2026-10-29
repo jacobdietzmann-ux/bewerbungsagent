@@ -159,6 +159,24 @@ class TestLebenslauf:
         assert [label for label, _ in groups] == ["Systemintegration", "Test & Automatisierung"]
         assert overflow == ["JIRA"]
 
+    def test_tailoring_eintraege_werden_uebersetzt(self, demo_profile):
+        """Im englischen Lebenslauf dürfen keine deutschen Skill-Namen stehen.
+
+        Regression: Der Tailoring-Pfad in ``_curate_skill_groups`` gab die
+        Einträge ungeprüft weiter — im EN-CV stand dadurch
+        „Python (erweiterte Grundkenntnisse)', während das Profil sonst über
+        ``_SKILL_TRANSLATIONS_EN`` übersetzt wird.
+        """
+        data = _demo_tailoring()
+        data["skills"]["gruppen"] = [{
+            "label": {"de": "Skripting", "en": "Scripting"},
+            "items": ["Python (erweiterte Grundkenntnisse)", "CANoe"],
+        }]
+        groups, _overflow = _curate_skill_groups(demo_profile, {}, "en", data)
+        anzeigen = [display for _label, items in groups for display, _hit in items]
+        assert "Python (advanced basics)" in anzeigen
+        assert "Python (erweiterte Grundkenntnisse)" not in anzeigen
+
     def test_kernkompetenzen_aus_tailoring(self, demo_profile):
         story: list = []
         table = _key_competencies(story, _styles(), "de", _demo_tailoring())

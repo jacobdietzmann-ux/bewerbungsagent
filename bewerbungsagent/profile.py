@@ -53,6 +53,26 @@ _ROLE_WORD_NOISE = {
     "ihr", "ihre", "ihren", "deine", "dein", "diese", "dieser", "diesen",
 }
 
+# Niveau-Angaben an einer Fähigkeit („Python (fundiert)", „C++ (Grundkenntnisse)",
+# „Englisch (verhandlungssicher)") beschreiben den **Grad**, nicht die Fähigkeit.
+# Als Schlüsselwort sind sie reines Rauschen: eine Anzeige, die „fundierte
+# Kenntnisse in Java" verlangt, sagt damit nichts über den Bewerber — trotzdem
+# zählte das Wort „fundiert" als Profiltreffer (55 von 1490 Einträgen) und gab
+# je 4 Punkte. „grundkenntnisse" und „fundiert" standen deshalb schon in
+# ``_ROLE_WORD_NOISE``, wurden aber nur bei *einzelnen Tokens* gefiltert, nicht
+# bei den Klammer-Phrasen aus ``skills``. Diese Menge schließt die Lücke.
+_LEVEL_QUALIFIERS = {
+    "fundiert", "fundierte", "fundierter", "fundiertes", "fundierten",
+    "grundkenntnisse", "grundkenntnissen", "basiswissen",
+    "erweiterte", "erweitert", "erweiterten", "gute", "guter", "guten",
+    "sehr", "kenntnisse", "kenntnis", "verhandlungssicher", "muttersprache",
+    "basic", "advanced", "intermediate", "expert", "professional",
+    "fluent", "native",
+}
+
+# Alles, was nie als matchbares Profil-Schlüsselwort gelten darf.
+_NOT_KEYWORD = STOPWORDS | _ROLE_WORD_NOISE | _LEVEL_QUALIFIERS
+
 
 # Sprachvarianten zwischen Profil (teils deutsch) und Anzeigen (teils englisch).
 # Schlüssel ist ein Fragment der *normalisierten* Profilphrase; die Werte sind
@@ -278,8 +298,7 @@ class Profile:
             # sonst ``system`` blocken — und damit „Embedded Systems“,
             # „Echtzeitsysteme“ und ganze Rollentitel.
             tokens.update(t for t in re.findall(r"[a-z0-9]+", n)
-                          if len(t) >= 3 and t not in STOPWORDS
-                          and t not in _ROLE_WORD_NOISE)
+                          if len(t) >= 3 and t not in _NOT_KEYWORD)
         return full, tokens
 
     def _is_gap_term(self, keyword: str, blocked: tuple[set[str], set[str]]) -> bool:
@@ -325,10 +344,27 @@ class Profile:
         for raw in phrases:
             for p in _split_phrases(raw):
                 n = normalize(p)
-                if len(n) >= 3:
-                    norm.add(n)
-                    if n not in self.display_map and p:
-                        self.display_map[n] = p
+                if len(n) < 3:
+                    continue
+                # Niveau-Angaben aus Klammern („fundiert", „Grundkenntnisse")
+                # sind keine Fähigkeiten — siehe ``_LEVEL_QUALIFIERS``. Das gilt
+                # auch für Phrasen, die **nur** daraus bestehen („erweiterte
+                # grundkenntnisse", „verhandlungssicher in wort und schrift").
+                #
+                # NICHT gegen ``_NOT_KEYWORD`` prüfen: dort stehen auch Wörter,
+                # die absichtlich nur als *Einzelwort* Rauschen sind. „test
+                # engineer", „root-cause-analyse" oder „bmw" sind als Phrase
+                # informativ — eine Prüfung gegen die ganze Menge gelöscht 20
+                # Phrasen (u. a. „test engineer", „audi", „bmw") und senkte 265
+                # Scores, ohne dass das etwas mit dem Profil zu tun hatte.
+                words = re.findall(r"[a-z0-9]+", n)
+                if words and all(w in _LEVEL_QUALIFIERS for w in words):
+                    continue
+                if len(words) == 1 and words[0] in _LEVEL_QUALIFIERS:
+                    continue
+                norm.add(n)
+                if n not in self.display_map and p:
+                    self.display_map[n] = p
 
         # Sprachvarianten: Bewerber-Unterlagen sind zweisprachig, Anzeigen sind
         # es nicht. Die EN-Version des Lebenslaufs nennt z. B. „Test automation“,
@@ -354,7 +390,7 @@ class Profile:
             for tok in re.findall(r"[a-z0-9]+", normalize(raw)):
                 if len(tok) < 3 or tok.isdigit():
                     continue
-                if tok in STOPWORDS or tok in _ROLE_WORD_NOISE:
+                if tok in _NOT_KEYWORD:
                     continue
                 norm.add(tok)
                 if tok not in self.display_map:
@@ -366,7 +402,7 @@ class Profile:
         # ``_ROLE_WORD_NOISE`` ausgeschlossen, damit sie das Matching nicht verrauschen.
         for raw in role_terms:
             for tok in re.findall(r"[a-z0-9]+", normalize(raw)):
-                if len(tok) >= 5 and tok not in STOPWORDS and tok not in _ROLE_WORD_NOISE:
+                if len(tok) >= 5 and tok not in _NOT_KEYWORD:
                     norm.add(tok)
                     if tok not in self.display_map:
                         self.display_map[tok] = tok
@@ -381,13 +417,13 @@ class Profile:
         words: set[str] = set()
         for phrase in self.keyword_phrases:
             for tok in re.findall(r"[a-z0-9]{3,}", phrase):
-                if tok not in STOPWORDS and tok not in _ROLE_WORD_NOISE:
+                if tok not in _NOT_KEYWORD:
                     words.add(tok)
         return words
 
     def _words_of(self, text: str) -> set[str]:
         return {t for t in re.findall(r"[a-z0-9]{3,}", normalize(text))
-                if t not in STOPWORDS and t not in _ROLE_WORD_NOISE}
+                if t not in _NOT_KEYWORD}
 
     def keywords_in(self, text: str) -> list[str]:
         """Normalisierte Profil-Phrasen, die im Text vorkommen.

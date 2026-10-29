@@ -166,6 +166,7 @@ _SKILL_TRANSLATIONS_EN = {
     "Defect Tracking & Fehlermanagement (Jira, Octane)": "Defect tracking & fault management (Jira, Octane)",
     "Microsoft Office (Fortgeschritten)": "Microsoft Office (advanced)",
     "Python (fundiert)": "Python (proficient)",
+    "Python (erweiterte Grundkenntnisse)": "Python (advanced basics)",
     "C++ (Grundkenntnisse)": "C++ (basic knowledge)",
     "Vibe Coding (> 1 Jahr Praxis)": "Vibe Coding (> 1 year of practice)",
     "AI Agents (agentische / Multi-Agent-Workflows)": "AI Agents (agentic / multi-agent workflows)",
@@ -1156,10 +1157,15 @@ def _curate_skill_groups(profile: Profile, match: dict | None, lang: str,
     matched_norm = {normalize(s) for s in (match or {}).get("matched_skills", [])}
     eigene = tal.skill_groups(tailoring, lang)
     if eigene:
-        groups = [(label, [(entry,
-                            any(normalize(entry) == m or m in normalize(entry)
-                                for m in matched_norm if m))
-                           for entry in entries])
+        # Die Einträge im Tailoring-File stehen auf Deutsch (Quelle: Profil).
+        # Für den englischen Lebenslauf müssen sie durch dieselbe Tabelle wie
+        # die Profil-Einträge — sonst steht „Python (erweiterte Grundkenntnisse)"
+        # im englischen CV.
+        groups = [(label,
+                   [(_translate(entry, _SKILL_TRANSLATIONS_EN, lang),
+                     any(normalize(entry) == m or m in normalize(entry)
+                         for m in matched_norm if m))
+                    for entry in entries])
                   for label, entries in eigene]
         return groups, tal.extra_skills(tailoring, lang)
 

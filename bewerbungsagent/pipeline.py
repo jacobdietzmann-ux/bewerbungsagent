@@ -232,7 +232,8 @@ def run_match(config: Config, profile: Profile) -> dict:
     jobs = load_json(config.jobs_path(), [])
     context = _enrich_job_context(config, jobs)
     location = config.data["search"].get("location")
-    matches = match_jobs(profile, jobs, location=location)
+    matches = match_jobs(profile, jobs, location=location,
+                         hard_gaps=(config.data.get("matching") or {}).get("hard_gaps"))
     for i, m in enumerate(matches, start=1):
         m.setdefault("id", i)
         m["key"] = _job_key(m)
@@ -825,7 +826,7 @@ def _merge_state(existing: dict, matches: list[dict],
     # landete fälschlich das Badge „abgelaufen".
     score_fields = ("score", "fit_geschaetzt", "begruendung", "matched_skills",
                     "title_hits", "body_hits", "word_hits", "location_bonus",
-                    "stack_found", "stack_missing", "stack_cap", "role_cap",
+                    "stack_found", "stack_missing", "stack_cap", "role_cap", "hard_gap",
                     "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
                     "pendelzeit_min", "pendeldistanz_km", "homeoffice",

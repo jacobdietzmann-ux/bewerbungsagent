@@ -236,12 +236,21 @@ class Profile:
         """
         cached = getattr(self, "_evidence_text", None)
         if cached is None:
+            cached = normalize(self.evidence_raw)
+            self._evidence_text = cached
+        return cached
+
+    @property
+    def evidence_raw(self) -> str:
+        """Unnormalisierter Belegtext (für Muster wie ``C++``, die ``normalize`` zerlegt)."""
+        cached = getattr(self, "_evidence_raw", None)
+        if cached is None:
             teile: list[str] = []
             for key in ("skills", "work_experience", "education", "certifications"):
                 _flatten_strings(self.data.get(key), teile)
             teile.append(str(self.data.get("kombiniertes_kompetenzprofil") or ""))
-            cached = normalize(" · ".join(teile))
-            self._evidence_text = cached
+            cached = " · ".join(teile)
+            self._evidence_raw = cached
         return cached
 
     @property

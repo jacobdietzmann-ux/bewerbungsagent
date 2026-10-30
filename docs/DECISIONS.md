@@ -1277,3 +1277,43 @@ Diehl-Seiten sind englisch/deutsch gemischt; die Beschreibung wird als Klartext
 **Testabdeckung.** `test_identity_alias.py`: Rechtsform-Normalisierung,
 Alias-Zusammenführung, Identität mit/ohne Alias. Der Diehl-Provider wurde live
 gegen die Karriereseite getestet (6 Treffer, Beschreibungen vorhanden).
+
+## ADR-041 – C++ ist eine bestätigte Lücke, `hard_gaps` deckeln Titel-Nennungen
+
+Ausgangslage: Das Profil führte „C++ (Grundkenntnisse)" in zwei Skill-Listen
+und im kombinierten Profil. Der Nutzer hat am 28.10.2026 klargestellt, dass
+**keine** C++-Kenntnisse vorliegen. Damit waren alle C++-Treffer im Scoring
+falsch: Sie gaben Titel- (×6) und Textpunkte (×4) für eine Qualifikation, die
+es nicht gibt — 46 sichtbare Stellen nannten C++, mehrere standen bei 100 %.
+
+**Entscheidungen.**
+
+1. **Profil bereinigt:** C++ aus `skills.programmierung` und
+   `skills.hardware_embedded_chip` entfernt, `kombiniertes_kompetenzprofil`
+   angepasst, `confirmed_gaps` präzisiert („Keine C++-Kenntnisse, explizit
+   28.10.2026"). Backups: `Profil-Datenbank.json.bak-vor-cpp`.
+2. **`matching.hard_gaps`** (Standard `["C++"]`): Steht ein konfigurierter
+   Begriff im **Titel** und ist er im Profil nicht belegt, wird der Score auf
+   **60 %** gedeckelt (`hard_gap`). Begriffe: C++, C#, Java.
+3. **Belegquelle `Profile.evidence_raw`**: unnormalisierter Skill-Text, weil
+   `normalize("C++")` nur „c" übrig lässt und der Vergleich sonst nicht
+   funktioniert.
+
+**Warum nur der Titel:** C++ im Fließtext ist oft eine Umgebungsangabe
+(„Tests in C++-Codebasis") und keine Einstellungsvoraussetzung. Dort wirkt
+bereits der normale Punkteverlust, weil C++ keine Keywords mehr beiträgt.
+
+**Folgen (28.10.2026 gemessen).** 33 aktive Einträge neu bewertet; drei
+C++-Titel fallen auf 60 % (Softwareentwickler C++/Qt bei Free resume und
+ALTEN). Beispiele für den Punkteverlust durch die Profilbereinigung:
+Rohde & Schwarz 100 → 96, Neilsoft 96 → 84, MicroNova 94 → 90,
+ICT Digital 90 → 82. Bereits versendete/abgelehnte Bewerbungen bleiben
+eingefroren (ADR-039).
+
+**Grenzen.** Neue bestätigte Lücken müssen in `matching.hard_gaps` eingetragen
+werden; die Regex-Tabelle kennt nur C++, C# und Java. „C/C++" im Titel wird
+durch `\bc\+\+` erkannt, „C" allein nicht.
+
+**Testabdeckung.** `test_scoring_hardgap.py`: Deckel bei C++ im Titel,
+kein Deckel ohne `hard_gaps`, kein Deckel bei C++ nur im Text, kein Deckel bei
+belegtem C++.

@@ -517,6 +517,9 @@ Embedded, AI, CAD …): Sie werden auf 60 % gedeckelt, weil der Keyword-Fit dort
 belohnt. Bereits versendete, interviewte oder abgelehnte Bewerbungen behalten ihre historische
 Bewertung — neue Regeln ändern alte Entscheidungen nicht rückwirkend.
 
+Seit ADR-041 deckelt `matching.hard_gaps` außerdem **bestätigte Lücken im Titel** (Standard:
+C++). Steht „C++" im Stellentitel und ist es im Profil nicht belegt, fällt der Fit auf 60 %.
+
 Zusätzlich bewertet `bewerbungsagent/dimensions.py` dieselbe Stelle in sieben Dimensionen
 (Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell, Entwicklung) —
 **berichtend**: Der Fit-Wert bleibt der Keyword-Score, die Dimensionen erscheinen im Dashboard

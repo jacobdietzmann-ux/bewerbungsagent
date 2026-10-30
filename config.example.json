@@ -176,6 +176,7 @@
     "company_aliases": {
       "nxp semiconductors": "nxp"
     },
+    "hard_gaps": ["C++"],
     "dimensions": {
       "gewichte": {
         "kompetenz": 0.3,

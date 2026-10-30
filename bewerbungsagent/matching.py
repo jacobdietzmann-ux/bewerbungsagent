@@ -140,6 +140,16 @@ STACK_CAP = 60
 # ausgeübte Rolle ist aber Produktentwicklung, nicht Test/Absicherung.
 ROLE_CAP = 60
 
+# Bestätigte Lücken, die eine Stelle tragen: Steht die Technologie im Titel,
+# ist die Rolle ohne sie nicht ausübbar („Testingenieur C++"). Der Deckel liegt
+# bei 60 % — unter dem Research-Fenster, über der Ausblendegrenze.
+HARD_GAP_CAP = 60
+_HARD_GAP_RE = {
+    "c++": re.compile(r"\bc\+\+", re.I),
+    "c#": re.compile(r"\bc#", re.I),
+    "java": re.compile(r"\bjava\b(?!script)", re.I),
+}
+
 # Domänenwörter, die eine Entwickler-/Produktrolle anzeigen …
 _DEV_DOMAIN_RE = re.compile(
     r"\bsoftware\w*|\bfirmware\w*|\bembedded\w*|\bbackend\w*|\bfrontend\w*"
@@ -321,7 +331,8 @@ def fit_value(job: dict) -> int:
     return fit_v
 
 
-def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
+def score_job(profile: Profile, job: dict, location: str | None = None,
+              hard_gaps: list[str] | None = None) -> dict:
     """Berechnet Score (0–100), Kategorie und Begründung für einen Job."""
     title, desc = _job_text(job)
 
@@ -362,6 +373,16 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
         role_cap = ROLE_CAP
         score = min(score, role_cap)
 
+    # Bestätigte Lücke im Titel: Ohne C++ ist eine C++-Rolle nicht ausübbar,
+    # auch wenn die übrigen Wörter passen.
+    hard_gap = None
+    for term in hard_gaps or ():
+        rx = _HARD_GAP_RE.get(str(term).strip().lower())
+        if rx and rx.search(title) and not rx.search(profile.evidence_raw):
+            hard_gap = str(term)
+            score = min(score, HARD_GAP_CAP)
+            break
+
     if score >= 65:
         category = "hoch"
     elif score >= 40:
@@ -381,6 +402,10 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
         begruendung += (
             f" Deckel {role_cap} %: Entwickler-/Produktrolle ohne Testbezug im Titel."
         )
+    if hard_gap:
+        begruendung += (
+            f" Deckel {HARD_GAP_CAP} %: {hard_gap} im Titel, aber nicht im Profil belegt."
+        )
 
     return {
         "score": score,
@@ -399,6 +424,7 @@ def score_job(profile: Profile, job: dict, location: str | None = None) -> dict:
         "stack_missing": stack_missing,
         "stack_cap": stack_cap,
         "role_cap": role_cap,
+        "hard_gap": hard_gap,
     }
 
 
@@ -420,11 +446,12 @@ def _reasoning(category: str, title_hits: int, body_hits: int, word_hits: int,
     return f"Fit {category}: {base}."
 
 
-def match_jobs(profile: Profile, jobs: list[dict], location: str | None = None) -> list[dict]:
+def match_jobs(profile: Profile, jobs: list[dict], location: str | None = None,
+               hard_gaps: list[str] | None = None) -> list[dict]:
     """Reichert eine Jobliste um Fit-Scoring an (neue Liste, Jobs unverändert)."""
     matched = []
     for job in jobs:
-        result = score_job(profile, job, location=location)
+        result = score_job(profile, job, location=location, hard_gaps=hard_gaps)
         row = dict(job)
         row.update(result)
         matched.append(row)

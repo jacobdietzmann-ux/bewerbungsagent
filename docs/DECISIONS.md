@@ -1317,3 +1317,32 @@ durch `\bc\+\+` erkannt, „C" allein nicht.
 **Testabdeckung.** `test_scoring_hardgap.py`: Deckel bei C++ im Titel,
 kein Deckel ohne `hard_gaps`, kein Deckel bei C++ nur im Text, kein Deckel bei
 belegtem C++.
+
+## ADR-042 – Gleiche Firma + gleicher Titel gilt für beworbene Rollen als eine Stelle
+
+Ausgangslage: MicroNova erschien sechsmal im Dashboard — dieselbe Anzeige
+(„Produktmanager Testautomatisierung"), von Glassdoor unter München, Dachau und
+Freising geführt, teils zusätzlich als „Product Owner". Die Identitätsprüfung
+nutzt Firma + Titel + **Ort**, deshalb blieben alle Varianten stehen; eine war
+sogar schon versendet, die übrigen fünf standen als `docs` daneben.
+
+**Entscheidung.** `_merge_state` überspringt neue Treffer, wenn Firma und Titel
+exakt einer bereits **beworbenen** Rolle entsprechen (`sent`, `followup`,
+`interview`) — unabhängig vom Ort. Für nicht beworbene Einträge bleibt der Ort
+Teil der Identität, weil dieselbe Rolle an zwei Standorten zwei echte Stellen
+sein kann.
+
+**Datenbereinigung.** Die sechs MicroNova-Einträge wurden am 28.10.2026 auf
+einen reduziert: der versendete Eintrag bleibt, heißt jetzt „Produktmanager
+(m/w/x) Testautomatisierung", steht in Vierkirchen (hybrid) und trägt die
+Glassdoor-Bezeichnung als Notiz. Die fünf Dubletten sind mit
+`deleted_reason = "Dublette: dieselbe Stelle (MicroNova, Vierkirchen)"`
+gelöscht; ihre Dateien bleiben liegen.
+
+**Grenzen.** Die Regel greift erst nach dem Versand. Vorher können
+Location-Varianten weiterhin mehrfach erscheinen; sie werden nur über die
+normale Identitätsprüfung (Firma + Titel + Ort) zusammengeführt.
+
+**Testabdeckung.** `test_pipeline_dedupe.py`: gleiche beworbene Stelle mit
+anderem Ort wird übersprungen, andere Firma bleibt eigener Eintrag, ohne
+Bewerbung bleibt der Ort identitätsstiftend.

@@ -840,6 +840,11 @@ def _merge_state(existing: dict, matches: list[dict],
     # entstehen zwei Ordner und im schlimmsten Fall zwei Bewerbungen auf
     # dieselbe Stelle.
     vorhandene_identitaet = {_identity(a, aliases) for a in apps if a.get("key")}
+    # Bereits beworbene Rollen: gleiche Firma + gleicher Titel gilt als dieselbe
+    # Stelle, auch wenn eine Börse sie unter mehreren Orten führt (Glassdoor
+    # listet dieselbe Anzeige für München, Dachau und Freising).
+    beworben = {(_company_key(a.get("firma"), aliases), normalize(a.get("titel") or ""))
+                for a in apps if a.get("status") in ("sent", "followup", "interview")}
     for m in matches:
         key = m["key"]
         if key in by_key:
@@ -857,7 +862,7 @@ def _merge_state(existing: dict, matches: list[dict],
             result.append(old)
         else:
             ident = _identity(m, aliases)
-            if ident in vorhandene_identitaet:
+            if ident in vorhandene_identitaet or (ident[0], ident[1]) in beworben:
                 # Dieselbe Stelle, andere Quelle: der bestehende Eintrag
                 # dokumentiert den Vorgang (Status, Unterlagen, Notizen) und
                 # bleibt unangetastet.

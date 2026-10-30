@@ -332,16 +332,21 @@ def fit_value(job: dict) -> int:
 
 
 def score_job(profile: Profile, job: dict, location: str | None = None,
-              hard_gaps: list[str] | None = None) -> dict:
+              hard_gaps: list[str] | None = None,
+              weak_skills: list[str] | None = None) -> dict:
     """Berechnet Score (0–100), Kategorie und Begründung für einen Job."""
     title, desc = _job_text(job)
 
-    title_hits = profile.keywords_in(title)
-    body_hits = profile.keywords_in(desc)
+    # Grundkenntnisse zählen nicht als Alleinstellungsmerkmal: Sie geben keine
+    # Titel-/Text-/Wortpunkte. Im Profil und in den Unterlagen bleiben sie
+    # stehen — nur der Fit bewertet sie nicht.
+    weak = {normalize(str(t)) for t in (weak_skills or ()) if str(t).strip()}
+    title_hits = [h for h in profile.keywords_in(title) if h not in weak]
+    body_hits = [h for h in profile.keywords_in(desc) if h not in weak]
     # ``words_in()`` liefert eine Menge — als sortierte Liste, damit das Feld
     # JSON-serialisierbar ist (``word_hits`` wird seit der Score-Offenlegung
     # gespeichert).
-    word_hits = sorted(profile.words_in(f"{title} {desc}"))
+    word_hits = [w for w in sorted(profile.words_in(f"{title} {desc}")) if w not in weak]
 
 
     # Gewichtung: Titel-Treffer zählen am stärksten, gefolgt vom Anzeigentext;
@@ -447,11 +452,13 @@ def _reasoning(category: str, title_hits: int, body_hits: int, word_hits: int,
 
 
 def match_jobs(profile: Profile, jobs: list[dict], location: str | None = None,
-               hard_gaps: list[str] | None = None) -> list[dict]:
+               hard_gaps: list[str] | None = None,
+               weak_skills: list[str] | None = None) -> list[dict]:
     """Reichert eine Jobliste um Fit-Scoring an (neue Liste, Jobs unverändert)."""
     matched = []
     for job in jobs:
-        result = score_job(profile, job, location=location, hard_gaps=hard_gaps)
+        result = score_job(profile, job, location=location, hard_gaps=hard_gaps,
+                           weak_skills=weak_skills)
         row = dict(job)
         row.update(result)
         matched.append(row)

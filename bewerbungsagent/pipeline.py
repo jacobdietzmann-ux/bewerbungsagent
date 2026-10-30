@@ -233,7 +233,8 @@ def run_match(config: Config, profile: Profile) -> dict:
     context = _enrich_job_context(config, jobs)
     location = config.data["search"].get("location")
     matches = match_jobs(profile, jobs, location=location,
-                         hard_gaps=(config.data.get("matching") or {}).get("hard_gaps"))
+                         hard_gaps=(config.data.get("matching") or {}).get("hard_gaps"),
+                         weak_skills=(config.data.get("matching") or {}).get("weak_skills"))
     for i, m in enumerate(matches, start=1):
         m.setdefault("id", i)
         m["key"] = _job_key(m)

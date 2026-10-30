@@ -1346,3 +1346,42 @@ normale Identitätsprüfung (Firma + Titel + Ort) zusammengeführt.
 **Testabdeckung.** `test_pipeline_dedupe.py`: gleiche beworbene Stelle mit
 anderem Ort wird übersprungen, andere Firma bleibt eigener Eintrag, ohne
 Bewerbung bleibt der Ort identitätsstiftend.
+
+## ADR-043 – Python ist Grundkenntnis: `weak_skills` geben keine Fit-Punkte
+
+Ausgangslage: Das Profil führte „Python (erweiterte Grundkenntnisse)" und einen
+Satz über ein „eigenes Python-basiertes Testautomatisierungstool". Beides war
+zu hoch gegriffen: Nur Grundkenntnisse, kleine Skripte, kein eigenständig
+entwickeltes Tool. Python zählte im Scoring als Titel- (×6), Text- (×4) und
+Worttreffer (+2) und hob Stellen mit Python-Nennung um bis zu sechs Punkte.
+
+**Entscheidungen.**
+
+1. **Profil korrigiert:** „Python (Grundkenntnisse)" in beiden Skill-Listen,
+   kombiniertes Profil auf „Python-Grundkenntnisse für kleine Skripte", die
+   Lücke präzisiert („kein eigenständig entwickeltes Tool, kleine Skripte,
+   bestätigt 28.10.2026"). Backup:
+   `Profil-Datenbank.json.bak-vor-python`.
+2. **`matching.weak_skills`** (Standard `["Python"]`): Begriffe aus dieser Liste
+   werden aus Titel-, Text- und Inhaltswort-Treffern entfernt. Sie bleiben im
+   Profil und in den Unterlagen sichtbar, tragen aber keinen Fit bei.
+3. Der frühere Werkzeug-Satz in der Berufserfahrung war bereits durch die
+   parallele Sitzung auf „mit Python-Skripten" korrigiert worden.
+
+**Warum ganz entfernen statt halb gewichten:** Das Scoring rechnet mit ganzen
+Punkten (6/4/2). Eine Halbgewichtung wäre eine Scheingenauigkeit; „zählt nicht
+als Alleinstellungsmerkmal" ist die ehrliche Aussage für Grundkenntnisse.
+
+**Folgen (28.10.2026 gemessen).** 17 offene Einträge neu bewertet, jeweils
+−6 Punkte, weil Python-Treffer wegfielen. Beispiele: Rohde & Schwarz 96 → 90,
+ALTEN Wellenform 80 → 74, NXP Digital IP 76 → 70, INGSERV 76 → 70,
+Infineon Digital Concept 74 → 68, Renesas Business Development 70 → 64,
+STARK Automation Engineer 68 → 62. Sichtbar: 252 Stellen, 140 ≥ 65 %,
+98 ≥ 71 %. Versendete/abgelehnte Bewerbungen bleiben eingefroren.
+
+**Grenzen.** Die Liste ist statisch; neue Grundkenntnisse müssen eingetragen
+werden. Python verschwindet nicht aus dem Profil — Lebenslauf und Anschreiben
+nennen es weiterhin, nur der Fit bewertet es nicht.
+
+**Testabdeckung.** `test_scoring_weak.py`: Python gibt keine Punkte, Stellen
+ohne Python bleiben unverändert, andere Begriffe zählen weiter.

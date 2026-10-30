@@ -520,6 +520,10 @@ Bewertung — neue Regeln ändern alte Entscheidungen nicht rückwirkend.
 Seit ADR-041 deckelt `matching.hard_gaps` außerdem **bestätigte Lücken im Titel** (Standard:
 C++). Steht „C++" im Stellentitel und ist es im Profil nicht belegt, fällt der Fit auf 60 %.
 
+Seit ADR-043 zählen **Grundkenntnisse nicht als Alleinstellungsmerkmal**: `matching.weak_skills`
+(Standard: Python) gibt für Titel-, Text- und Worttreffer keine Punkte. Im Profil und in den
+Unterlagen bleibt Python sichtbar — der Fit bewertet es nur nicht mehr.
+
 Zusätzlich bewertet `bewerbungsagent/dimensions.py` dieselbe Stelle in sieben Dimensionen
 (Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell, Entwicklung) —
 **berichtend**: Der Fit-Wert bleibt der Keyword-Score, die Dimensionen erscheinen im Dashboard

@@ -1436,3 +1436,39 @@ abgelehnte Bewerbungen bleiben eingefroren.
 **Testabdeckung.** `test_scoring_software_role.py`: Komposita werden erkannt,
 „Software Test Engineer" und „Softwareentwickler für Testsysteme" bleiben
 erlaubt, „Applications Engineer" ist keine Software-Rolle, Score-Deckel 45.
+
+## ADR-045 – Dubletten: Gender-Tags, Titel-Synonyme, keine gelöschten Karten
+
+Ausgangslage: Nach dem Zusammenführen der MicroNova-Einträge standen im
+Dashboard wieder sechs Karten für dieselbe Stelle, obwohl fünf Einträge
+`deleted` waren. Zwei Ursachen:
+
+1. **Anzeige:** `dashboard_applications` prüfte `deleted` nicht. Einträge mit
+   Status `docs` und vorhandenen PDFs kamen über die Unterlagen-Regel zurück in
+   die Tabelle — die Dubletten hatten ja Dateien.
+2. **Identität:** `_identity` verglich den Titel roh. „Produktmanager (m/w/x)
+   Testautomatisierung" (Firmenseite) und „Product Owner Testautomatisierung
+   m/w/d" (Glassdoor) sind textlich verschieden, also legte jeder Lauf neue
+   Einträge an — trotz der Regel „gleiche Firma + gleicher Titel = dieselbe
+   Stelle" (ADR-042).
+
+**Entscheidungen.**
+
+1. `dashboard_applications` überspringt gelöschte Einträge grundsätzlich.
+2. `_title_key` entfernt Gender-Tags (`(m/w/x)`, `(m/w/d)`, `(all genders)`)
+   und ersetzt Titel-Synonyme aus `matching.title_synonyms`
+   (Standard: `product owner` → `produktmanager`). `_identity` und das
+   `beworben`-Set nutzen diesen Schlüssel.
+3. `_merge_state` vergibt eindeutige IDs: IDs kamen aus dem Match-Lauf (1..n)
+   und kollidierten zwischen Läufen — 1.102 von 1.828 Einträgen hatten eine
+   doppelte ID. Dokument- und Statuspfade adressieren über `key`; eindeutige
+   IDs verhindern, dass ein Aufruf mit `id` den falschen Eintrag trifft (genau
+   das passierte beim Erzeugen der MicroNova-Unterlagen).
+
+**Folgen (30.10.2026).** Live-Bestand: 1.828 Einträge, 1.828 eindeutige IDs,
+Dashboard 218 Zeilen, **eine** MicroNova-Karte (94 %, `sent`). Die fünf
+Dubletten bleiben als `deleted` in der Datenbank, ihre Ordner bleiben liegen.
+
+**Testabdeckung.** `test_identity_alias.py`: Gender-Tags zählen nicht,
+`product owner`/`produktmanager` führen zusammen. `test_dashboard_visibility.py`:
+gelöschte Stelle mit Unterlagen bleibt verborgen.

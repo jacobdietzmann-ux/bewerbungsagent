@@ -176,6 +176,9 @@
     "company_aliases": {
       "nxp semiconductors": "nxp"
     },
+    "title_synonyms": {
+      "product owner": "produktmanager"
+    },
     "hard_gaps": ["C++"],
     "weak_skills": ["Python"],
     "dimensions": {

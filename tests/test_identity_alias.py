@@ -31,6 +31,17 @@ class TestIdentity:
         b = _identity({"firma": "NXP", "titel": "Test Engineer (m/w/d)", "ort": "München"}, aliases)
         assert a == b
 
+    def test_gender_tags_zaehlen_nicht(self):
+        a = _identity({"firma": "MicroNova AG", "titel": "Produktmanager (m/w/x) Testautomatisierung", "ort": "Vierkirchen"})
+        b = _identity({"firma": "MicroNova AG", "titel": "Produktmanager Testautomatisierung m/w/d", "ort": "Vierkirchen"})
+        assert a == b
+
+    def test_synonym_fuehrt_product_owner_zusammen(self):
+        synonyms = {"product owner": "produktmanager"}
+        a = _identity({"firma": "MicroNova AG", "titel": "Product Owner Testautomatisierung m/w/d", "ort": "München"}, synonyms=synonyms)
+        b = _identity({"firma": "MicroNova AG", "titel": "Produktmanager (m/w/x) Testautomatisierung", "ort": "Vierkirchen"}, synonyms=synonyms)
+        assert a[:2] == b[:2]
+
     def test_andere_stelle_andere_identitaet(self):
         a = _identity({"firma": "NXP", "titel": "Test Engineer", "ort": "München"})
         b = _identity({"firma": "NXP", "titel": "System Engineer", "ort": "München"})

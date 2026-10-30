@@ -71,3 +71,10 @@ def test_potenzielle_bewerbung_braucht_naehe(folder):
 def test_potenzielle_bewerbung_mit_unterlagen_und_naehe(folder):
     app = _app(folder, "Acme", "docs", pendelzeit=25)
     assert dashboard.dashboard_applications([app]) == [app]
+
+
+def test_geloeschte_stelle_bleibt_trotz_unterlagen_verborgen(folder):
+    """Dubletten mit Status ``docs`` und Dateien dürfen keine Karten erzeugen."""
+    app = _app(folder, "MicroNova", "docs", pendelzeit=25)
+    app["deleted"] = True
+    assert dashboard.dashboard_applications([app]) == []

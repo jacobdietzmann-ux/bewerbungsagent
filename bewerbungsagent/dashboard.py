@@ -226,6 +226,12 @@ def dashboard_applications(applications: list[dict],
     """
     result = []
     for app in applications:
+        # Gelöschte Einträge (Dubletten, Research-Ausschluss) sind keine
+        # Entscheidungsgrundlage — auch dann nicht, wenn sie noch Unterlagen
+        # im Ordner haben. Ohne diese Zeile standen MicroNova-Dubletten mit
+        # Status ``docs`` als eigene Karten im Dashboard.
+        if app.get("deleted"):
+            continue
         status = normalize_status(app.get("status"))
         if status in _PROGRESSED_STATUSES:
             result.append(app)

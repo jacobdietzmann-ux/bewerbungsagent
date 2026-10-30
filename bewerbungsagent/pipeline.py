@@ -82,8 +82,7 @@ _ORT_ALIAS = {"munich": "münchen", "muenchen": "münchen", "munchen": "münchen
 # Rechtsformen und Firmenzusätze, die für die Identität nichts unterscheiden:
 # „BWI GmbH" und „BWI" sind dieselbe Anzeige, „NXP Semiconductors" wird über
 # ``matching.company_aliases`` auf „NXP" abgebildet.
-_LEGAL_SUFFIX = ("gmbh", "mbh", "ag", "se", "kg", "co", "deutschland", "group", "holding")
-
+_LEGAL_SUFFIX = {"gmbh", "mbh", "ag", "se", "kg", "co", "deutschland", "group", "holding"}
 
 def _company_key(name: str | None, aliases: dict | None = None) -> str:
     s = normalize(name or "")
@@ -95,7 +94,34 @@ def _company_key(name: str | None, aliases: dict | None = None) -> str:
     return s
 
 
-def _identity(job: dict, aliases: dict | None = None) -> tuple[str, str, str]:
+# Gender-Tags in Stellentiteln: „(m/w/x)", „m/w/d", „(all genders)".
+_GENDER_TAG_RE = re.compile(
+    r"\(\s*[mwfdx]\s*(?:[/\-|]\s*[mwfdx]\s*){1,3}\)"
+    r"|\b[mwfd]\s*[/\-]\s*[mwfd]\s*[/\-]\s*[xdb]\b"
+    r"|\(\s*all\s+genders?\s*\)|\(\s*any\s+gender\s*\)",
+    re.I,
+)
+
+
+def _title_key(title: str | None, synonyms: dict | None = None) -> str:
+    """Titel-Schlüssel für die Identität: ohne Gender-Tags, mit Synonymen.
+
+    „Produktmanager (m/w/x) Testautomatisierung" (Firmenseite) und
+    „Product Owner Testautomatisierung m/w/d" (Glassdoor) sind dieselbe Stelle.
+    Ohne diese Normalisierung legte jeder Lauf fünf Dubletten an.
+    """
+    t = normalize(title or "")
+    t = _GENDER_TAG_RE.sub(" ", t)
+    t = " ".join(t.split())
+    for alt, ziel in (synonyms or {}).items():
+        muster = re.escape(normalize(alt or ""))
+        if muster:
+            t = re.sub(rf"\b{muster}\b", normalize(ziel or ""), t)
+    return " ".join(t.split())
+
+
+def _identity(job: dict, aliases: dict | None = None,
+              synonyms: dict | None = None) -> tuple[str, str, str]:
     """Identität einer Anzeige über die Börsen hinweg: Firma + Titel + Ort.
 
     Die URL taugt dafür nicht: dieselbe Stelle hat bei JobLeads, Labo, XING und
@@ -104,7 +130,7 @@ def _identity(job: dict, aliases: dict | None = None) -> tuple[str, str, str]:
     (Advantest R&D Engineer: JobLeads ``sent`` + Labo ``docs``).
     """
     firma = _company_key(job.get("firma"), aliases)
-    titel = normalize(job.get("titel") or "")
+    titel = _title_key(job.get("titel"), synonyms)
     ort = normalize(job.get("ort") or "")
     return (firma, titel, _ORT_ALIAS.get(ort, ort))
 
@@ -241,7 +267,8 @@ def run_match(config: Config, profile: Profile) -> dict:
     save_json(config.matches_path(), matches)
     store = _store(config)
     state = _merge_state(store.load_state(), matches, limit=_commute_limit_minutes(config),
-                         aliases=(config.data.get("matching") or {}).get("company_aliases"))
+                         aliases=(config.data.get("matching") or {}).get("company_aliases"),
+                         synonyms=(config.data.get("matching") or {}).get("title_synonyms"))
     neu = state.get("neu") or []
     if neu:
         # Alle Stellen eines Laufs erhalten denselben ``created``-Stempel; der
@@ -816,7 +843,8 @@ _SCORE_FELDER = frozenset({
 
 def _merge_state(existing: dict, matches: list[dict],
                  limit: int = MAX_COMMUTE_MINUTES,
-                 aliases: dict | None = None) -> dict:
+                 aliases: dict | None = None,
+                 synonyms: dict | None = None) -> dict:
     apps = existing.get("applications", []) if isinstance(existing, dict) else []
     by_key = {a.get("key"): a for a in apps if a.get("key")}
     # Felder, die aus dem Matching-Ergebnis übernommen werden.
@@ -840,11 +868,11 @@ def _merge_state(existing: dict, matches: list[dict],
     # URL erneut gefunden wird, darf keine zweite Bewerbung erzeugen — sonst
     # entstehen zwei Ordner und im schlimmsten Fall zwei Bewerbungen auf
     # dieselbe Stelle.
-    vorhandene_identitaet = {_identity(a, aliases) for a in apps if a.get("key")}
+    vorhandene_identitaet = {_identity(a, aliases, synonyms) for a in apps if a.get("key")}
     # Bereits beworbene Rollen: gleiche Firma + gleicher Titel gilt als dieselbe
     # Stelle, auch wenn eine Börse sie unter mehreren Orten führt (Glassdoor
     # listet dieselbe Anzeige für München, Dachau und Freising).
-    beworben = {(_company_key(a.get("firma"), aliases), normalize(a.get("titel") or ""))
+    beworben = {(_company_key(a.get("firma"), aliases), _title_key(a.get("titel"), synonyms))
                 for a in apps if a.get("status") in ("sent", "followup", "interview")}
     for m in matches:
         key = m["key"]
@@ -862,7 +890,7 @@ def _merge_state(existing: dict, matches: list[dict],
             _flag_far_commute(old, limit)
             result.append(old)
         else:
-            ident = _identity(m, aliases)
+            ident = _identity(m, aliases, synonyms)
             if ident in vorhandene_identitaet or (ident[0], ident[1]) in beworben:
                 # Dieselbe Stelle, andere Quelle: der bestehende Eintrag
                 # dokumentiert den Vorgang (Status, Unterlagen, Notizen) und
@@ -882,6 +910,18 @@ def _merge_state(existing: dict, matches: list[dict],
     for a in apps:
         if a.get("key") not in seen:
             result.append(a)
+
+    # ``id`` wird bei jedem Match-Lauf neu vergeben (1..n) und kollidierte
+    # dadurch zwischen Einträgen aus verschiedenen Läufen. Die Dokument- und
+    # Statuspfade adressieren überwiegend ``key``; eindeutige IDs verhindern
+    # trotzdem, dass ein Aufruf mit ``id`` den falschen Eintrag trifft.
+    hoechste = max((int(a.get("id") or 0) for a in result), default=0)
+    vergeben: set = set()
+    for a in result:
+        if a.get("id") is None or a.get("id") in vergeben:
+            hoechste += 1
+            a["id"] = hoechste
+        vergeben.add(a.get("id"))
 
     return {"updated": now_iso(), "applications": result, "neu": neu_zeitpunkte}
 

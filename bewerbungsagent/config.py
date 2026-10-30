@@ -36,6 +36,9 @@ DEFAULT_CONFIG: dict = {
     "profile_json": "../02_Profil-und-Assets/Profil-Datenbank.json",
     "data_dir": "data",
     "output_dir": "output",
+    # Sichtbarkeit im Dashboard: Stellen unter dieser Fit-Schwelle werden nur
+    # ausgeblendet, nicht gelöscht (None = keine zusätzliche Schwelle).
+    "dashboard": {"min_fit_visible": None},
     # Zielordner für fertige Bewerbungsunterlagen (ein Unterordner pro Stelle).
     "bewerbungen_dir": "../01_Bewerbungen",
     # Dashboard-Ausgabe: eigener Ordner, damit Code (04_Agent) und Artefakt

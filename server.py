@@ -203,10 +203,14 @@ def _rebuild_dashboard() -> bytes:
             # das Dashboard mit dem Modul-Standard und ignorierte
             # ``max_pendelzeit_min`` aus der config.json.
             from bewerbungsagent.commute import commute_limit_minutes
-            from bewerbungsagent.pipeline import letzter_fund_meta
+            from bewerbungsagent.pipeline import letzter_fund_meta, _dashboard_min_fit
+            # Sichtbarkeitsschwelle aus der config.json (dashboard.min_fit_visible)
+            # mitgeben: ohne sie baute der Server das Dashboard ohne Fit-Grenze und
+            # überschrieb damit den Stand, den `agent.py dashboard` erzeugt hatte.
             path = _dash.build_dashboard(state, config.dashboard_path,
                                          commute_limit_minutes(config.data),
-                                         letzter_fund_meta(config))
+                                         letzter_fund_meta(config),
+                                         min_fit=_dashboard_min_fit(config))
             with open(path, "rb") as fh:
                 html = fh.read()
         except Exception as exc:

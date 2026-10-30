@@ -437,7 +437,8 @@ def _last_run_label(letzter_fund: dict | None) -> str:
 def build_dashboard(state: dict, output_path: Path,
                     commute_limit: int = MAX_COMMUTE_MINUTES,
                     letzter_fund: dict | None = None,
-                    followup_days: int = DEFAULT_AFTER_DAYS) -> Path:
+                    followup_days: int = DEFAULT_AFTER_DAYS,
+                    min_fit: int | None = None) -> Path:
     apps = state.get("applications", []) if isinstance(state, dict) else []
     # Der komplette Bestand wird eingebettet, damit der Wochenverlauf auch
     # frühere Bewerbungen ohne Dokumente zeigt: die Tabelle sowie die
@@ -446,6 +447,12 @@ def build_dashboard(state: dict, output_path: Path,
     # Historie ohne „Research"-Funde. Deshalb bekommt jede Zeile ein
     # ``visible``-Flag statt den Bestand vorab zu filtern.
     visible_keys = {_app_id(a) for a in dashboard_applications(apps, commute_limit)}
+    if min_fit is not None:
+        # Zusätzliche Sichtbarkeitsschwelle aus ``dashboard.min_fit_visible``:
+        # blendet nur aus, löscht nichts. Server und CLI übergeben denselben
+        # Wert, damit beide denselben Stand erzeugen.
+        visible_keys = {_app_id(a) for a in dashboard_applications(apps, commute_limit)
+                        if fit_value(a) >= min_fit}
     data = [_to_data(a, letzter_fund, followup_days=followup_days) for a in apps]
     for row in data:
         # Neu gefundene Stellen sind noch unbewertet und haben keine Unterlagen —

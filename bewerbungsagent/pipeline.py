@@ -59,6 +59,23 @@ def _fit_fuer_unterlagen(config: Config) -> int:
     name = config.data["documents"].get("min_fit_for_generation", "hoch")
     return FIT_RANK.get(name, FIT_BAND_UNTERLAGEN)
 
+
+def _dashboard_min_fit(config: Config) -> int | None:
+    """Fit-Schwelle für die Dashboard-Tabelle (``dashboard.min_fit_visible``).
+
+    ``None`` heißt: keine zusätzliche Schwelle — es gilt nur die Unterlagen-
+    und Pendelregel. Ein Wert blendet Stellen darunter aus, **ohne** sie zu
+    löschen; ``agent.py dashboard`` und der Server bauen damit denselben Stand.
+    """
+    roh = (config.data.get("dashboard") or {}).get("min_fit_visible")
+    if roh is None or roh == "":
+        return None
+    try:
+        return int(roh)
+    except (TypeError, ValueError):
+        return None
+
+
 def load_config_and_profile(config_path: Path | None = None):
     config = Config(config_path)
     if not config.profile_path.exists():
@@ -783,7 +800,8 @@ def run_dashboard(config: Config) -> dict:
     path = build_dashboard(state, config.dashboard_path, _commute_limit_minutes(config),
                            letzter_fund_meta(config),
                            followup_days=int((config.data.get("followup") or {}).get("after_days")
-                                             or DEFAULT_AFTER_DAYS))
+                                             or DEFAULT_AFTER_DAYS),
+                           min_fit=_dashboard_min_fit(config))
     all_applications = state.get("applications", [])
     documented = documented_applications(all_applications)
     applications = dashboard_applications(all_applications, _commute_limit_minutes(config))

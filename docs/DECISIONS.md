@@ -1397,3 +1397,42 @@ nennen es weiterhin, nur der Fit bewertet es nicht.
 
 **Testabdeckung.** `test_scoring_weak.py`: Python gibt keine Punkte, Stellen
 ohne Python bleiben unverändert, andere Begriffe zählen weiter.
+
+## ADR-044 – Software-Entwicklungsrollen werden auf 45 % gedeckelt
+
+Ausgangslage: „Softwareingenieur für Embedded Software" (HENSOLDT, 62–66 %),
+„Embedded Softwareentwickler" (ICT Digital, 82 %) und „Softwareentwickler
+C++ / Qt" (ALTEN, 60 %) standen im Dashboard, obwohl sie Produktcode-Entwicklung
+verlangen. Der bestehende Rollen-Deckel (ADR-039) griff bei vielen davon nicht:
+`_DEV_ROLE_RE` verlangte eine Wortgrenze vor „ingenieur"/„entwickler" und
+übersah damit genau die deutschen Komposita („Software**ingenieur**",
+„Software**entwickler**").
+
+**Entscheidungen.**
+
+1. **Komposita greifen:** Die Rollenwörter stehen ohne führende Wortgrenze
+   (`entwickler\w*|ingenieur\w*`), Domänenwörter bleiben mit `\b` verankert.
+   Damit erkennt `is_development_role` auch „Softwareingenieur" und
+   „Softwareentwickler".
+2. **Neue Rolle `is_software_role`:** Software-Domäne (Software, Firmware,
+   Backend, Frontend, Full-Stack, Cloud, DevOps, Web, Mobile, Android) plus
+   Entwicklerrolle, ohne Test-Kern im Titel.
+3. **`SOFTWARE_CAP = 45`** liegt unter der Ausblendegrenze (50): Diese Stellen
+   verschwinden aus Dashboard und Research, bleiben aber in der Datenbank.
+   Hardware-/Embedded-Entwicklung bleibt bei 60 (ADR-039).
+4. **Keine `app`-Domäne:** Ein erster Versuch nahm `\bapp\w*` auf — damit
+   wurden „Applications Engineer" und „Field Applications Engineer" (TI,
+   Renesas, IC Resources) fälschlich zu Software-Rollen und fielen von 72 auf
+   45. Die Domäne ist wieder entfernt; ein Test sichert das ab.
+
+**Folgen (28.10.2026 gemessen).** 13 offene Einträge neu bewertet, davon neun
+Software-Rollen auf 45: ICT Digital 82 → 45, Itsicherheit 68 → 45,
+HENSOLDT 66/62/62 → 45, Free resume 60 → 45, ALTEN 60 → 45 (×2),
+Bertrandt 60 → 45. Vier Field-Applications-Rollen wurden nach der
+`app`-Korrektur zurückgesetzt (TI 72, Renesas 72, IC Resources 72,
+Infineon 66). Sichtbar: 252 Stellen, 137 ≥ 65 %, 97 ≥ 71 %. Versendete und
+abgelehnte Bewerbungen bleiben eingefroren.
+
+**Testabdeckung.** `test_scoring_software_role.py`: Komposita werden erkannt,
+„Software Test Engineer" und „Softwareentwickler für Testsysteme" bleiben
+erlaubt, „Applications Engineer" ist keine Software-Rolle, Score-Deckel 45.

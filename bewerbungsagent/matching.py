@@ -140,6 +140,32 @@ STACK_CAP = 60
 # ausgeübte Rolle ist aber Produktentwicklung, nicht Test/Absicherung.
 ROLE_CAP = 60
 
+# Software-Entwicklung ist eine Stufe weiter entfernt als Hardware-nahe
+# Entwicklung: Profil ist Test/Integration/Absicherung, nicht Produktcode.
+# 45 liegt unter der Ausblendegrenze (50) — solche Stellen verschwinden aus
+# Dashboard und Research, bleiben aber in der Datenbank.
+SOFTWARE_CAP = 45
+
+# Domänen- und Rollenwörter für die Software-Rolle. Die Rollenwörter stehen
+# ohne führende Wortgrenze, damit deutsche Komposita greifen:
+# „Softwareingenieur", „Softwareentwickler", „Systementwickler".
+_SOFTWARE_DOMAIN_RE = re.compile(
+    r"\bsoftware\w*|\bfirmware\w*|\bbackend\w*|\bfrontend\w*|\bfull[-\s]?stack\w*"
+    r"|\bcloud\w*|\bdevops\w*|\bweb\w*|\bmobile\w*|\bandroid\w*"
+)
+_SOFTWARE_ROLE_RE = re.compile(
+    r"entwickler\w*|\bdeveloper\w*|\bengineer\w*|ingenieur\w*|architekt\w*"
+    r"|\barchitect\w*|programmierer\w*|\bprogrammer\w*"
+)
+
+
+def is_software_role(title: str | None) -> bool:
+    """True, wenn der Titel eine Software-Entwicklungsrolle ohne Testbezug nennt."""
+    t = normalize(title or "")
+    if _TEST_KERN_RE.search(t):
+        return False
+    return bool(_SOFTWARE_DOMAIN_RE.search(t) and _SOFTWARE_ROLE_RE.search(t))
+
 # Bestätigte Lücken, die eine Stelle tragen: Steht die Technologie im Titel,
 # ist die Rolle ohne sie nicht ausübbar („Testingenieur C++"). Der Deckel liegt
 # bei 60 % — unter dem Research-Fenster, über der Ausblendegrenze.
@@ -161,9 +187,8 @@ _DEV_DOMAIN_RE = re.compile(
 # … und die Rollenwörter, die daraus eine Stelle machen (kein „System",
 # „Integration" oder „Test" — die bleiben außen vor).
 _DEV_ROLE_RE = re.compile(
-    r"\bentwickler\w*|\bdeveloper\w*|\bengineer\w*|\bingenieur\w*"
-    r"|\barchitekt\w*|\barchitect\w*|\bdesigner\w*|\bmanager\w*|\bleiter\w*"
-    r"|\blead\b|\bhead\b"
+    r"entwickler\w*|\bdeveloper\w*|\bengineer\w*|ingenieur\w*|\barchitekt\w*|\barchitect\w*"
+    r"|\bdesigner\w*|\bmanager\w*|\bleiter\w*|\blead\b|\bhead\b"
 )
 
 
@@ -374,7 +399,10 @@ def score_job(profile: Profile, job: dict, location: str | None = None,
         score = min(score, stack_cap)
 
     role_cap = None
-    if is_development_role(title):
+    if is_software_role(title):
+        role_cap = SOFTWARE_CAP
+        score = min(score, role_cap)
+    elif is_development_role(title):
         role_cap = ROLE_CAP
         score = min(score, role_cap)
 
@@ -404,9 +432,14 @@ def score_job(profile: Profile, job: dict, location: str | None = None,
             f"genannten Stack-Begriffe im Profil ({', '.join(stack_missing[:6])})."
         )
     if role_cap:
-        begruendung += (
-            f" Deckel {role_cap} %: Entwickler-/Produktrolle ohne Testbezug im Titel."
-        )
+        if role_cap == SOFTWARE_CAP:
+            begruendung += (
+                f" Deckel {role_cap} %: Software-Entwicklungsrolle ohne Testbezug im Titel."
+            )
+        else:
+            begruendung += (
+                f" Deckel {role_cap} %: Entwickler-/Produktrolle ohne Testbezug im Titel."
+            )
     if hard_gap:
         begruendung += (
             f" Deckel {HARD_GAP_CAP} %: {hard_gap} im Titel, aber nicht im Profil belegt."

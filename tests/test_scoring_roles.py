@@ -8,7 +8,7 @@ Produktentwicklung, nicht Test/Absicherung.
 
 from __future__ import annotations
 
-from bewerbungsagent.matching import ROLE_CAP, is_development_role, score_job
+from bewerbungsagent.matching import ROLE_CAP, SOFTWARE_CAP, is_development_role, score_job
 
 
 def _job(titel: str, beschreibung: str = "", ort: str = "") -> dict:
@@ -50,9 +50,9 @@ class TestIsDevelopmentRole:
 class TestRoleCap:
     def test_embedded_software_engineer_wird_gedeckelt(self, demo_profile):
         r = score_job(demo_profile, _job("Principal Engineer – AI-Enabled Embedded Software", BESCHREIBUNG))
-        assert r["role_cap"] == ROLE_CAP
-        assert r["score"] == ROLE_CAP
-        assert "Entwickler-/Produktrolle" in r["begruendung"]
+        assert r["role_cap"] == SOFTWARE_CAP
+        assert r["score"] == SOFTWARE_CAP
+        assert "Software-Entwicklungsrolle" in r["begruendung"]
 
     def test_cad_manager_wird_gedeckelt(self, demo_profile):
         r = score_job(demo_profile, _job("Senior Manager CAD Infrastructure (f/m/div)", BESCHREIBUNG))

@@ -663,8 +663,8 @@ _STRONG_SKILL_HINTS = (
 
 # Rollenabhängige Fallback-Schwerpunkte (falls zu wenige harte Treffer).
 _CHIP_SUMMARY = {
-    "de": ["Embedded Systems", "C/C++ & Python", "Mikrocontroller / ECU", "Test & Integration"],
-    "en": ["Embedded systems", "C/C++ & Python", "Microcontroller / ECU", "Test & integration"],
+    "de": ["Embedded Systems", "Mikrocontroller / ECU", "Test & Integration", "E/E-Architekturen"],
+    "en": ["Embedded systems", "Microcontroller / ECU", "Test & integration", "E/E architectures"],
 }
 _TEST_SUMMARY = {
     "de": ["Testautomatisierung", "HiL / XiL-Prüfstände", "Anforderungsbasiertes Testen (DOORS)", "ADAS / E/E-Systeme"],
@@ -2117,14 +2117,14 @@ def _key_competencies(story, st: dict, lang: str, tailoring: dict | None = None)
     cards = tal.competencies(tailoring, lang) or (
         [
             ("10+", "years automotive", "test & integration"),
-            ("HiL / XiL", "test benches, automation", "& Python tools"),
+            ("HiL / XiL", "test benches, automation", "& test scripts"),
             ("Domain controller", "test coordination", "up to SoP"),
             ("Safety", "ISO 26262 ·", "safety-critical E/E"),
         ]
         if is_en else
         [
             ("10+", "Jahre Automotive", "Test & Integration"),
-            ("HiL / XiL", "Prüfstände, Automation", "& Python-Tools"),
+            ("HiL / XiL", "Prüfstände, Automation", "& Testskripte"),
             ("Domaincontroller", "Testkoordination", "bis SoP"),
             ("Safety", "ISO 26262 ·", "sicherheitskritische E/E"),
         ]

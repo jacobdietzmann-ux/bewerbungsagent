@@ -905,6 +905,14 @@ def _flag_far_commute(app: dict, limit: int) -> bool:
 
 def _generate_one(config: Config, profile: Profile, job: dict, template: str | None = None) -> list[dict]:
     match = job  # matches sind Jobs inkl. Score-Feldern
+    # ``matched_skills`` kann veraltet sein (Profil wurde korrigiert, der
+    # Eintrag stammt aus einem früheren Lauf). Für die Unterlagen zählt das
+    # aktuelle Profil — und Grundkenntnisse (``weak_skills``) tragen keine
+    # Kernkompetenz-Aussage.
+    weak = {normalize(str(t)) for t in (config.data.get("matching") or {}).get("weak_skills", [])}
+    aktuell = [h for h in profile.keywords_in(f"{job.get('titel', '')} {job.get('beschreibung', '')}")
+               if h not in weak]
+    match = dict(job, matched_skills=sorted(set(aktuell)))
     folder = config.bewerbungen_dir / safe_name(f"{job.get('firma', '')} - {job.get('titel', '')}")
     folder.mkdir(parents=True, exist_ok=True)
 

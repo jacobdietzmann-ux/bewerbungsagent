@@ -1379,6 +1379,18 @@ Infineon Digital Concept 74 → 68, Renesas Business Development 70 → 64,
 STARK Automation Engineer 68 → 62. Sichtbar: 252 Stellen, 140 ≥ 65 %,
 98 ≥ 71 %. Versendete/abgelehnte Bewerbungen bleiben eingefroren.
 
+**Unterlagen (28.10.2026).** Alle 16 offenen Bewerbungen wurden neu erzeugt
+(DE/EN, Anschreiben + Lebenslauf). Dabei fiel ein Fehler auf:
+`_generate_one` übernahm `matched_skills` aus dem gespeicherten Eintrag — dort
+standen noch die Treffer des alten Profils (inkl. C++). Jetzt werden die
+Treffer für die Unterlagen aus dem **aktuellen** Profil gerechnet, ohne
+`weak_skills`. Zusätzlich korrigiert: „C/C++ & Python" aus den
+Fallback-Schwerpunkten (`_CHIP_SUMMARY`) entfernt und die CV-Kompetenzkarte
+„& Python-Tools" auf „& Testskripte" geändert. Prüfung mit pypdf: 0 von 16
+Unterlagen nennen noch C++, „erweiterte Grundkenntnisse" oder ein eigenes
+Python-Tool; die Skill-Zeile lautet „Python (Grundkenntnisse) · Scripting
+(Python, Bash)".
+
 **Grenzen.** Die Liste ist statisch; neue Grundkenntnisse müssen eingetragen
 werden. Python verschwindet nicht aus dem Profil — Lebenslauf und Anschreiben
 nennen es weiterhin, nur der Fit bewertet es nicht.

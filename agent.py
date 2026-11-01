@@ -190,8 +190,10 @@ def main(argv=None) -> int:
         searches = load_saved_searches(config)
         print(f"{len(searches)} gespeicherte Suche(n):")
         for s in searches:
+            marker = " · Tageslauf" if s.get("daily") else ""
             print(f"  - {s['name']}: {len(s.get('query_terms', []))} Begriffe · "
-                  f"Ort {s.get('location', '?')} · Provider {', '.join(s.get('providers', []))}")
+                  f"Ort {s.get('location', '?')} · Provider {', '.join(s.get('providers', []))}"
+                  f"{marker}")
 
     elif args.command == "fetch":
         from fetch_descriptions import fetch_descriptions

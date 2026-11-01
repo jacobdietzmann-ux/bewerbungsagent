@@ -240,6 +240,68 @@ def run_search(config: Config, profile: Profile, definition: dict | None = None)
     }
 
 
+def _tageslauf_definitionen(config: Config) -> list[tuple[str, dict | None]]:
+    """Suchdefinitionen für den Tageslauf: Standard + alle mit ``"daily": true``.
+
+    Die Standard-Suche kommt aus ``config.json``; gespeicherte Suchen können
+    sich mit ``"daily": true`` einklinken (z. B. „China-EV München"). So bleibt
+    der Tageslauf eine Suche mit einem Ergebnisbestand, statt mehrere Läufe zu
+    brauchen, die sich gegenseitig ``jobs.json`` überschreiben.
+    """
+    from .saved_searches import load_saved_searches, to_definition
+
+    out: list[tuple[str, dict | None]] = [("Standard", None)]
+    for s in load_saved_searches(config):
+        if not s.get("daily") or s.get("name") == "Standard":
+            continue
+        out.append((str(s.get("name") or "?"), to_definition(s)))
+    return out
+
+
+def run_searches(config: Config, profile: Profile) -> dict:
+    """Führt alle Tageslauf-Suchen aus und schreibt **einen** Bestand.
+
+    Treffer werden über die URL zusammengeführt; jede Definition behält ihre
+    eigenen Begriffe, Provider und Board-Auswahl.
+    """
+    store = _store(config)
+    health = store.get_meta("provider_health") or {}
+    stats: dict = {}
+    alle: list[dict] = []
+    gesehen: set[str] = set()
+    fehler: list[str] = []
+    triage = 0
+    definitionen = _tageslauf_definitionen(config)
+    for name, definition in definitionen:
+        jobs, errs, tri = _search(config, profile, definition, health=health, stats=stats)
+        triage += tri
+        fehler.extend(f"{name}: {e}" for e in errs)
+        for job in jobs:
+            key = normalize(job.get("url") or f"{job.get('firma')} {job.get('titel')}")
+            if key and key in gesehen:
+                continue
+            if key:
+                gesehen.add(key)
+            alle.append(job)
+
+    max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
+                       .get("max_failures") or DEFAULT_MAX_FAILURES)
+    health = record(health, stats, now=now_iso(), max_failures=max_failures)
+    store.set_meta("provider_health", health)
+
+    for i, job in enumerate(alle, start=1):
+        job["id"] = i
+    alle = _preserve_descriptions(alle, store.load_state())
+    save_json(config.jobs_path(), alle)
+    context = _enrich_job_context(config, alle)
+    return {
+        "count": len(alle), "errors": fehler, "path": str(config.jobs_path()),
+        "context": context, "triage_rejected": triage,
+        "provider_stats": stats, "provider_health": health,
+        "searches": [name for name, _ in definitionen],
+    }
+
+
 def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
     """Übernimmt bereits geladene Anzeigentexte in einen frischen Suchlauf.
 
@@ -850,7 +912,7 @@ def run_dashboard(config: Config) -> dict:
 
 
 def run_full(config: Config, profile: Profile) -> dict:
-    s = run_search(config, profile)
+    s = run_searches(config, profile)
     m = run_match(config, profile)
     g = run_generate(config, profile)
     d = run_dashboard(config)

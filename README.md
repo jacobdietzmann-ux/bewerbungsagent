@@ -479,6 +479,11 @@ und einzeln starten. Lege dazu `data/saved_searches.json` an:
 
 - `python agent.py searches` listet alle gespeicherten Suchen.
 - `python agent.py search "Test & Verification"` führt nur diese aus.
+- `"daily": true` hängt eine Suche in den Tageslauf (`agent.py pipeline`): Standard-Suche plus alle
+  Tageslauf-Suchen laufen nacheinander, die Treffer werden über die URL zusammengeführt und einmal
+  geschrieben.
+- `"ats_firmen": ["XPeng"]` beschränkt den `ats`-Provider auf einzelne Karriereseiten — sonst zieht
+  jede Suche alle Boards mit.
 - Ohne Datei existiert automatisch eine „Standard"-Suche aus `config.json`.
 - Der manuelle Import (`data/import_jobs.json`) läuft unabhängig von der gewählten Suche immer mit.
 

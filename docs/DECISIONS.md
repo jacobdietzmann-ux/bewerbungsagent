@@ -1532,3 +1532,32 @@ Darstellungen derselben Quelle.
 Kompetenzmatrix, Lücken und nummerierte Tailoring-Regeln; Render ist
 deterministisch; Export setzt `stale` auf False; eine JSON-Änderung macht die
 Datei veraltet; `created` bleibt erhalten.
+
+## ADR-048 – Markensuchen laufen im Tageslauf mit
+
+Ausgangslage: Der Tageslauf führte genau eine Suche aus (`search.query_terms`).
+Die neue Markensuche „China-EV München" (BYD, NIO, XPeng, Xiaomi, Leapmotor,
+Li Auto) lief separat über `agent.py search "China-EV München"` — und
+überschrieb dabei `jobs.json` mit einem 187-Stellen-Bestand, der die
+Standard-Suche verdrängte. Zwei Läufe, zwei Bestände, ein Konflikt.
+
+**Entscheidung.**
+
+1. Eine gespeicherte Suche kann `"daily": true` tragen. `run_searches()` führt
+   die Standard-Suche **und** alle Tageslauf-Suchen aus, führt die Treffer über
+   die URL zusammen und schreibt **einen** Bestand nach `jobs.json`.
+2. `run_full()` ruft `run_searches()` statt `run_search()` auf — match, enrich,
+   generate und dashboard laufen danach wie bisher genau einmal.
+3. `"ats_firmen"` beschränkt den `ats`-Provider auf die Karriereseiten der
+   jeweiligen Suche. Ohne Filter zog die Markensuche alle 14 Boards mit (627
+   Funde, 2 zur Frage).
+4. `agent.py searches` markiert Tageslauf-Suchen.
+
+**Folgen.** Die Markensuche kostet im Tageslauf zusätzlich rund zwei Minuten
+(StepStone drosselt) und bringt derzeit 1–2 BYD-Stellen; die übrigen Marken
+haben in München aktuell keine über die Börsen lesbaren Stellen. Der XPeng-
+Greenhouse-Board ist angebunden und liefert neue München-Rollen automatisch.
+
+**Testabdeckung.** `test_tageslauf_suchen.py`: Standard plus `daily`-Suchen in
+der richtigen Reihenfolge, Board-Auswahl wird durchgereicht, ohne `daily` bleibt
+nur die Standard-Suche. `test_search_board_filter.py`: Board-Filter.

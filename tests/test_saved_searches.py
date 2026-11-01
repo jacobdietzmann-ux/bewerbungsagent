@@ -85,4 +85,12 @@ class TestToDefinition:
              "providers": ["stepstone"]}
         assert to_definition(s) == {
             "query_terms": ["a", "b"], "location": "München", "providers": ["stepstone"],
+            "ats_firmen": None, "max_results_per_provider": None,
         }
+
+    def test_maps_board_auswahl(self):
+        s = {"name": "China-EV München", "ats_firmen": ["XPeng"],
+             "max_results_per_provider": 12}
+        d = to_definition(s)
+        assert d["ats_firmen"] == ["XPeng"]
+        assert d["max_results_per_provider"] == 12

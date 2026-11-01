@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import contextlib
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 # Derselbe User-Agent wie in ``fetch_descriptions`` — die Portale behandeln
 # unbekannte Agents strenger.

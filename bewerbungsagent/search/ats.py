@@ -290,7 +290,7 @@ def smartrecruiters(company: str, firma: str, *, city: str | None = None,
     jobs: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         descriptions = list(pool.map(_detail, postings[:max_jobs]))
-    for posting, desc in zip(postings[:max_jobs], descriptions):
+    for posting, desc in zip(postings[:max_jobs], descriptions, strict=True):
         location = posting.get("location") or {}
         place = ", ".join(filter(None, [location.get("city"),
                                         location.get("country")]))
@@ -483,7 +483,7 @@ def diehl(list_url: str, firma: str, *, division: str | None = None,
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         beschreibungen = list(pool.map(lambda t: _diehl_detail(t[2], user_agent), treffer))
     return [_job(firma=firma, titel=titel, ort=ort, url=url, beschreibung=desc)
-            for (titel, ort, url), desc in zip(treffer, beschreibungen)]
+            for (titel, ort, url), desc in zip(treffer, beschreibungen, strict=True)]
 
 
 def typo3_jobboard(list_url: str, firma: str, *,
@@ -523,7 +523,7 @@ def typo3_jobboard(list_url: str, firma: str, *,
             lambda entry: _mtu_description(entry[2], user_agent), parsed))
 
     jobs: list[dict] = []
-    for (title, place, url), desc in zip(parsed, descriptions):
+    for (title, place, url), desc in zip(parsed, descriptions, strict=True):
         jobs.append(_job(firma=firma, titel=title, ort=place, url=url,
                          beschreibung=desc))
     return jobs
@@ -735,7 +735,7 @@ def jobleads(list_url: str, firma: str = "JobLeads", *,
                 lambda e: _jobleads_description(e["url"], user_agent), entries))
 
     jobs: list[dict] = []
-    for entry, desc in zip(entries, descriptions):
+    for entry, desc in zip(entries, descriptions, strict=True):
         job = _job(firma=entry["firma"] or firma, titel=entry["titel"],
                    ort=entry["ort"], url=entry["url"], beschreibung=desc)
         # Eigene Quelle: JobLeads ist weder Portal-Suche noch Arbeitgeber-ATS,
@@ -1141,7 +1141,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
         elif ats == "successfactors":
             host = str(entry.get("host") or "").strip()
             if not host:
-                errors.append(f"ats (successfactors: host fehlt)")
+                errors.append("ats (successfactors: host fehlt)")
                 continue
             try:
                 found = successfactors_j2w(host, firma,
@@ -1153,7 +1153,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
         elif ats == "smartrecruiters":
             company = str(entry.get("company") or "").strip()
             if not company:
-                errors.append(f"ats (smartrecruiters: company fehlt)")
+                errors.append("ats (smartrecruiters: company fehlt)")
                 continue
             try:
                 found = smartrecruiters(company, firma,
@@ -1168,7 +1168,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
             host = str(entry.get("host") or "").strip()
             site = str(entry.get("site") or "").strip()
             if not host or not site:
-                errors.append(f"ats (oracle: host/site fehlt)")
+                errors.append("ats (oracle: host/site fehlt)")
                 continue
             try:
                 found = oracle_cloud(host, site, firma,
@@ -1181,7 +1181,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
         elif ats == "typo3":
             list_url = str(entry.get("list_url") or "").strip()
             if not list_url:
-                errors.append(f"ats (typo3: list_url fehlt)")
+                errors.append("ats (typo3: list_url fehlt)")
                 continue
             try:
                 # Der Ortsfilter wird hier schon angewendet, weil er auch
@@ -1215,7 +1215,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
         elif ats == "jobleads":
             list_url = str(entry.get("list_url") or "").strip()
             if not list_url:
-                errors.append(f"ats (jobleads: list_url fehlt)")
+                errors.append("ats (jobleads: list_url fehlt)")
                 continue
             try:
                 found = jobleads(

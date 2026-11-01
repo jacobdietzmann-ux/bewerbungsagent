@@ -9,8 +9,7 @@ from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
 from ..provider_health import is_disabled
-from . import (arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual,
-               stepstone, xing)
+from . import arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual, stepstone, xing
 
 
 def _clean_url(url: str) -> str:

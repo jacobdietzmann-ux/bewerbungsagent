@@ -154,7 +154,7 @@ def check_letter(profile: Profile, job: dict, match: dict, config: dict,
             break
 
     # 3) Behauptungen ------------------------------------------------------
-    claim_lines, gap_lines = _split_sections(_letter_lines(text))
+    claim_lines, _gap_lines = _split_sections(_letter_lines(text))
     sigs = _profile_bullet_signatures(profile, lang)
     for line in claim_lines:
         parts = _claim_parts(line)

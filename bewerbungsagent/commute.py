@@ -331,7 +331,7 @@ _GEO_TYPES = {"city", "town", "village", "hamlet", "suburb", "administrative",
               "residential", "pedestrian", "footway", "cycleway", "locality"}
 
 
-def _company_address(geocoder: "_Geocoder", firma: str, city: str,
+def _company_address(geocoder: _Geocoder, firma: str, city: str,
                      cache: dict) -> dict | None:
     """Sucht die Firmenadresse in der Stadt über Nominatim (mit Cache).
 
@@ -429,7 +429,10 @@ class _Geocoder:
         self._last = time.monotonic()
         if r.status_code != 200:
             return None
-        data = r.json()
+        try:
+            data = r.json()
+        except ValueError:  # z. B. HTML-Fehlerseite mit Status 200
+            return None
         if not data:
             self.cache[key] = None
             return None

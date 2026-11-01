@@ -49,6 +49,8 @@ class TestIsDevelopmentRole:
 
 class TestRoleCap:
     def test_embedded_software_engineer_wird_gedeckelt(self, demo_profile):
+        # Seit dem Software-Deckel (test_scoring_software_role.py) greift für
+        # Software-Entwicklungsrollen die strengere Grenze von 45 % statt 60 %.
         r = score_job(demo_profile, _job("Principal Engineer – AI-Enabled Embedded Software", BESCHREIBUNG))
         assert r["role_cap"] == SOFTWARE_CAP
         assert r["score"] == SOFTWARE_CAP

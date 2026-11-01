@@ -16,17 +16,16 @@ from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard, dashboard_applications, documented_applications
 from .db import USER_DELETE_REASON, Store
 from .dimensions import score_dimensions
-from .followup import DEFAULT_AFTER_DAYS
 from .documents import (
     DEFAULT_CV_TEMPLATE,
     generate_anschreiben,
     generate_lebenslauf_vorlage,
 )
+from .followup import DEFAULT_AFTER_DAYS
 from .homeoffice import detect_home_office
 from .importer import import_old_dashboard
 from .industry import classify_industry
-from .matching import (fit_value, has_role_signal, is_student_role,
-                       is_technician_role, match_jobs)
+from .matching import fit_value, has_role_signal, is_student_role, is_technician_role, match_jobs
 from .profile import Profile, normalize
 from .provider_health import DEFAULT_MAX_FAILURES, record
 from .quality import check_application
@@ -614,10 +613,11 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     4. Stellen mit FIT < der Ausblende-Grenze (50 %) ausblenden — nur für noch
        nicht versendete Stellen (``research``/``docs``); versendete/abgeschlossene
        bleiben sichtbar.
-    5. Für Stellen mit FIT ≥ der Unterlagen-Grenze (65 %) automatisch
+    5. Für Stellen mit FIT ≥ der Unterlagen-Grenze (``FIT_BAND_UNTERLAGEN``,
+       71 %, bzw. ``documents.min_fit_for_generation``) automatisch
        Bewerbungsunterlagen erzeugen.
-    6. Bereits erzeugte Unterlagen im Band 50–64 % zurück auf ``research``
-       setzen: diese Stellen erfüllen die Regel aus 5 nicht mehr.
+    6. Bereits erzeugte Unterlagen unterhalb dieser Grenze zurück auf
+       ``research`` setzen: diese Stellen erfüllen die Regel aus 5 nicht mehr.
     """
     store = _store(config)
     state = store.load_state()

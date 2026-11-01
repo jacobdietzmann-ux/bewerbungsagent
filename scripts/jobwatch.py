@@ -163,14 +163,14 @@ def _ssl_context():
     try:
         import certifi  # type: ignore
         return ssl.create_default_context(cafile=certifi.where())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ssl.create_default_context()
 
 
 def send_telegram(text: str) -> bool:
     try:
         cfg = json.loads(NOTIFY_CONFIG.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log(f"Telegram-Konfiguration nicht lesbar ({NOTIFY_CONFIG}): {exc}")
         return False
     token = cfg.get("bot_token")
@@ -193,7 +193,7 @@ def send_telegram(text: str) -> bool:
                 ok = False
             else:
                 _log(f"Telegram: Nachricht an {chat_id} gesendet.")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log(f"Telegram-Versand fehlgeschlagen: {exc}")
             ok = False
     return ok
@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     if not args.no_search:
@@ -224,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     if SNAPSHOT.exists():
         try:
             previous = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+        except Exception:
             previous = {}
     known = set(previous.get("keys") or [])
     baseline_created = not known
@@ -271,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     if RUN_LOG.exists():
         try:
             runs = json.loads(RUN_LOG.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
+        except Exception:
             runs = []
     runs.append({
         "zeitpunkt": datetime.now().isoformat(timespec="seconds"),

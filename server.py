@@ -7,7 +7,15 @@ Angelehnt an ``00_Dashboard/Dashboard-Server.py``, angepasst an den Agenten:
 - ``POST /state``  -> merged die vom Browser gesendeten Overlay-Einträge (per key) in data/jobs.db
 - ``GET  /open?path=…`` -> öffnet einen Bewerbungsordner im Dateimanager (Path-Traversal-geschützt)
 
-Sicherheit: bindet nur an 127.0.0.1; /open erlaubt nur Pfade innerhalb von ROOT.
+Sicherheit:
+- bindet nur an 127.0.0.1; /open erlaubt nur Pfade innerhalb von ROOT.
+- CORS nur für das eigene Dashboard (``http://127.0.0.1:8766``/``localhost``)
+  und für ``file://`` (Origin ``null``) — kein ``*``. Sonst könnte jede im
+  Browser geöffnete Webseite ``/state`` lesen/überschreiben und Dateien wie
+  ``04_Agent/config.json`` (Wohnadresse, Tokens) abrufen.
+- Host-Header-Prüfung gegen DNS-Rebinding.
+- Konfiguration, Datenbank und Snapshots werden nie als statische Dateien
+  ausgeliefert.
 Start: ``python server.py`` oder über ``dashboard-oeffnen.sh``.
 """
 
@@ -18,7 +26,6 @@ import json
 import os
 import platform
 import subprocess
-import sys
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -77,6 +84,43 @@ DASHBOARD_SRC = os.path.join(SCRIPT_DIR, "bewerbungsagent", "dashboard.py")
 # müssen der laufende Server ebenfalls bemerken.
 DASHBOARD_OUT = os.path.join(DASHBOARD_DIR, "dashboard.html")
 
+# Erlaubte Host-Header (Schutz gegen DNS-Rebinding: eine fremde Domain, die auf
+# 127.0.0.1 zeigt, schickt ihren eigenen Hostnamen mit).
+ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+# Erlaubte Origins für Cross-Origin-Zugriffe. ``null`` = Dashboard per file://
+# geöffnet (Fallback im Dashboard-JS). Alles andere wird abgewiesen.
+ALLOWED_ORIGINS = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}", "null"}
+# Obergrenze für POST /state (das komplette Overlay ist wenige hundert KB).
+MAX_BODY_BYTES = 5 * 1024 * 1024
+# Pfade (relativ zu ROOT, klein geschrieben), die nie statisch ausgeliefert
+# werden: persönliche Konfiguration, Datenbank, Snapshots, Repo-Interna.
+_BLOCKED_PREFIXES = ("04_agent/config", "04_agent/data/", "04_agent/.git", "04_agent/.env")
+_BLOCKED_SUFFIXES = (".db", ".db-wal", ".db-shm", ".env", ".bak")
+
+
+def host_allowed(host: str | None) -> bool:
+    """True, wenn der Host-Header auf diesen lokalen Server zeigt."""
+    return (host or "").strip().lower() in ALLOWED_HOSTS
+
+
+def origin_allowed(origin: str | None) -> bool:
+    """True für fehlenden Origin (gleiche Herkunft/CLI) oder eine erlaubte Origin."""
+    if origin is None:
+        return True
+    return origin.strip() in ALLOWED_ORIGINS
+
+
+def path_blocked(url_path: str) -> bool:
+    """True, wenn ein statischer Pfad sensible Dateien betreffen würde."""
+    rel = unquote(url_path or "").replace("\\", "/").lstrip("/").lower()
+    rel = "/".join(part for part in rel.split("/") if part not in ("", "."))
+    if ".." in rel.split("/"):
+        return True
+    if any(rel.startswith(p) for p in _BLOCKED_PREFIXES):
+        return True
+    return rel.endswith(_BLOCKED_SUFFIXES) or "/.git/" in f"/{rel}"
+
+
 EDITABLE = ("status", "contact", "deleted", "deleted_reason", "notes", "interviewDate",
             "statusChangedAt", "sentAt")
 
@@ -91,9 +135,24 @@ def open_in_file_manager(path):
         subprocess.run(["xdg-open", path], check=True)
 
 
+_STORE = None
+_STORE_LOCK = threading.Lock()
+
+
 def _store() -> Store:
-    """SQLite-Store (Single Source of Truth, ADR-018)."""
-    return Store(DB_FILE)
+    """SQLite-Store (Single Source of Truth, ADR-018).
+
+    Einmal pro Prozess anlegen: jede ``Store``-Instanz baut eine eigene
+    SQLAlchemy-Engine samt Verbindungspool und Schema-Prüfung. Pro Request neu
+    erzeugt, sammelten sich offene SQLite-Verbindungen an.
+    """
+    global _STORE
+    with _STORE_LOCK:
+        if _STORE is None:
+            if Store is None:
+                raise RuntimeError("Datenbank-Modul nicht verfügbar (sqlalchemy installiert?)")
+            _STORE = Store(DB_FILE)
+        return _STORE
 
 
 def _read_state() -> dict:
@@ -203,7 +262,7 @@ def _rebuild_dashboard() -> bytes:
             # das Dashboard mit dem Modul-Standard und ignorierte
             # ``max_pendelzeit_min`` aus der config.json.
             from bewerbungsagent.commute import commute_limit_minutes
-            from bewerbungsagent.pipeline import letzter_fund_meta, _dashboard_min_fit
+            from bewerbungsagent.pipeline import _dashboard_min_fit, letzter_fund_meta
             # Sichtbarkeitsschwelle aus der config.json (dashboard.min_fit_visible)
             # mitgeben: ohne sie baute der Server das Dashboard ohne Fit-Grenze und
             # überschrieb damit den Stand, den `agent.py dashboard` erzeugt hatte.
@@ -286,12 +345,27 @@ class Handler(SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store, must-revalidate")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        origin = self.headers.get("Origin")
+        if origin is not None and origin_allowed(origin):
+            self.send_header("Access-Control-Allow-Origin", origin.strip())
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
         super().end_headers()
 
+    def _reject_foreign(self) -> bool:
+        """Weist fremde Hosts/Origins ab. True = Anfrage wurde beantwortet."""
+        if not host_allowed(self.headers.get("Host")):
+            self._text(403, "Unbekannter Host.")
+            return True
+        if not origin_allowed(self.headers.get("Origin")):
+            self._text(403, "Fremde Herkunft nicht erlaubt.")
+            return True
+        return False
+
     def do_GET(self):
+        if self._reject_foreign():
+            return None
         parsed = urlparse(self.path)
         if parsed.path == "/healthz":
             return self._text(200, "ok")
@@ -301,7 +375,16 @@ class Handler(SimpleHTTPRequestHandler):
             return self._handle_state_get()
         if parsed.path == DASHBOARD_PATH:
             return self._serve_dashboard()
+        if path_blocked(parsed.path):
+            return self._text(404, "Nicht gefunden.")
         return super().do_GET()
+
+    def do_HEAD(self):
+        if self._reject_foreign():
+            return None
+        if path_blocked(urlparse(self.path).path):
+            return self._text(404, "Nicht gefunden.")
+        return super().do_HEAD()
 
     def _serve_dashboard(self):
         body = _dashboard_html()
@@ -312,12 +395,16 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self._reject_foreign():
+            return None
         parsed = urlparse(self.path)
         if parsed.path == "/state":
             return self._handle_state_post()
         return self._text(404, "Nicht gefunden.")
 
     def do_OPTIONS(self):
+        if self._reject_foreign():
+            return None
         self.send_response(204)
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -337,6 +424,8 @@ class Handler(SimpleHTTPRequestHandler):
     def _handle_state_post(self):
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
+            if length > MAX_BODY_BYTES:
+                return self._text(413, "Anfrage zu groß.")
             raw = self.rfile.read(length) if length > 0 else b"{}"
             obj = json.loads(raw.decode("utf-8") or "{}")
             if not isinstance(obj, dict):

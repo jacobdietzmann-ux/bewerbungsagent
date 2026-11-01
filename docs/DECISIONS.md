@@ -1561,3 +1561,40 @@ Greenhouse-Board ist angebunden und liefert neue München-Rollen automatisch.
 **Testabdeckung.** `test_tageslauf_suchen.py`: Standard plus `daily`-Suchen in
 der richtigen Reihenfolge, Board-Auswahl wird durchgereicht, ohne `daily` bleibt
 nur die Standard-Suche. `test_search_board_filter.py`: Board-Filter.
+
+## ADR-049 – Dashboard-Server abgeschottet, Zeitstempel korrigiert
+
+Ausgangslage (Review vom 01.11.2026): Der lokale Dashboard-Server schickte
+`Access-Control-Allow-Origin: *` und lieferte den kompletten Ordner
+`2026/` statisch aus. Jede im Browser offene Webseite konnte damit
+`04_Agent/config.json` (Wohnadresse, Tokens), `/state` (Status, Kontakte,
+Notizen) lesen und per POST überschreiben — `text/plain` braucht keinen
+Preflight. Zusätzlich wurde bei „laden → ändern → speichern" der alte
+`updated`-Wert fortgeschrieben.
+
+**Entscheidungen.**
+
+1. **CORS nur für die eigene Herkunft**: `http://127.0.0.1:8766`,
+   `http://localhost:8766` und `null` (Dashboard per `file://`). Kein `*`.
+2. **Host-Prüfung** gegen DNS-Rebinding (`127.0.0.1:8766`, `localhost:8766`);
+   fremder Host → 403.
+3. **Sperrliste**: `04_Agent/config*`, `04_Agent/data/`, `.git`, `*.db`,
+   `*.db-wal`, `*.db-shm`, `.env`, `*.bak` werden nie statisch ausgeliefert
+   (404), auch per `HEAD` nicht.
+4. **POST-Grenze** 5 MB; `Store` wird einmal pro Prozess angelegt statt pro
+   Request (vorher sammelten sich SQLite-Verbindungen).
+5. **`db.save_state`** schreibt immer `now_iso()` — nicht den `updated`-Wert
+   aus dem geladenen Zustand (der fehlte bei `_record_docs`/`quality` ganz).
+6. Kleinere Punkte: kaputte Nominatim-Antwort bricht den Enrich-Lauf nicht mehr
+   ab, `zip(..., strict=True)`, Imports sortiert, Docstring nannte 65 % statt
+   der Unterlagen-Schwelle.
+
+**Betrieb.** Der Server lief vierfach (zwei alte Python-3.12-Prozesse lauschten
+auf 8766, zwei neue konnten wegen `SO_REUSEADDR` ebenfalls binden). Alle
+Prozesse beendet, ein neuer gestartet. Live geprüft: Dashboard 200,
+`config.json` 404, `data/` 404, `/state` 200, fremde Origin 403, fremder Host
+403, CORS-Header nur für die eigene Origin.
+
+**Testabdeckung.** `tests/test_server_security.py` (11 Tests, startet den
+Server echt), `test_scoring_roles.py` an den 45-%-Software-Deckel angepasst.
+Lokal 173+ Tests grün, inklusive der SQLAlchemy-Suite.

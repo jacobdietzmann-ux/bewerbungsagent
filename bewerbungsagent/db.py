@@ -225,9 +225,14 @@ class Store:
 
         Alle im Dict enthaltenen Bewerbungen werden eingefügt/aktualisiert;
         alle **nicht** mehr enthaltenen Keys werden gelöscht (Voll-Replace).
-        ``updated`` wird in der ``meta``-Tabelle geführt."""
+        ``updated`` wird in der ``meta``-Tabelle geführt.
+
+        Der Zeitstempel ist immer *jetzt*: ``state["updated"]`` stammt bei
+        ``load_state() → ändern → save_state()`` (z. B. ``_record_docs``,
+        ``quality``) noch vom vorigen Schreiben bzw. fehlt ganz — dann blieben
+        ``updated_at``/``meta.updated`` stehen oder wurden ``None``."""
         apps = state.get("applications", []) if isinstance(state, dict) else []
-        now = state.get("updated") if isinstance(state, dict) else now_iso()
+        now = now_iso()
         with self._Session() as session:
             existing = {r.key: r for r in session.query(Application).all()}
             keep_keys: set[str] = set()
@@ -245,7 +250,6 @@ class Store:
                         updated_at=now,
                     ))
                 else:
-                    provider, user = _split(app)
                     row.provider = provider
                     row.user = _protected_user(row.user, user)
                     row.updated_at = now

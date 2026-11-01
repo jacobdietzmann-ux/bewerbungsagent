@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from bewerbungsagent.dashboard import _quality_summary
 from bewerbungsagent.profile import Profile
 from bewerbungsagent.quality import (

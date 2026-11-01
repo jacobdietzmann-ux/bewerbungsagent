@@ -237,7 +237,12 @@ _STUDENT_ROLE_RE = re.compile(
     r"|\bapprentice\w*"
     r"|\bintern\b|\binternship\w*"
     r"|\btrainee\w*"
-    r"|\bstudent\b|\bstudents\b|\bstudentische\w*",
+    r"|\bstudent\b|\bstudents\b|\bstudentische\w*"
+    # Abschluss-/Doktorarbeiten: „Master Thesis", „Masterthesis",
+    # „Masterarbeit", „Abschlussarbeit", „PhD Thesis", „Doktorand".
+    r"|\bmaster\s*-?\s*thesis\b|\bbachelor\s*-?\s*thesis\b|\bthesis\b"
+    r"|\w*abschlussarbeit\w*|\bmasterarbeit\w*|\bbachelorarbeit\w*"
+    r"|\bdoktorand\w*|\bph\.?\s?d\b",
     re.IGNORECASE,
 )
 
@@ -257,7 +262,12 @@ def is_student_role(title: str | None) -> bool:
 # eine Ingenieursrolle).
 _TECHNICIAN_ROLE_RE = re.compile(
     r"\w*techniker\w*"        # Techniker, Systemtechniker, Elektrotechniker
-    r"|\btechnician\w*",      # Technician, Technicians
+    r"|\btechnician\w*"       # Technician, Technicians
+    # Ausbildungsberufe: „Mechatroniker", „Kfz-Mechatroniker", „Elektroniker",
+    # „Fahrzeugbaumechaniker", „Monteur". „Elektronikentwickler" bleibt frei
+    # (kein „elektroniker" im Wort).
+    r"|\w*mechatroniker\w*|\belektroniker\w*|\w*mechaniker\w*"
+    r"|\bmonteur\w*|\bfacharbeiter\w*",
     re.IGNORECASE,
 )
 

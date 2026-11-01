@@ -4,7 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from bewerbungsagent.config import Config, DEFAULT_HEADLINE_DE, DEFAULT_DOC_NAMES
+from bewerbungsagent.config import DEFAULT_DOC_NAMES, DEFAULT_HEADLINE_DE, Config
 
 
 def test_personal_name():

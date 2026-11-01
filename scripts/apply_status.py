@@ -38,6 +38,9 @@ def main(path: str) -> int:
             eintrag["statusChangedAt"] = e["statusChangedAt"]
         if "notes" in e:
             eintrag["notes"] = e["notes"]
+        for feld in ("absage_grund", "absage_talentpool"):
+            if feld in e:
+                eintrag[feld] = e[feld]
         overlay[key] = eintrag
     store.apply_overlay(overlay)
     print(json.dumps({"applied": len(overlay)}))

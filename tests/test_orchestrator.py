@@ -238,7 +238,7 @@ class TestGenerateIstIdempotent:
         ]})
         aufgerufen = []
         monkeypatch.setattr("bewerbungsagent.pipeline._generate_one",
-                            lambda cfg, prof, job, template=None: (
+                            lambda cfg, prof, job, template=None, auto=False: (
                                 aufgerufen.append(job.get("key")) or []))
         return aufgerufen
 

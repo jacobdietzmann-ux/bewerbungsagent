@@ -63,7 +63,7 @@ def generated_calls(monkeypatch):
     Auto-Erzeugung würde sonst ein echtes Profil verlangen.
     """
     calls: list[dict] = []
-    def _fake(config, profile, app, template=None):
+    def _fake(config, profile, app, template=None, auto=False):
         calls.append(app)
         return []
 

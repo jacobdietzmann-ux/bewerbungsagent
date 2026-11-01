@@ -226,6 +226,8 @@
     ],
     "accent_color": "#0B3D5C",
     "min_fit_for_generation": "hoch",
+    "max_auto_per_week": 8,
+    "max_offen_pro_firma": 2,
     "lebenslauf_template": "classic",
     "lebenslauf_vorlage": {
       "de": "../02_Profil-und-Assets/Vorlage-Aktuell/Lebenslauf_Jacob_Dietzmann.docx",

@@ -129,6 +129,17 @@ def main(argv=None) -> int:
     pe.add_argument("--check", action="store_true",
                     help="nur prüfen; Exit 1, wenn die Datei vom JSON-Stand abweicht")
     sub.add_parser("status", help="Übersicht der aktuellen Stellen anzeigen")
+    ab = sub.add_parser("absagen",
+                        help="Absagen aus exportierten Mails erkennen und zuordnen")
+    ab.add_argument("--mails", required=True,
+                    help="JSON-Liste mit id, date, from, subject, body (z. B. aus dem Mailcheck)")
+    ab.add_argument("--apply", action="store_true",
+                    help="eindeutige Zuordnungen als 'rejected' in die DB schreiben")
+    ab.add_argument("--out", default=None,
+                    help="Ergebnis zusätzlich als JSON speichern (Format von scripts/apply_status.py)")
+    sl = sub.add_parser("shortlist",
+                        help="Wochenauswahl: fertige, noch nicht versendete Bewerbungen nach Fit")
+    sl.add_argument("--top", type=int, default=8, help="Anzahl (Standard 8)")
     sub.add_parser("pipeline", help="Vollständigen Ablauf ausführen")
     ablauf = sub.add_parser("ablauf", help="Ablauf als Graph ausführen (LangGraph)")
     ablauf.add_argument("--ohne-review", action="store_true",
@@ -252,6 +263,17 @@ def main(argv=None) -> int:
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")
         print(f"Automatisch beworben (FIT ≥ {FIT_BAND_UNTERLAGEN} %): "
               f"{result['generated_count']} Stelle(n).")
+        if result.get("skipped_budget"):
+            print(f"Zurückgestellt (Wochenbudget erreicht): {len(result['skipped_budget'])} "
+                  "Stelle(n) — kommen nächste Woche dran.")
+        if result.get("skipped_firma"):
+            print(f"Zurückgestellt (schon genug offene Bewerbungen bei der Firma): "
+                  f"{len(result['skipped_firma'])} Stelle(n).")
+            for s in result["skipped_firma"]:
+                print(f"  - {s['firma']} — {s['titel']} ({s['fit']} %)")
+        if result.get("pendel_knapp"):
+            print(f"Pendelweg knapp über der Grenze, als Research behalten: "
+                  f"{result['pendel_knapp']} Stelle(n).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
 
@@ -365,6 +387,53 @@ def main(argv=None) -> int:
 
     elif args.command == "status":
         _print_jobs(config)
+
+    elif args.command == "absagen":
+        import json
+
+        from bewerbungsagent.absagen import auswerten, overlay_from_updates
+        mails = json.loads(Path(args.mails).read_text(encoding="utf-8"))
+        store = Store(config.db_path())
+        apps = store.load_state().get("applications", [])
+        r = auswerten(mails, apps)
+        print(f"Mails geprüft: {len(mails)} — Absagen zugeordnet: {len(r['updates'])}, "
+              f"unklar: {len(r['unklar'])}, keine Absage: {r['keine_absage']}")
+        for u in r["updates"]:
+            tp = ", Talentpool" if u["absage_talentpool"] else ""
+            print(f"  ✓ {u['statusChangedAt']}  {u['firma']} — {u['titel']}  "
+                  f"[{u['absage_grund']}{tp}]")
+        for u in r["unklar"]:
+            print(f"  ? {u['datum']}  {u['betreff']}  → {u['warum']}")
+        if args.out:
+            Path(args.out).write_text(json.dumps(r["updates"], ensure_ascii=False, indent=2),
+                                      encoding="utf-8")
+            print(f"Gespeichert: {args.out}")
+        if args.apply and r["updates"]:
+            store.apply_overlay(overlay_from_updates(r["updates"]))
+            store.export_json(config.state_path())
+            print(f"In die Datenbank übernommen: {len(r['updates'])} Absage(n).")
+        elif r["updates"]:
+            print("Nichts geschrieben — mit --apply übernehmen.")
+
+    elif args.command == "shortlist":
+        from bewerbungsagent.auswahl import shortlist
+        apps = Store(config.db_path()).load_state().get("applications", [])
+        liste = shortlist(apps, top=args.top)
+        if not liste:
+            print("Keine fertigen, unversendeten Bewerbungen.")
+            return 0
+        print(f"Wochenauswahl ({len(liste)}): vor dem Versand Ansprechpartner klären "
+              "und kurz zur Firma recherchieren.")
+        for i, s in enumerate(liste, 1):
+            hinweise = []
+            if s["kontakt_fehlt"]:
+                hinweise.append("Ansprechpartner fehlt")
+            if s["pendel_knapp"]:
+                hinweise.append("Pendelweg knapp drüber")
+            print(f"{i:>2}. {s['fit']:>3} %  {s['firma']} — {s['titel']} ({s['ort'] or '?'})"
+                  + (f"  [{', '.join(hinweise)}]" if hinweise else ""))
+            if s.get("url"):
+                print(f"      {s['url']}")
 
     elif args.command == "pipeline":
         result = run_full(config, profile)

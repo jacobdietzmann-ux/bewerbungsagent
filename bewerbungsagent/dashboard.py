@@ -31,6 +31,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from .auswahl import neufund_relevant
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
@@ -242,6 +243,13 @@ def dashboard_applications(applications: list[dict],
                 and not _exceeds_dashboard_commute_limit(app, limit)):
             result.append(app)
             continue
+        # Pendelweg knapp über der Grenze bei starkem Fit (``run_enrich`` setzt
+        # ``pendel_knapp``): sichtbar als Research, damit der Treffer nicht
+        # still verschwindet. Die Automatik erzeugt dafür keine Unterlagen; vorhandene
+        # (Status ``docs``) bleiben sichtbar.
+        if status in ("research", "docs") and app.get("pendel_knapp"):
+            result.append(app)
+            continue
         # ``research``/``docs``: nur mit vorhandenem Anschreiben/Lebenslauf und
         # innerhalb der Pendelzeit-Grenze. Reine Funde sind keine Bewerbungen
         # und dürfen weder Tabelle noch Zähler füllen.
@@ -421,6 +429,10 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         "statusChangedAt": app.get("statusChangedAt", "") or "",
         "sentAt": app.get("sentAt", "") or "",
         "neuImLauf": zuletzt_gefunden(app, letzter_fund),
+        # Neufunde ohne Test-/Systembezug im Titel oder unter 50 % Fit sind
+        # Suchrauschen und erscheinen nicht mehr im Dashboard (``auswahl``).
+        "neufundRelevant": neufund_relevant(app),
+        "pendelKnapp": bool(app.get("pendel_knapp")),
         "deleted": bool(app.get("deleted")),
     }
 
@@ -459,7 +471,8 @@ def build_dashboard(state: dict, output_path: Path,
         # ohne diese Ausnahme wäre das „neu gefunden"-Label nie zu sehen. Sie
         # fallen automatisch wieder aus der Tabelle, sobald ein späterer Lauf
         # andere Stellen als die neuesten markiert.
-        row["visible"] = row["id"] in visible_keys or row["neuImLauf"]
+        row["visible"] = row["id"] in visible_keys or (
+            row["neuImLauf"] and row.get("neufundRelevant", True))
     data.sort(key=lambda r: r["fit"], reverse=True)
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2).replace("</", "<\\/")

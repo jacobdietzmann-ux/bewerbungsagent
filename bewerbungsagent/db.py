@@ -45,6 +45,10 @@ USER_FIELDS = (
     # (``run_enrich`` Schritt 6), damit die Anforderung nicht nach einem Lauf
     # still aufgehoben ist.
     "unterlagen_gewuenscht",
+    # Ergebnis der Absage-Erkennung (``absagen.py``): Kategorie des Grundes und
+    # ob die Firma einen Talentpool angeboten hat. Gehört zum Prozess, nicht zur
+    # Anzeige — deshalb Nutzerfeld, das kein Suchlauf überschreibt.
+    "absage_grund", "absage_talentpool",
 )
 
 # Status, den ein CLI-Lauf nicht zurückstufen darf: was der Nutzer als

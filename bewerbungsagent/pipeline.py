@@ -6,6 +6,13 @@ import os
 import re
 from pathlib import Path
 
+from .auswahl import (
+    DEFAULT_COMMUTE_GRACE_MIN,
+    DEFAULT_MAX_AUTO_PER_WEEK,
+    DEFAULT_MAX_OFFEN_PRO_FIRMA,
+    apply_limits,
+    within_commute_grace,
+)
 from .commute import (
     MAX_COMMUTE_MINUTES,
     commute_limit_minutes,
@@ -415,6 +422,33 @@ def _commute_blocked(config: Config, job: dict) -> bool:
     return exceeds_commute_limit(job, limit=_commute_limit_minutes(config))
 
 
+def _commute_grace(config: Config, job: dict) -> bool:
+    """Pendelweg knapp über der Grenze bei ausreichendem Fit (siehe ``auswahl``).
+
+    Kulanz und Mindest-Fit kommen aus ``research_filter`` (``commute_grace_min``,
+    ``fit_min``). Ist der Research-Filter abgeschaltet, gibt es keine Kulanz.
+    """
+    settings = _research_filter_settings(config)
+    if settings is None:
+        return False
+    return within_commute_grace(job, _commute_limit_minutes(config),
+                                settings.get("commute_grace_min", DEFAULT_COMMUTE_GRACE_MIN),
+                                settings["fit_min"])
+
+
+def _auto_limits(config: Config) -> tuple[int | None, int | None]:
+    """Wochenbudget und Firmenlimit für automatisch erzeugte Unterlagen."""
+    docs = config.data.get("documents") or {}
+    woche = docs.get("max_auto_per_week", DEFAULT_MAX_AUTO_PER_WEEK)
+    firma = docs.get("max_offen_pro_firma", DEFAULT_MAX_OFFEN_PRO_FIRMA)
+    return (int(woche) if woche else None, int(firma) if firma else None)
+
+
+def _company_key_fn(config: Config):
+    aliases = (config.data.get("matching") or {}).get("company_aliases")
+    return lambda name: _company_key(name, aliases)
+
+
 # Kennung am ``deleted_reason``: erkennbar und bei jedem Lauf neu bewertbar.
 RESEARCH_REASON_PREFIX = "research-kriterium"
 
@@ -594,11 +628,24 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
             continue
         selected.append(m)
 
+    # Mengenlauf: dieselben Limits wie in ``run_enrich`` (Wochenbudget,
+    # offene Bewerbungen je Firma). ``--ids`` ist ein ausdrücklicher Wunsch.
+    skipped_budget: list[dict] = []
+    skipped_firma: list[dict] = []
+    if job_ids is None:
+        max_woche, max_firma = _auto_limits(config)
+        bestand = _store(config).load_state().get("applications", [])
+        selected, skipped_budget, skipped_firma = apply_limits(
+            selected, bestand, company_key=_company_key_fn(config),
+            max_per_week=max_woche, max_per_company=max_firma)
+
     created = []
     for job in selected:
-        created.extend(_generate_one(config, profile, job, template=template))
+        created.extend(_generate_one(config, profile, job, template=template,
+                                     auto=job_ids is None))
 
     return {"generated": created, "jobs_processed": len(selected),
+            "skipped_budget": skipped_budget, "skipped_firma": skipped_firma,
             "skipped_commute": skipped_commute, "skipped_student": skipped_student,
             "skipped_technician": skipped_technician, "skipped_ko": skipped_ko,
             "skipped_role": skipped_role, "skipped_existing": len(skipped_existing)}
@@ -718,7 +765,12 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             # konnten, und lagen danach bei 50–68 %. Ebenso waren 2 Stellen unter
             # „Pendelzeit über 30 Minuten" gelöscht — damals galt 90 min, heute
             # 30 (eine davon mit 78 % Fit).
-            if _commute_blocked(config, a):
+            knapp = _commute_grace(config, a)
+            if knapp:
+                a["pendel_knapp"] = True
+            else:
+                a.pop("pendel_knapp", None)
+            if _commute_blocked(config, a) and not knapp:
                 continue                     # harte Grenze: bleibt ausgeblendet
             # Für dokumentierte Stellen wurden bewusst Unterlagen erzeugt — sie
             # bleiben sichtbar, unabhängig von der Begründung. Ausnahme: eine
@@ -753,11 +805,17 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             a.pop("deleted_reason", None)
             restored_reason += 1
             continue
-        if _commute_blocked(config, a):
-            a["deleted"] = True
-            a["deleted_reason"] = f"Pendelweg > {_commute_limit_minutes(config)} min"
-            deleted_commute += 1
-            continue
+        if _commute_grace(config, a):
+            # Knapp über der Grenze, aber starker Treffer: bleibt als Research
+            # sichtbar (keine automatischen Unterlagen, siehe Schritt 5).
+            a["pendel_knapp"] = True
+        else:
+            a.pop("pendel_knapp", None)
+            if _commute_blocked(config, a):
+                a["deleted"] = True
+                a["deleted_reason"] = f"Pendelweg > {_commute_limit_minutes(config)} min"
+                deleted_commute += 1
+                continue
         if _fit_value(a) < FIT_BAND_AUSBLENDEN and not a.get("dokumente"):
             a["deleted"] = True
             a["deleted_reason"] = f"FIT < {FIT_BAND_AUSBLENDEN} %"
@@ -803,6 +861,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     # 5) Ab der Unterlagen-Schwelle automatisch bewerben (nur ohne Unterlagen)
     generated = []
     skipped_role = []
+    kandidaten = []
     for a in apps:
         if a.get("deleted"):
             continue
@@ -821,7 +880,18 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             skipped_role.append({"firma": a.get("firma"), "titel": a.get("titel"),
                                  "fit": _fit_value(a)})
             continue
-        for created in _generate_one(config, profile, a):
+        kandidaten.append(a)
+
+    # 5b) Gezielt statt Masse: Wochenbudget und Limit offener Bewerbungen je
+    #     Firma (``documents.max_auto_per_week`` / ``max_offen_pro_firma``).
+    #     Die besten Treffer zuerst; der Rest bleibt für die nächste Woche.
+    max_woche, max_firma = _auto_limits(config)
+    kandidaten, ueber_budget, ueber_firma = apply_limits(
+        kandidaten, apps, company_key=_company_key_fn(config),
+        max_per_week=max_woche, max_per_company=max_firma)
+    for a in kandidaten:
+        a["unterlagen_erzeugt_am"] = now_iso()
+        for created in _generate_one(config, profile, a, auto=True):
             generated.append(created)
             # Dokument-Referenzen direkt in den In-Memory-Zustand übernehmen,
             # damit sie nicht durch den finalen ``_persist_state`` verloren gehen.
@@ -852,6 +922,11 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "generated": generated,
         "generated_count": len(generated),
         "skipped_role": skipped_role,
+        "skipped_budget": [{"firma": a.get("firma"), "titel": a.get("titel"),
+                            "fit": _fit_value(a)} for a in ueber_budget],
+        "skipped_firma": [{"firma": a.get("firma"), "titel": a.get("titel"),
+                           "fit": _fit_value(a)} for a in ueber_firma],
+        "pendel_knapp": sum(1 for a in apps if a.get("pendel_knapp") and not a.get("deleted")),
         "zurueckgenommen": zurueckgenommen,
         "total": len(apps),
     }
@@ -1040,7 +1115,8 @@ def _flag_far_commute(app: dict, limit: int) -> bool:
     return True
 
 
-def _generate_one(config: Config, profile: Profile, job: dict, template: str | None = None) -> list[dict]:
+def _generate_one(config: Config, profile: Profile, job: dict, template: str | None = None,
+                  auto: bool = False) -> list[dict]:
     match = job  # matches sind Jobs inkl. Score-Feldern
     # ``matched_skills`` kann veraltet sein (Profil wurde korrigiert, der
     # Eintrag stammt aus einem früheren Lauf). Für die Unterlagen zählt das
@@ -1097,7 +1173,7 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     qualitaet = check_application(profile, job, match, config.data,
                                   texte=texte, pdfs=pdfs)
 
-    _record_docs(config, job, files, qualitaet=qualitaet)
+    _record_docs(config, job, files, qualitaet=qualitaet, auto=auto)
     return [{"id": job.get("id"), "firma": job.get("firma"), "titel": job.get("titel"),
              "dokumente": files, "qualitaet": qualitaet}]
 
@@ -1121,7 +1197,7 @@ def _rel(path: Path) -> str:
 
 
 def _record_docs(config: Config, job: dict, files: dict,
-                 qualitaet: dict | None = None) -> None:
+                 qualitaet: dict | None = None, auto: bool = False) -> None:
     store = _store(config)
     state = store.load_state()
     key = job.get("key") or _job_key(job)
@@ -1130,6 +1206,9 @@ def _record_docs(config: Config, job: dict, files: dict,
             a["dokumente"] = {**a.get("dokumente", {}), **files}
             if qualitaet is not None:
                 a["qualitaet"] = qualitaet
+            if auto:
+                # Zählt gegen das Wochenbudget (``auswahl.auto_docs_last_days``).
+                a["unterlagen_erzeugt_am"] = now_iso()
             if a.get("status") in (None, "research", "neu"):
                 a["status"] = "docs"
             break

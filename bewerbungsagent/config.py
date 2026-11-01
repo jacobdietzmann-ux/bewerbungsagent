@@ -172,6 +172,11 @@ DEFAULT_CONFIG: dict = {
         "languages": ["de", "en"],
         "accent_color": "#0B3D5C",
         "min_fit_for_generation": "hoch",  # hoch (> 70 %) | mittel (50 %) | niedrig (0 %)
+        # Gezielt statt Masse (siehe auswahl.py): höchstens so viele automatisch
+        # erzeugte Unterlagen in 7 Tagen und höchstens so viele offene
+        # Bewerbungen je Firma. 0/None schaltet das jeweilige Limit ab.
+        "max_auto_per_week": 8,
+        "max_offen_pro_firma": 2,
         "lebenslauf_template": "classic",  # classic | modern | functional
         # Eigene aktuelle Lebenslauf-Vorlage (DOCX) statt ReportLab-Generierung.
         # Wenn gesetzt, wird das DOCX 1:1 übernommen und nur der Profil-Absatz

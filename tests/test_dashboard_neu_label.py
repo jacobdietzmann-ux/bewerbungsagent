@@ -104,14 +104,14 @@ class TestNeueFundeSindSichtbar:
 
     def test_neuer_fund_ohne_unterlagen_ist_sichtbar(self, tmp_path):
         rows = self._daten(tmp_path, [{
-            "key": "neu", "firma": "Saab", "titel": "Systems Engineer",
+            "key": "neu", "firma": "Saab", "titel": "Systems Integration Engineer", "score": 72,
             "created": FUND["zeitpunkt"], "status": "neu",
         }], FUND)
         assert rows["neu"]["visible"] is True
 
     def test_alter_fund_ohne_unterlagen_bleibt_verborgen(self, tmp_path):
         rows = self._daten(tmp_path, [{
-            "key": "alt", "firma": "Alt GmbH", "titel": "Testingenieur",
+            "key": "alt", "firma": "Alt GmbH", "titel": "Testingenieur", "score": 72,
             "created": "2026-10-01T09:00:00+02:00", "status": "neu",
         }], FUND)
         assert rows["alt"]["visible"] is False

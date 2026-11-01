@@ -2,6 +2,7 @@
   "profile_json": "tests/fixtures/profil-demo.json",
   "data_dir": "data",
   "output_dir": "output",
+  "profile_markdown": "",
   "dashboard_file": "dashboard.html",
   "search": {
     "enabled": true,

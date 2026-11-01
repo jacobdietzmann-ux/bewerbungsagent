@@ -35,6 +35,10 @@ from bewerbungsagent.pipeline import (
 )
 from bewerbungsagent.quality import run_quality
 from bewerbungsagent.followup import run_followup
+from bewerbungsagent.profile_export import (
+    export_profile_markdown,
+    profile_markdown_stale,
+)
 from bewerbungsagent.provider_health import is_disabled, reset as reset_health, set_enabled
 from bewerbungsagent.db import Store
 from bewerbungsagent.storage import now_iso
@@ -119,6 +123,11 @@ def main(argv=None) -> int:
     cln.add_argument("--dry-run", action="store_true", help="nur anzeigen, nichts verschieben")
     cln.add_argument("--days", type=int, default=60, help="Altersgrenze in Tagen (Standard 60)")
     sub.add_parser("dashboard", help="HTML-Dashboard (neu) erzeugen")
+    pe = sub.add_parser("profile-export",
+                        help="Markdown-Lesefassung des Profils aus der JSON erzeugen")
+    pe.add_argument("--out", help="Zielpfad (Standard: profile_markdown aus config.json)")
+    pe.add_argument("--check", action="store_true",
+                    help="nur prüfen; Exit 1, wenn die Datei vom JSON-Stand abweicht")
     sub.add_parser("status", help="Übersicht der aktuellen Stellen anzeigen")
     sub.add_parser("pipeline", help="Vollständigen Ablauf ausführen")
     ablauf = sub.add_parser("ablauf", help="Ablauf als Graph ausführen (LangGraph)")
@@ -337,6 +346,20 @@ def main(argv=None) -> int:
               f"({result['applications']} relevante Stellen; "
               f"{result['hidden_without_documents']} ohne Bewerbungsdokumente und "
               f"{result['hidden_too_far']} mit mehr als {limit} Minuten Pendelzeit ausgeblendet)")
+
+    elif args.command == "profile-export":
+        ziel = Path(args.out) if args.out else (config.data.get("profile_markdown") or "").strip()
+        if not ziel:
+            print("✗ Kein Ziel: --out angeben oder profile_markdown in config.json setzen.")
+            return 2
+        ziel = Path(ziel)
+        if args.check:
+            veraltet = profile_markdown_stale(config.profile_path, ziel)
+            print(("✗ veraltet: " if veraltet else "✓ aktuell: ") + str(ziel))
+            return 1 if veraltet else 0
+        export_profile_markdown(config.profile_path, ziel)
+        print(f"Profil-Markdown geschrieben: {ziel}")
+        return 0
 
     elif args.command == "status":
         _print_jobs(config)

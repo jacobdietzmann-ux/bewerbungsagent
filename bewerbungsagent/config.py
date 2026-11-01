@@ -39,6 +39,8 @@ DEFAULT_CONFIG: dict = {
     # Sichtbarkeit im Dashboard: Stellen unter dieser Fit-Schwelle werden nur
     # ausgeblendet, nicht gelöscht (None = keine zusätzliche Schwelle).
     "dashboard": {"min_fit_visible": None},
+    # Markdown-Lesefassung des Profils (Obsidian). Leer = kein Export.
+    "profile_markdown": "",
     # Zielordner für fertige Bewerbungsunterlagen (ein Unterordner pro Stelle).
     "bewerbungen_dir": "../01_Bewerbungen",
     # Dashboard-Ausgabe: eigener Ordner, damit Code (04_Agent) und Artefakt

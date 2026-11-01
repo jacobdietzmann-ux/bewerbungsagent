@@ -578,6 +578,10 @@ Ingenieursstellen. Eine *abgeschlossene* Bewerbung (`sent`/`followup`/`interview
 Alle Einstellungen stehen in [`config.json`](config.json):
 
 - `profile_json` – Pfad zur Profil-Datenbank (Standard: die bestehende Datei).
+- `profile_markdown` – Zielpfad der Markdown-Lesefassung (z. B. im Obsidian-Vault). Bleibt das Feld
+  leer, wird nichts exportiert. Die Markdown-Datei ist ein **Artefakt** der JSON, keine zweite
+  Quelle: `agent.py profile-export` schreibt sie neu, `--check` meldet Abweichungen (Exit 1),
+  `agent.py enrich` zieht sie automatisch nach.
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
   (verfügbar: `manual`, `stepstone`, `jobspy`, `ats`, `arbeitnow`, `jobleads`, `xing`,
   `indeed`, `labo`, `duckduckgo`, `bing`).

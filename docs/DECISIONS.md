@@ -1501,3 +1501,34 @@ Bestand: 233 sichtbar, 137 ≥ 65 %, Dashboard 218 Zeilen.
 **Testabdeckung.** `test_commute_ambiguous_places.py`: Regionsangaben werden
 entfernt, Vierkirchen/Bayern liegt < 40 km, Vierkirchen/Sachsen > 300 km,
 `_nearest` wählt den nächstgelegenen Punkt.
+
+## ADR-047 – Eine Quelle: Profil-Markdown wird aus der JSON erzeugt
+
+Ausgangslage: Das Profil lag zweimal vor — als `Profil-Datenbank.json` (Quelle
+für Matching und Unterlagen) und als handgepflegte Obsidian-Notiz
+`Berufsprofil – Faktenbasis.md`. Beide liefen auseinander: Die Notiz nannte am
+30.10. noch „Python (erweiterte Grundkenntnisse)" und „C++ (Grundkenntnisse)",
+während die JSON bereits korrigiert war.
+
+**Entscheidung.** Die JSON bleibt die einzige Quelle. Die Markdown-Datei ist
+ein erzeugtes Artefakt:
+
+1. `bewerbungsagent/profile_export.py` rendert die Lesefassung deterministisch
+   (Person, Kompetenzmatrix, Berufserfahrung, Ausbildung, Lücken, Tailoring).
+   Die Tailoring-Regeln stehen dafür als `tailoring_rules` in der JSON.
+2. `agent.py profile-export` schreibt die Datei, `--check` prüft sie und
+   liefert Exit 1 bei Abweichung (für Cron/CI).
+3. `run_enrich` ruft den Export am Ende automatisch auf, wenn
+   `profile_markdown` konfiguriert ist — Fehler dort brechen den Lauf nicht ab.
+4. Der Kopf der Datei sagt „Automatisch erzeugt — nicht hier bearbeiten";
+   `created` bleibt beim Überschreiben erhalten.
+
+**Warum nicht die Markdown-Datei löschen:** Sie ist die lesbare Fassung im
+Second Brain (Verlinkung, Callouts) und wird jetzt ohne Handarbeit aktuell
+gehalten. Zwei *handgepflegte* Fassungen wären das Problem, nicht zwei
+Darstellungen derselben Quelle.
+
+**Testabdeckung.** `test_profile_export.py`: Render enthält Person,
+Kompetenzmatrix, Lücken und nummerierte Tailoring-Regeln; Render ist
+deterministisch; Export setzt `stale` auf False; eine JSON-Änderung macht die
+Datei veraltet; `created` bleibt erhalten.

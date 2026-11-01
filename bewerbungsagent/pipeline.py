@@ -76,6 +76,22 @@ def _dashboard_min_fit(config: Config) -> int | None:
         return None
 
 
+def _sync_profile_markdown(config: Config) -> None:
+    """Schreibt die Markdown-Lesefassung des Profils neu, wenn sie konfiguriert ist.
+
+    Die JSON bleibt die einzige Quelle; die Markdown-Datei ist ein Artefakt.
+    Fehler hier dürfen einen Lauf nicht abbrechen (kaputter Zielpfad, Rechte).
+    """
+    ziel = str(config.data.get("profile_markdown") or "").strip()
+    if not ziel:
+        return
+    try:
+        from .profile_export import export_profile_markdown
+        export_profile_markdown(config.profile_path, Path(ziel))
+    except Exception:
+        pass
+
+
 def load_config_and_profile(config_path: Path | None = None):
     config = Config(config_path)
     if not config.profile_path.exists():
@@ -756,6 +772,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     state["applications"] = apps
     state["updated"] = now_iso()
     _persist_state(config, store, state)
+    _sync_profile_markdown(config)
 
     return {
         "commute": commute_stats,

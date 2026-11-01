@@ -14,6 +14,7 @@ Angabe und gehört nicht in ein geteiltes Repository.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from pathlib import Path
@@ -73,7 +74,27 @@ def exceeds_commute_limit(app: dict, limit: int | None = None) -> bool:
     return value > (MAX_COMMUTE_MINUTES if limit is None else limit)
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+
+
+def _haversine_km(a: dict, b: dict) -> float:
+    """Luftlinie zwischen zwei Geopunkten in Kilometern."""
+    lat1, lon1, lat2, lon2 = map(float, (a["lat"], a["lon"], b["lat"], b["lon"]))
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371.0 * math.asin(math.sqrt(h))
+
+
+def _nearest(candidates: list[dict], home: dict) -> dict | None:
+    """Nächstgelegener Punkt zu ``home`` (oder ``None`` bei leerer Liste)."""
+    if not candidates:
+        return None
+    return min(candidates, key=lambda c: _haversine_km(home, c))
 _OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
+
+# Ab dieser Luftlinie gilt ein geokodierter Ort als „falscher Namensvetter"
+# (Vierkirchen/Bayern liegt 30 km von Garching, Vierkirchen/Sachsen 460 km).
+_AMBIGUOUS_KM = 150.0
 
 # Mittelpunkt Münchens (Marienplatz). Nur für Umkreissuchen bei Jobbörsen, die
 # Koordinaten statt Ortsnamen erwarten — nicht die Wohnadresse.
@@ -205,6 +226,15 @@ _NOISE_SUFFIX = re.compile(
     re.IGNORECASE,
 )
 
+# Regionsangabe ohne konkreten Ort („München Area", „Region München",
+# „München Umgebung"). Nominatim fand für „München Area" eine Straße in Sibiu
+# (980 km) — 22 Einträge wurden dadurch als zu weit entfernt verworfen.
+_REGION_SUFFIX = re.compile(
+    r"\s+(?:area|region|umgebung|großraum|grossraum)\s*$"
+    r"|^\s*(?:raum|region|großraum|grossraum)\s+(?=\S)",
+    re.IGNORECASE,
+)
+
 
 def is_near_munich(ort: str) -> bool:
     """True, wenn der Ort in der Münchener Metropolregion liegt oder remote ist.
@@ -247,6 +277,7 @@ def _strip_noise(part: str) -> str:
         return "" if any(p in inner for p in _NOISE_PAREN) else m.group(0)
     cleaned = re.sub(r"\(([^)]*)\)", repl, part)
     cleaned = _NOISE_SUFFIX.sub("", cleaned)
+    cleaned = _REGION_SUFFIX.sub("", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip(" ,-")
 
 
@@ -365,7 +396,7 @@ class _Geocoder:
     def __init__(self, cache_path: Path, agent: str | None = None):
         self.cache_path = cache_path
         self.agent = agent or _USER_AGENT_BASE
-        self.cache: dict[str, dict] = {}
+        self.cache: dict[str, dict | None] = {}
         if cache_path.exists():
             try:
                 self.cache = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -438,6 +469,46 @@ class _Geocoder:
             return None
         data = r.json()
         return data[0] if data else None
+
+    def geocode_near(self, query: str, home: dict,
+                     max_km: float = 150.0) -> dict | None:
+        """Gleichnamigen Ort in der Nähe der Wohnadresse wählen.
+
+        Ortsnamen sind mehrdeutig: „Vierkirchen" gibt es in Oberbayern und in
+        Sachsen. ``geocode`` nimmt den ersten Nominatim-Treffer — für die
+        MicroNova-Stelle in Vierkirchen (85256) ergab das 529 km und 306 min
+        Pendelzeit. Hier werden bis zu fünf Treffer geholt und der nächstgelegene
+        innerhalb von ``max_km`` genommen.
+        """
+        self._throttle()
+        try:
+            r = requests.get(
+                _NOMINATIM_URL,
+                params={"q": query, "format": "json", "limit": 5},
+                headers={"User-Agent": self.agent},
+                timeout=15,
+            )
+        except requests.RequestException:
+            self._last = time.monotonic()
+            return None
+        self._last = time.monotonic()
+        if r.status_code != 200:
+            return None
+        try:
+            data = r.json()
+        except ValueError:
+            return None
+        treffer = [{"lat": float(item["lat"]), "lon": float(item["lon"]),
+                    "display_name": item.get("display_name", query)}
+                   for item in data if item.get("lat") and item.get("lon")]
+        nah = [t for t in treffer if _haversine_km(home, t) <= max_km]
+        return _nearest(nah, home)
+
+    def remember(self, query: str, result: dict | None) -> None:
+        """Cache-Eintrag überschreiben (z. B. nach einer Korrektur)."""
+        key = normalize(query or "")
+        if key:
+            self.cache[key] = result
 
     def save(self) -> None:
         """Schreibt den Cache — ohne erfolglose Abfragen.
@@ -572,6 +643,16 @@ def enrich_commute(apps: list[dict], data_dir: Path,
                 simplified = _simplify(office)
                 if simplified and simplified != office:
                     dest = geocoder.geocode(simplified)
+        # Mehrdeutige Ortsnamen: „Vierkirchen" existiert in Oberbayern (85256)
+        # und in Sachsen. Nominatim liefert den ersten Treffer — für MicroNova
+        # waren das 529 km und 306 min statt ~30 km. Liegt der Treffer weit
+        # außerhalb des Pendelbereichs, den gleichnamigen Ort in der Nähe
+        # nehmen und den Cache korrigieren.
+        if dest and _haversine_km(home, dest) > _AMBIGUOUS_KM:
+            nah = geocoder.geocode_near(office, home)
+            if nah:
+                dest = nah
+                geocoder.remember(office, nah)
         if not dest:
             a["pendel_modus"] = "Nicht ermittelt"
             a["pendelzeit_min"] = None

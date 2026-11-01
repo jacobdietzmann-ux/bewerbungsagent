@@ -1472,3 +1472,32 @@ Dubletten bleiben als `deleted` in der Datenbank, ihre Ordner bleiben liegen.
 **Testabdeckung.** `test_identity_alias.py`: Gender-Tags zählen nicht,
 `product owner`/`produktmanager` führen zusammen. `test_dashboard_visibility.py`:
 gelöschte Stelle mit Unterlagen bleibt verborgen.
+
+## ADR-046 – Mehrdeutige Ortsnamen: der nächste Treffer gewinnt
+
+Ausgangslage: Die MicroNova-Stelle in **Vierkirchen** (85256) stand mit
+**529 km / 306 min** Pendelweg im Dashboard. Nominatim hatte „Vierkirchen" auf
+den gleichnamigen Ort in Sachsen (Reichenbach/O.L.) aufgelöst — 396 km statt
+20 km Luftlinie. Bei „München Area" fand der Geocoder eine Straße in Sibiu
+(980 km); 22 Airbus-Einträge wurden dadurch als „Pendelweg > 30 min" verworfen.
+
+**Entscheidungen.**
+
+1. `_Geocoder.geocode_near(query, home)`: bis zu fünf Nominatim-Treffer holen
+   und den nächstgelegenen innerhalb von 150 km nehmen; der Treffer
+   überschreibt den falschen Cache-Eintrag (`remember`).
+2. `enrich_commute` prüft nach dem Geocoding: Liegt der Punkt mehr als
+   `_AMBIGUOUS_KM` (150 km) entfernt, wird `geocode_near` versucht.
+3. `_strip_noise` entfernt Regionsangaben ohne Ort („München Area",
+   „Region München", „München Umgebung", „Raum München"), bevor geokodiert
+   wird.
+
+**Folgen (30.10.2026).** MicroNova Vierkirchen: 306 min/529 km → **29 min/30 km**.
+68 Einträge über 100 km neu geprüft; 22 „München Area"-Einträge (Airbus) liegen
+jetzt bei 25 min, drei weitere (Feldkirchen, Kirchheim) bei 16–17 min.
+`run_enrich` hat 24 zu Unrecht verworfene Einträge wieder sichtbar gemacht.
+Bestand: 233 sichtbar, 137 ≥ 65 %, Dashboard 218 Zeilen.
+
+**Testabdeckung.** `test_commute_ambiguous_places.py`: Regionsangaben werden
+entfernt, Vierkirchen/Bayern liegt < 40 km, Vierkirchen/Sachsen > 300 km,
+`_nearest` wählt den nächstgelegenen Punkt.

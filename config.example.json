@@ -25,6 +25,11 @@
         "board": "isaraerospace"
       },
       {
+        "firma": "XPeng",
+        "ats": "greenhouse",
+        "board": "xpengmotors"
+      },
+      {
         "firma": "Airbus",
         "ats": "workday",
         "tenant": "ag",

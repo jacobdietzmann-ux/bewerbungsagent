@@ -131,6 +131,18 @@ def _terms_for_provider(s: dict, name: str) -> list[str]:
     return begriffe
 
 
+def _filter_boards(boards: list[dict], firmen: list[str] | None) -> list[dict]:
+    """Beschränkt die ATS-Boards auf die Firmen einer gespeicherten Suche.
+
+    Ohne ``firmen`` bleiben alle Boards aktiv (Standard-Suche). Eine leere
+    Liste ist eine bewusste Auswahl „keine" und liefert keine Boards.
+    """
+    if firmen is None:
+        return boards
+    erlaubt = {str(f).strip().lower() for f in firmen if str(f).strip()}
+    return [b for b in boards if str(b.get("firma") or "").strip().lower() in erlaubt]
+
+
 def run_search(config: Config, profile: Profile,
                definition: dict | None = None,
                health: dict | None = None,
@@ -149,7 +161,8 @@ def run_search(config: Config, profile: Profile,
     """
     s = dict(config.data["search"])
     if definition:
-        for key in ("query_terms", "location", "providers"):
+        for key in ("query_terms", "location", "providers", "ats_firmen",
+                    "max_results_per_provider"):
             if definition.get(key) is not None:
                 s[key] = definition[key]
     jobs: list[dict] = []
@@ -261,6 +274,11 @@ def run_search(config: Config, profile: Profile,
                 boards = s.get("ats_boards")
                 if not boards:
                     boards = ats.boards_from_jobs(_existing_jobs(config))
+                # Eine gespeicherte Suche kann auf einzelne Firmen zeigen
+                # („China-EV München" → nur XPeng), damit sie nicht alle
+                # Karriereseiten abklappert.
+                firmen = s.get("ats_firmen")
+                boards = _filter_boards(boards, firmen)
                 jobs_found, ats_errors = provider.search(
                     boards,
                     user_agent=s.get("user_agent", "Mozilla/5.0"),

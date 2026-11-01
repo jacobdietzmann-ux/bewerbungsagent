@@ -80,4 +80,6 @@ def to_definition(search: dict) -> dict:
         "query_terms": search.get("query_terms"),
         "location": search.get("location"),
         "providers": search.get("providers"),
+        "ats_firmen": search.get("ats_firmen"),
+        "max_results_per_provider": search.get("max_results_per_provider"),
     }

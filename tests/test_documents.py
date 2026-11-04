@@ -266,7 +266,7 @@ class TestClaimMatching:
     def test_longer_skill_still_matches_substring(self):
         profile = _ProfileStub([
             {"role_de": "Testingenieur", "bullets_de": [
-                "Entwicklung eines Python-basierten Testautomatisierungstools.",
+                "Automatisierung von Testfällen mit Python-Skripten.",
             ]},
         ])
         claim, _we = D._claim_for(profile, "python", "de")

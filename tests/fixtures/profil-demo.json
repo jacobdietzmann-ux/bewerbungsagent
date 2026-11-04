@@ -36,7 +36,7 @@
       "role_de": "Testingenieur für VHiL im SP21 für ADAS und Systemintegration",
       "role_en": "Test Engineer for VHiL in SP21 for ADAS and system integration",
       "bullets_de": [
-        "Entwicklung eines eigenen Python-basierten Testautomatisierungstools.",
+        "Automatisierung von Testfällen und Auswertungen mit Python-Skripten.",
         "Inbetriebnahme und Wartung von HiL-Prüfständen."
       ],
       "bullets_en": [

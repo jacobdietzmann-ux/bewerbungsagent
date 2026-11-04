@@ -77,6 +77,29 @@ def run_pipeline(timeout: int = 2400) -> bool:
 
 
 def load_jobs() -> list[dict]:
+    """Bestand aus der Datenbank — nach Bereinigung, nicht aus ``matches.json``.
+
+    ``matches.json`` enthält **alle** Treffer des Matchings. Was ``enrich``
+    danach ausblendet (Pendelweg, Research-Filter, Studenten-/Technikerrollen)
+    oder was als Dublette zusammengeführt wurde, steht dort weiterhin — der
+    Telegram-Digest zeigte dadurch Stellen, die im Dashboard längst fehlen,
+    und „NEU"-Zahlen, die niemand nachvollziehen konnte. Deshalb: DB lesen,
+    gelöschte und abgeschlossene Vorgänge raus.
+    """
+    try:
+        from bewerbungsagent.config import Config
+        from bewerbungsagent.db import Store
+
+        config = Config(AGENT_DIR / "config.json")
+        apps = Store(config.db_path()).load_state().get("applications", [])
+        offen = [a for a in apps
+                 if not a.get("deleted")
+                 and (a.get("status") or "research") not in
+                 ("sent", "followup", "interview", "rejected", "absage", "beworben")]
+        if offen or apps:
+            return offen
+    except Exception as exc:  # Datenbank nicht erreichbar → alte Quelle
+        _log(f"Datenbank nicht lesbar ({exc}) — Digest aus matches.json.")
     path = DATA / "matches.json"
     if not path.exists():
         raise SystemExit(f"matches.json fehlt: {path}")
@@ -256,7 +279,12 @@ def main(argv: list[str] | None = None) -> int:
             previous = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         except Exception:
             previous = {}
-    known = set(previous.get("keys") or [])
+    # Der Digest liest seit 04.11. die Datenbank statt ``matches.json``. Alte
+    # Snapshots enthalten die Roh-Treffer (662 statt 24) und würden einen
+    # falschen „Bestand gefallen"-Alarm auslösen. Quelle wechselt → Baseline.
+    quelle = "db-v1"
+    quellenwechsel = bool(previous) and previous.get("quelle") != quelle
+    known = set() if quellenwechsel else set(previous.get("keys") or [])
     baseline_created = not known
     new_jobs = [j for j in jobs if job_key(j) not in known]
 
@@ -264,7 +292,9 @@ def main(argv: list[str] | None = None) -> int:
     # (z. B. "! ats (Qualcomm): HTTPError") lässt Stellen still aus dem Dashboard fallen.
     warnings: list[str] = []
     prev_count = previous.get("count") or 0
-    if not baseline_created and len(jobs) < prev_count:
+    if quellenwechsel:
+        _log("Quelle gewechselt (matches.json → Datenbank): Snapshot neu aufgebaut.")
+    elif not baseline_created and len(jobs) < prev_count:
         failed = parse_failed_sources()
         if failed:
             warnings.append(
@@ -295,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     # Snapshot erst nach erfolgreichem Lauf fortschreiben, damit nichts verloren geht
     SNAPSHOT.write_text(json.dumps({
         "updated": datetime.now().isoformat(timespec="seconds"),
+        "quelle": quelle,
         "count": len(jobs),
         "keys": [job_key(j) for j in jobs],
     }, ensure_ascii=False), encoding="utf-8")

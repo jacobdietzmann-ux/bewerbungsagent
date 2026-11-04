@@ -38,6 +38,20 @@ def _log(msg: str) -> None:
     print(f"[jobwatch] {msg}", flush=True)
 
 
+def _pendelgrenze(default: int = 30) -> int:
+    """Pendelgrenze aus ``config.json`` (``max_pendelzeit_min``).
+
+    Der Digest listete zuvor auch Stellen mit 97 oder 293 Minuten Pendelweg,
+    weil er nur den Fit prüfte. Das Dashboard blendet sie längst aus — der
+    Alert muss dieselbe Grenze ziehen.
+    """
+    try:
+        daten = json.loads((AGENT_DIR / "config.json").read_text(encoding="utf-8"))
+        return int(daten.get("max_pendelzeit_min") or default)
+    except Exception:
+        return default
+
+
 def run_pipeline(timeout: int = 2400) -> bool:
     """search -> match -> enrich -> dashboard. Gibt True zurück, wenn alle Schritte ok."""
     env = dict(os.environ)
@@ -108,9 +122,20 @@ def parse_failed_sources(log_path: Path = RUN_OUTPUT) -> list[str]:
 
 
 def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
-                 min_fit: int, top: int, warnings: list[str] | None = None) -> str:
+                 min_fit: int, top: int, warnings: list[str] | None = None,
+                 max_commute: int | None = None) -> str:
     today = datetime.now().strftime("%d.%m.%Y")
-    relevant = [j for j in jobs if (j.get("score") or 0) >= min_fit]
+
+    def nah(job: dict) -> bool:
+        """Pendelgrenze wie im Dashboard: zu weit = kein Vorschlag."""
+        if max_commute is None:
+            return True
+        minuten = job.get("pendelzeit_min")
+        return minuten is None or int(minuten) <= max_commute
+
+    alle_passend = [j for j in jobs if (j.get("score") or 0) >= min_fit]
+    zu_weit = [j for j in alle_passend if not nah(j)]
+    relevant = [j for j in alle_passend if nah(j)]
     stark = [j for j in relevant if (j.get("score") or 0) > 70]
 
     lines: list[str] = []
@@ -120,12 +145,15 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
     else:
         lines.append(f"Bewerbungs-Watch — {today}")
         lines.append(f"Bestand: {len(jobs)} · davon Fit ≥ {min_fit} %: {len(relevant)} · NEU in diesem Lauf: {len(new_jobs)}")
+    if zu_weit and max_commute is not None:
+        lines.append(f"  ({len(zu_weit)} Stelle(n) über der Pendelgrenze von {max_commute} min ausgeblendet.)")
 
     if warnings:
         lines.append("")
         lines.extend(f"⚠️ {w}" for w in warnings)
 
-    picks = [j for j in (relevant if baseline_created else new_jobs) if (j.get("score") or 0) >= min_fit]
+    picks = [j for j in (relevant if baseline_created else new_jobs)
+             if (j.get("score") or 0) >= min_fit and nah(j)]
     picks.sort(key=lambda j: (j.get("score") or 0), reverse=True)
 
     if not picks:
@@ -205,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="nicht senden, nur ausgeben")
     parser.add_argument("--min-fit", type=int, default=60, help="Fit-Schwelle für den Digest (Standard 60)")
     parser.add_argument("--top", type=int, default=12, help="maximale Anzahl Stellen im Digest")
+    parser.add_argument("--max-pendel", type=int, default=None,
+                        help="Pendelgrenze in Minuten (Standard: max_pendelzeit_min aus config.json)")
     parser.add_argument("--always", action="store_true",
                         help="auch senden, wenn es nichts Neues gibt (Standard: still bleiben)")
     args = parser.parse_args(argv)
@@ -248,7 +278,9 @@ def main(argv: list[str] | None = None) -> int:
                 "vermutlich abgelaufene Anzeigen."
             )
 
-    digest = build_digest(jobs, new_jobs, baseline_created, args.min_fit, args.top, warnings)
+    digest = build_digest(jobs, new_jobs, baseline_created, args.min_fit, args.top, warnings,
+                          max_commute=args.max_pendel if args.max_pendel is not None
+                          else _pendelgrenze())
     print("\n" + digest + "\n")
 
     # Watchdog-Prinzip: ohne Neuigkeiten still bleiben (kein Rauschen im Chat) —

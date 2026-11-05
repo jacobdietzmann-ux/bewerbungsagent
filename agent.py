@@ -137,6 +137,9 @@ def main(argv=None) -> int:
                     help="eindeutige Zuordnungen als 'rejected' in die DB schreiben")
     ab.add_argument("--out", default=None,
                     help="Ergebnis zusätzlich als JSON speichern (Format von scripts/apply_status.py)")
+    ab.add_argument("--out-result", default=None, dest="out_result",
+                    help="Vollständiges Ergebnis als JSON (updates, unklar, positiv) — "
+                         "für den Mailcheck, der die Mails danach als gelesen markiert")
     sl = sub.add_parser("shortlist",
                         help="Wochenauswahl: fertige, noch nicht versendete Bewerbungen nach Fit")
     sl.add_argument("--top", type=int, default=8, help="Anzahl (Standard 8)")
@@ -391,29 +394,40 @@ def main(argv=None) -> int:
     elif args.command == "absagen":
         import json
 
-        from bewerbungsagent.absagen import auswerten, overlay_from_updates
+        from bewerbungsagent.absagen import auswerten, overlay_from_updates, positives
         mails = json.loads(Path(args.mails).read_text(encoding="utf-8"))
         store = Store(config.db_path())
         apps = store.load_state().get("applications", [])
         r = auswerten(mails, apps)
+        pos = positives(mails, apps)
         print(f"Mails geprüft: {len(mails)} — Absagen zugeordnet: {len(r['updates'])}, "
-              f"unklar: {len(r['unklar'])}, keine Absage: {r['keine_absage']}")
+              f"unklar: {len(r['unklar'])}, keine Absage: {r['keine_absage']}, "
+              f"Einladungen/Zusagen: {len(pos)}")
         for u in r["updates"]:
             tp = ", Talentpool" if u["absage_talentpool"] else ""
             print(f"  ✓ {u['statusChangedAt']}  {u['firma']} — {u['titel']}  "
                   f"[{u['absage_grund']}{tp}]")
         for u in r["unklar"]:
             print(f"  ? {u['datum']}  {u['betreff']}  → {u['warum']}")
+        for p in pos:
+            ziel = f"{p['firma']} — {p['titel']}" if p.get("key") else (p.get("betreff") or "?")
+            print(f"  {'+' if p['ok'] else '!'} {p['datum']}  {ziel}  [{p['art']}]  "
+                  f"{p['hinweis'] or 'Dashboard: versendet'}")
         if args.out:
             Path(args.out).write_text(json.dumps(r["updates"], ensure_ascii=False, indent=2),
                                       encoding="utf-8")
             print(f"Gespeichert: {args.out}")
+        if args.out_result:
+            Path(args.out_result).write_text(
+                json.dumps({**r, "positiv": pos}, ensure_ascii=False, indent=2),
+                encoding="utf-8")
         if args.apply and r["updates"]:
             store.apply_overlay(overlay_from_updates(r["updates"]))
             store.export_json(config.state_path())
             print(f"In die Datenbank übernommen: {len(r['updates'])} Absage(n).")
         elif r["updates"]:
             print("Nichts geschrieben — mit --apply übernehmen.")
+
 
     elif args.command == "shortlist":
         from bewerbungsagent.auswahl import shortlist

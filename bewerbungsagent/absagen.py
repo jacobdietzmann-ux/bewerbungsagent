@@ -114,6 +114,67 @@ _POSITIV = [
 _TALENTPOOL = [r"talent ?pool", r"vormerken", r"in kontakt bleiben", r"stay in touch",
                r"kuenftige|kunftige|zukuenftige|zukunftige|future (?:roles|positions|opportunities)"]
 
+# „Angenommen" heißt: die Mail bringt die Bewerbung voran — Einladung zum Gespräch
+# oder Zusage. Beides setzt voraus, dass die Bewerbung tatsächlich raus ist; steht
+# sie im Dashboard noch auf „Unterlagen", ist der Status falsch.
+_ANGEBOT = [
+    r"\bzusage\b", r"vertragsangebot", r"arbeitsvertrag .{0,40}(?:sende|erhalten|zu)",
+    r"we are (?:pleased|happy|delighted) to offer", r"offer letter",
+]
+# Einladungen brauchen eine Gesprächs-/Terminformulierung. Blosse Floskeln
+# („nächste Schritte", „kennenlernen", „Termin") reichen nicht: damit wurden
+# Eingangsbestätigungen, XING-Versandmeldungen und Jobcenter-Videotermine zu
+# „Einladungen" (real gemessen am 05.11.2026).
+# ``normalize`` faltet Umlaute auf den Grundbuchstaben („Gespräch" → „gesprach"),
+# nicht auf „ae" — Muster müssen beide Formen abdecken.
+_GESPRAECH = r"(?:gespraech|gesprach)"
+
+_EINLADUNG = [
+    # eindeutige Einladungsformulierungen — brauchen keinen weiteren Kontext
+    rf"einladung zum? (?:vorstellungs)?(?:{_GESPRAECH}|interview)",
+    rf"(?:vorstellungs|bewerbungs){_GESPRAECH} .{{0,40}}(?:\bam\b|termin|einladung|freuen)",
+    rf"ein erstes .{{0,30}}(?:{_GESPRAECH}|interview)",
+    rf"(?:online.?|telefon.?)?interview (?:mit ihnen )?fuhren",
+    r"laden (?:wir )?(?:sie|dich) (?:hiermit |herzlich |gerne )?(?:zu|ein)",
+    r"nennen sie mir .{0,40}terminvorschl",
+    r"invit(?:e|ation) (?:you )?to (?:an? )?(?:interview|call|meeting)",
+]
+# Schwache Formulierungen: nur mit Bewerbungskontext („Ihre Bewerbung"/„application").
+# Ohne das wurden Jobcenter-Videotermine und Job-Newsletter zu Einladungen.
+_EINLADUNG_SCHWACH = [
+    r"terminvorschl(?:aege|age|ag)",
+    r"termin .{0,30}(?:per |uber )?(?:webex|teams|zoom|video|telefon)",
+]
+
+# Fortschritt im Prozess, aber noch kein Termin. Nur mit Bewerbungskontext.
+_FORTSCHRITT = [
+    r"one step further", r"einen schritt weiter", r"next round",
+    r"(?:forwarded|weitergeleitet) .{0,60}(?:specialist|fachabteilung|fachbereich|hiring)",
+]
+_APPKONTEXT = [r"\bbewerbung\b", r"\bapplication\b", r"\bbewerbungsprozess\b"]
+# Absage-Floskeln, die wie eine Einladung aussehen („leider können wir Sie nicht
+# zu einem Gespräch einladen").
+_NEGATION = [
+    rf"nicht .{{0,40}}(?:einladen|einen termin)",
+    r"(?:kein|keinen) (?:termin|gespraechstermin|interviewtermin)",
+    rf"nicht zu einem .{{0,30}}(?:{_GESPRAECH}|interview)",
+    r"leider .{0,60}(?:kein|keinen) .{0,25}termin",
+]
+
+
+# Status, bei denen das Dashboard „versendet" sagt (interview = nach dem Versand).
+# „versendet" heißt: die Bewerbung ist raus. Auch ``rejected`` (eine Absage setzt
+# eine versendete Bewerbung voraus) — offen sind nur ``neu``/``research``/``docs``.
+POSITIV_STATUS = ("sent", "followup", "interview", "rejected")
+
+# Absender, die keine Bewerbungs-Einladung schicken: Kalender-Digests, Job-Alerts,
+# Newsletter. Sie nennen „Termin"/„Meeting" und rutschen sonst durch.
+_AUSGENOMMEN = (
+    "calendar-notification@", "calendar@google.com", "notifications@", "newsletter@",
+    "no-reply@google.com", "no-reply@xing", "jobs@mail.xing.com", "info@jobleads",
+)
+
+
 # Absender-Domains von Plattformen: die Domain sagt nichts über die Firma.
 _PLATTFORM_DOMAINS = (
     "stepstone", "personio", "successfactors", "greenhouse", "workday", "smartrecruiters",
@@ -256,13 +317,22 @@ def _nennt_titel(mail: dict) -> bool:
                           r"|\bbewerbung als [a-z]|\brole (?:of|as) ", t))
 
 
-def match_mail(mail: dict, apps: list[dict]) -> tuple[dict | None, str]:
+def match_mail(mail: dict, apps: list[dict],
+               statuses: tuple[str, ...] | None = OFFENE_STATUS,
+               allow_title_only: bool = True) -> tuple[dict | None, str]:
     """Ordnet eine Absage-Mail genau einer offenen Bewerbung zu.
 
+    ``statuses=None`` prüft alle nicht gelöschten Bewerbungen — für Einladungen,
+    bei denen der Dashboard-Status selbst der Befund ist („steht noch auf
+    Unterlagen"). ``allow_title_only=False`` schaltet den Rückfall „langer Titel
+    ohne Firmennamen im Absender" ab: für Einladungen ist eine falsche Zuordnung
+    schlimmer als keine (real: Fernride-Mail landete bei Quantum-Systems).
     Rückgabe ``(bewerbung, grund)``; ``bewerbung`` ist ``None``, wenn keine oder
     keine eindeutige Zuordnung möglich ist (``grund`` sagt warum).
     """
-    offen = [a for a in apps if not a.get("deleted") and a.get("status") in OFFENE_STATUS]
+    offen = [a for a in apps if not a.get("deleted")
+             and (statuses is None or a.get("status") in statuses)]
+
     firma = [a for a in offen if firma_passt(a, mail)]
     text = _norm(f"{mail.get('subject') or ''} {mail.get('body') or ''}")
     if not firma:
@@ -271,9 +341,10 @@ def match_mail(mail: dict, apps: list[dict]) -> tuple[dict | None, str]:
         # vollständig genannter Titel ist dann eindeutig genug.
         lang = [a for a in offen if len(_kern_titel(a.get("titel")).split()) >= 4
                 and titel_passt(a, text)]
-        if len(lang) == 1:
+        if allow_title_only and len(lang) == 1:
             return lang[0], "eindeutiger Titel (Firma nicht im Absender)"
         return None, "keine offene Bewerbung bei dieser Firma"
+
     passend = [a for a in firma if titel_passt(a, text)]
     if len(passend) == 1:
         return passend[0], "Firma + Titel"
@@ -364,6 +435,98 @@ def auswerten(mails: list[dict], apps: list[dict]) -> dict:
 
 def ratio(a: str, b: str) -> float:  # pragma: no cover - Hilfsfunktion für Analysen
     return SequenceMatcher(None, _norm(a), _norm(b)).ratio()
+
+
+_ZITAT = [
+    r"(?im)^\s*(?:von|from):\s*\"?jacob dietzmann",
+    r"(?im)-{2,}\s*urspr(?:ü|u)ngliche nachricht",
+    r"(?im)^am .{0,80}schrieb .{0,80}:$",
+]
+
+
+def _ohne_zitat(body: str | None) -> str:
+    """Schneidet die zitierte Vorgeschichte ab.
+
+    In Antworten steht der eigene Text mit im Body („Gerne können wir einen
+    Termin für ein Gespräch vereinbaren. Mit freundlichen Grüßen Jacob
+    Dietzmann"). Ohne Schnitt liest der Erkenner die eigene Formulierung als
+    Einladung des Absenders — real passiert bei zwei StepStone-Antworten.
+    """
+    text = body or ""
+    schnitt = len(text)
+    for muster in _ZITAT:
+        m = re.search(muster, text)
+        if m:
+            schnitt = min(schnitt, m.start())
+    return text[:schnitt]
+
+
+def art_of(subject: str | None, body: str | None) -> str:
+    """Art einer „angenommenen" Mail: ``angebot``, ``einladung``, ``fortschritt`` oder ``""``.
+
+    Absagen und Absage-Floskeln gewinnen immer — „leider können wir Sie nicht zu
+    einem Gespräch einladen" ist keine Einladung.
+    """
+    if classify(subject, body)["absage"]:
+        return ""
+    text = _norm(f"{subject or ''}\n{_ohne_zitat(body)}")
+    if _any(_NEGATION, text):
+        return ""
+    if _any(_ANGEBOT, text):
+        return "angebot"
+    if _any(_EINLADUNG, text):
+        return "einladung"
+    if _any(_APPKONTEXT, text) and _any(_EINLADUNG_SCHWACH + _FORTSCHRITT, text):
+        return "einladung" if _any(_EINLADUNG_SCHWACH, text) else "fortschritt"
+    return ""
+
+
+def positives(mails: list[dict], apps: list[dict]) -> list[dict]:
+    """Einladungen/Zusagen samt Dashboard-Prüfung.
+
+    Jede Mail wird einer Bewerbung zugeordnet (Firma + Titel, ohne Statusfilter —
+    gerade eine falsch stehengebliebene Bewerbung soll auffallen). ``ok`` ist
+    ``True``, wenn das Dashboard „versendet" zeigt (``sent``/``followup``/
+    ``interview``/``rejected``); sonst nennt ``hinweis`` den tatsächlichen Status.
+    ``mail_id`` ist die IMAP-UID des Mailchecks — damit die Mail als gelesen
+    markiert werden kann.
+    """
+    out: list[dict] = []
+    alle = [a for a in apps if not a.get("deleted")]
+    for mail in mails:
+        body = mail.get("body") or mail.get("plaintextBody") or mail.get("snippet") or ""
+        sender = mail.get("from") or mail.get("sender") or ""
+        if any(m in sender.lower() for m in _AUSGENOMMEN):
+            continue
+        art = art_of(mail.get("subject"), body)
+        if not art:
+            continue
+        app, warum = match_mail({**mail, "body": body, "from": sender}, alle,
+                                statuses=None, allow_title_only=False)
+        info = {
+            "mail_id": mail.get("id"),
+            "datum": str(iso_datum(mail.get("date")))[:10],
+            "von": sender,
+            "betreff": mail.get("subject"),
+            "art": art,
+            "zuordnung": warum,
+        }
+        if app is None:
+            out.append({**info, "key": None, "firma": None, "titel": None, "status": None,
+                        "ok": False, "hinweis": "keine passende Bewerbung im Bestand"})
+            continue
+        status = app.get("status") or ""
+        ok = status in POSITIV_STATUS
+        out.append({
+            **info,
+            "key": app.get("key"),
+            "firma": app.get("firma"),
+            "titel": app.get("titel"),
+            "status": status,
+            "ok": ok,
+            "hinweis": "" if ok else f"Dashboard steht auf '{status}' statt 'versendet'",
+        })
+    return out
 
 
 def overlay_from_updates(updates: list[dict],

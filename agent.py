@@ -140,6 +140,10 @@ def main(argv=None) -> int:
     ab.add_argument("--out-result", default=None, dest="out_result",
                     help="Vollständiges Ergebnis als JSON (updates, unklar, positiv) — "
                          "für den Mailcheck, der die Mails danach als gelesen markiert")
+    li = sub.add_parser("leads-import",
+                        help="Leads aus Job-Mails (Firma + Titel) in den manuellen Import aufnehmen")
+    li.add_argument("--file", required=True,
+                    help="JSON-Liste mit firma, titel, ort, quelle (z. B. aus dem Mailcheck)")
     sl = sub.add_parser("shortlist",
                         help="Wochenauswahl: fertige, noch nicht versendete Bewerbungen nach Fit")
     sl.add_argument("--top", type=int, default=8, help="Anzahl (Standard 8)")
@@ -428,6 +432,15 @@ def main(argv=None) -> int:
         elif r["updates"]:
             print("Nichts geschrieben — mit --apply übernehmen.")
 
+
+    elif args.command == "leads-import":
+        import json
+
+        from bewerbungsagent.search.manual import merge_mail_leads
+        leads = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        neu = merge_mail_leads(config.import_path(), leads)
+        print(f"Leads übernommen: {neu} neu, {len(leads) - neu} bekannt oder unvollständig "
+              f"({config.import_path()}).")
 
     elif args.command == "shortlist":
         from bewerbungsagent.auswahl import shortlist

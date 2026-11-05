@@ -101,7 +101,7 @@ def _existing_jobs(config: Config) -> list[dict]:
 # roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
 # von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
-                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo"}
+                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo", manual.MAIL_LEAD}
 
 # Provider, die einen echten Browser brauchen. Sie liegen in eigenen Modulen und
 # erwarten eine **Liste** von Begriffen statt einem einzelnen.
@@ -192,10 +192,16 @@ def run_search(config: Config, profile: Profile,
             seen_identity.add(identity)
         jobs.append(job)
 
-    # 1) Manueller Import (immer, falls Datei vorhanden).
+    # 1) Manueller Import (immer, falls Datei vorhanden). Mail-Leads warten auf
+    #    die Web-Provider (Schritt 3).
+    mail_leads: list[dict] = []
     try:
         for j in manual.search(config.import_path()):
-            if j.get("titel"):
+            if not j.get("titel"):
+                continue
+            if j.get("quelle") == manual.MAIL_LEAD:
+                mail_leads.append(j)
+            else:
                 add(j)
     except Exception as exc:  # pragma: no cover - defensiv
         errors.append(f"manual: {exc}")
@@ -382,6 +388,11 @@ def run_search(config: Config, profile: Profile,
 
         if current is not None:
             _collect(stats, current, len(jobs) - before_jobs, errors[before_errors:])
+
+    # 3) Mail-Leads zuletzt: kennt ein Web-Provider dieselbe Stelle, gewinnt dessen
+    #    Anzeige samt Volltext (``add`` verwirft Doubletten nach Firma + Titel).
+    for j in mail_leads:
+        add(j)
 
     # IDs vergeben.
     for i, job in enumerate(jobs, start=1):

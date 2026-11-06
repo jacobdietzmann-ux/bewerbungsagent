@@ -387,6 +387,7 @@ def auswerten(mails: list[dict], apps: list[dict]) -> dict:
     updates: list[dict] = []
     unklar: list[dict] = []
     keine = 0
+    bereits = 0
     gebucht: set[str] = set()
     positiv = []
     mails = [{**m, "date": iso_datum(m.get("date"))} for m in mails]
@@ -403,6 +404,11 @@ def auswerten(mails: list[dict], apps: list[dict]) -> dict:
             keine += 1
             continue
         app, warum = match_mail(m, [a for a in apps if a.get("key") not in gebucht])
+        if app is None and match_mail(m, apps, statuses=("rejected",))[0] is not None:
+            # Die Absage ist längst gebucht (z. B. manuell nachgezogen): nicht
+            # jeden Tag erneut als Prüffall melden.
+            bereits += 1
+            continue
         if app is not None and app.get("status") == "interview":
             # Nach einem Gespräch nie automatisch umstellen — erst bestätigen.
             unklar.append({"mail_id": m.get("id"), "datum": str(m.get("date") or "")[:10],
@@ -430,7 +436,8 @@ def auswerten(mails: list[dict], apps: list[dict]) -> dict:
             "absage_grund": k["grund"], "absage_talentpool": k["talentpool"],
             "zuordnung": warum, "mail_id": m.get("id"), "betreff": m.get("subject"),
         })
-    return {"updates": updates, "unklar": unklar, "keine_absage": keine}
+    return {"updates": updates, "unklar": unklar, "keine_absage": keine,
+            "schon_erfasst": bereits}
 
 
 def ratio(a: str, b: str) -> float:  # pragma: no cover - Hilfsfunktion für Analysen
@@ -513,7 +520,8 @@ def positives(mails: list[dict], apps: list[dict]) -> list[dict]:
         }
         if app is None:
             out.append({**info, "key": None, "firma": None, "titel": None, "status": None,
-                        "ok": False, "hinweis": "keine passende Bewerbung im Bestand"})
+                        "ok": False,
+                        "hinweis": f"keine passende Bewerbung im Bestand ({warum})"})
             continue
         status = app.get("status") or ""
         ok = status in POSITIV_STATUS

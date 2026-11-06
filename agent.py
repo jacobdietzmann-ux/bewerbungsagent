@@ -406,6 +406,7 @@ def main(argv=None) -> int:
         pos = positives(mails, apps)
         print(f"Mails geprüft: {len(mails)} — Absagen zugeordnet: {len(r['updates'])}, "
               f"unklar: {len(r['unklar'])}, keine Absage: {r['keine_absage']}, "
+              f"schon erfasst: {r.get('schon_erfasst', 0)}, "
               f"Einladungen/Zusagen: {len(pos)}")
         for u in r["updates"]:
             tp = ", Talentpool" if u["absage_talentpool"] else ""

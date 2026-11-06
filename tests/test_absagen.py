@@ -246,3 +246,21 @@ def test_positive_nachricht_mit_rfc_datum_verhindert_absage():
     r = auswerten(mails, apps)
     assert r["updates"] == []
     assert "2026-10-28" in r["unklar"][0]["warum"]
+
+
+def test_bereits_gebuchte_absage_wird_nicht_erneut_als_prueffall_gemeldet():
+    """Nach dem Buchen derselben Absage bleibt die Mail im Scan, ist aber erledigt.
+
+    Real: Quantum-Systems sagte am 04.11. für „Test Automation Engineer" ab; die
+    Bewerbung stand im Bestand noch auf ``docs`` und wurde manuell auf
+    ``rejected`` gezogen. Ohne diesen Zweig meldet der Mailcheck die Mail danach
+    jeden Tag erneut als „unklar".
+    """
+    apps = [_app("qs", "Quantum-Systems GmbH", "Test Automation Engineer (m/f/d)", status="rejected")]
+    mail = _mail("Your application at Quantum-Systems | Test Automation Engineer (m/f/d)",
+                 "Unfortunately, we have to decline your application at this point.",
+                 "ahesse@quantum-systems.com")
+    r = auswerten([mail], apps)
+    assert r["updates"] == []
+    assert r["unklar"] == []
+    assert r["schon_erfasst"] == 1

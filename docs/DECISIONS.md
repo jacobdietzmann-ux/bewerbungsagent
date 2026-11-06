@@ -1598,3 +1598,35 @@ Prozesse beendet, ein neuer gestartet. Live geprüft: Dashboard 200,
 **Testabdeckung.** `tests/test_server_security.py` (11 Tests, startet den
 Server echt), `test_scoring_roles.py` an den 45-%-Software-Deckel angepasst.
 Lokal 173+ Tests grün, inklusive der SQLAlchemy-Suite.
+
+## ADR-050 – Erledigte Absagen und Zwischenmeldungen bleiben im Digest still
+
+**Problem.** Zwei Meldungen aus dem Mailcheck waren nicht falsch, aber
+irreführend. (1) Eine Absage, die manuell auf `rejected` gezogen wurde (real:
+Quantum-Systems „Test Automation Engineer", 04.11.2026), stand danach jeden Tag
+erneut als „unklar" im Bericht — `match_mail` sieht nur *offene* Bewerbungen,
+also fand sie nichts mehr. (2) Fortschritts-Mails („CV an die Fachabteilung
+weitergeleitet") liefen unter der Überschrift „Einladungen / Zusagen" und lasen
+sich wie ein Terminwunsch. Dazu kam bei nicht zugeordneten Mails immer
+„keine passende Bewerbung im Bestand" — der echte Grund („2 offene Bewerbungen
+passen zum Titel", also eine Dublette) war nur im JSON sichtbar.
+
+**Entscheidung.**
+
+1. `auswerten` prüft, bevor es eine Absage als unklar meldet, ob genau diese
+   Firma+Titel bereits `rejected` ist. Dann zählt die Mail als
+   `schon_erfasst` (das Feld stand schon im Docstring, war aber nie
+   implementiert) und verschwindet aus dem Bericht. Der Zähler erscheint in der
+   Kopfzeile von `agent.py absagen`.
+2. `positives(...)` schreibt den Zuordnungsgrund in den Hinweis:
+   „keine passende Bewerbung im Bestand (*warum*)".
+3. Der Hermes-Mailcheck trennt „Fortschritt im Prozess" von „Einladungen /
+   Zusagen" (`art == "fortschritt"`).
+
+**Nicht geändert.** Die Zuordnungsregeln selbst (`titel_passt`,
+`firma_passt`, 80-%-Grenze) bleiben streng: lieber unklar melden als falsch
+buchen. Zwischenmeldungen werden weiterhin gemeldet — sie sind der Hinweis,
+dass der Prozess läuft.
+
+**Betrieb.** Nach dem Buchen von Hand blieben real 2 statt 7 Prüffälle und
+5 Mails als „schon erfasst".

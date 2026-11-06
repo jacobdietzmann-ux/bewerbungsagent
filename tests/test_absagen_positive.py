@@ -27,7 +27,8 @@ ZUSAGE = {
     "date": "Fri, 30 Oct 2026 11:00:00 +0100",
     "from": "Personal <personal@renesas.com>",
     "subject": "Ihre Zusage – Test Automation Engineer (m/w/d)",
-    "body": "Wir freuen uns, Ihnen die Stelle anzubieten. Der Arbeitsvertrag liegt bei.",
+    "body": "Vielen Dank für Ihre Bewerbung. Wir freuen uns, Ihnen die Stelle anzubieten. "
+            "Der Arbeitsvertrag liegt bei.",
 }
 
 EINGANG = {
@@ -69,6 +70,12 @@ class TestArtOf:
         assert art_of("Your application at Quantum-Systems",
                       "you are now one step further in the application process") == "fortschritt"
         assert art_of("Newsletter", "you are now one step further") == ""
+
+    def test_feier_einladung_ist_keine_zusage(self):
+        # „Zusage" ist auch die Antwort auf eine private Einladung (real:
+        # Limonadenfeier, 06.11.2026) — ohne Bewerbungskontext kein Angebot.
+        assert art_of("Limonadenfeier (ehem. Weihnachtsfeier) Einladung 26.11.2026",
+                      "Bitte gebt uns bis 15.11. Bescheid. Zusage oder Absage?") == ""
 
     def test_eingangsbestaetigung_ist_kein_fortschritt(self):
         assert art_of("Application Received – Filics",

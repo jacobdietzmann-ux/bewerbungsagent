@@ -118,9 +118,12 @@ _TALENTPOOL = [r"talent ?pool", r"vormerken", r"in kontakt bleiben", r"stay in t
 # oder Zusage. Beides setzt voraus, dass die Bewerbung tatsächlich raus ist; steht
 # sie im Dashboard noch auf „Unterlagen", ist der Status falsch.
 _ANGEBOT = [
-    r"\bzusage\b", r"vertragsangebot", r"arbeitsvertrag .{0,40}(?:sende|erhalten|zu)",
+    r"vertragsangebot", r"arbeitsvertrag .{0,40}(?:sende|erhalten|zu)",
     r"we are (?:pleased|happy|delighted) to offer", r"offer letter",
 ]
+# „Zusage" allein reicht nicht — das ist auch die Antwort auf eine Feier-Einladung
+# („Limonadenfeier … Einladung 26.11.2026 / Zusage"). Nur mit Bewerbungskontext.
+_ANGEBOT_SCHWACH = [r"\bzusage\b"]
 # Einladungen brauchen eine Gesprächs-/Terminformulierung. Blosse Floskeln
 # („nächste Schritte", „kennenlernen", „Termin") reichen nicht: damit wurden
 # Eingangsbestätigungen, XING-Versandmeldungen und Jobcenter-Videotermine zu
@@ -479,7 +482,7 @@ def art_of(subject: str | None, body: str | None) -> str:
     text = _norm(f"{subject or ''}\n{_ohne_zitat(body)}")
     if _any(_NEGATION, text):
         return ""
-    if _any(_ANGEBOT, text):
+    if _any(_ANGEBOT, text) or (_any(_APPKONTEXT, text) and _any(_ANGEBOT_SCHWACH, text)):
         return "angebot"
     if _any(_EINLADUNG, text):
         return "einladung"

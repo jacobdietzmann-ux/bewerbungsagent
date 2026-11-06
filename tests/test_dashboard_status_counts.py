@@ -64,5 +64,7 @@ def test_zaehler_und_tabelle_nutzen_dieselbe_basis(tmp_path):
     body = html[start:start + 400]
     assert "r.visible !== false" in body
     # Und die Tabelle selbst filtert genauso.
-    tstart = html.index("function renderRows()")
-    assert "r.visible === false" in html[tstart:tstart + 400]
+    # (seit dem Filter-Umbau steckt die Prüfung in rowPasses, das renderRows nutzt).
+    assert "if (!rowPasses(r)) return;" in html[html.index("function renderRows()"):]
+    tstart = html.index("function rowPasses(")
+    assert "r.visible === false" in html[tstart:tstart + 200]

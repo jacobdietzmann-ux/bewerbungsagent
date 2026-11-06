@@ -506,12 +506,43 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
 <title>Bewerbungs-Dashboard — Jacob Dietzmann</title>
+<script>
+  // Theme vor dem ersten Zeichnen setzen (kein Aufblitzen): gespeicherte Wahl,
+  // sonst die Systemeinstellung.
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("bewerbungsagent-theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") {
+      t = (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+    }
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
 <style>
   :root {
     --bg:#0f172a; --panel:#1e293b; --panel-2:#263449; --line:#334155;
     --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8;
     --green:#22c55e; --amber:#f59e0b; --red:#ef4444; --violet:#a78bfa;
+    --info:#93c5fd; --faint:#64748b; --hover:rgba(56,189,248,.06); --shadow:#000a;
+    color-scheme:dark;
   }
+  /* Hell-Modus: folgt dem System, solange der Nutzer nichts gewählt hat
+     (data-theme am <html>); der Schalter im Kopf überschreibt das. */
+  :root[data-theme="light"] {
+    --bg:#f1f5f9; --panel:#ffffff; --panel-2:#e8eef5; --line:#cbd5e1;
+    --text:#0f172a; --muted:#475569; --accent:#0369a1;
+    --green:#15803d; --amber:#b45309; --red:#b91c1c; --violet:#6d28d9;
+    --info:#1d4ed8; --faint:#64748b; --hover:rgba(3,105,161,.07); --shadow:#0003;
+    color-scheme:light;
+  }
+  :root[data-theme="light"] .s-research { color:#334155; }
+  :root[data-theme="light"] .s-docs, :root[data-theme="light"] select.status-select.s-docs { color:#1d4ed8; }
+  :root[data-theme="light"] .s-sent, :root[data-theme="light"] select.status-select.s-sent { color:#6d28d9; }
+  :root[data-theme="light"] .s-followup, :root[data-theme="light"] select.status-select.s-followup { color:#b45309; }
+  :root[data-theme="light"] .s-interview, :root[data-theme="light"] select.status-select.s-interview { color:#15803d; }
+  :root[data-theme="light"] .s-rejected, :root[data-theme="light"] select.status-select.s-rejected { color:#b91c1c; }
+  :root[data-theme="light"] select.status-select.s-research { color:#334155; background:#e2e8f0; }
+  :root[data-theme="light"] .badge-neu { color:#0369a1; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
          background:var(--bg); color:var(--text); padding:14px 16px; }
@@ -528,14 +559,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .kpi .target { font-size:11px; margin-top:4px; }
   .good { color:var(--green); } .warn { color:var(--amber); } .bad { color:var(--red); }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  .dist-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:22px; }
+  .dist-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px 28px; }
   .dist-title { font-size:12px; font-weight:600; color:var(--text); margin-bottom:2px; }
   .dist-sub { font-size:11px; color:var(--muted); margin-bottom:8px; }
   .dist-row { display:flex; align-items:center; gap:8px; font-size:11px; margin-bottom:4px; }
   .dist-label { width:132px; color:var(--muted); flex:none; overflow:hidden;
                 text-overflow:ellipsis; white-space:nowrap; }
   .dist-track { flex:1; background:var(--panel-2); border-radius:5px; overflow:hidden; height:14px; }
-  .dist-fill { height:100%; border-radius:5px; }
+  .dist-fill { height:100%; border-radius:5px; min-width:2px; }
   .dist-num { width:52px; text-align:right; flex:none; color:var(--text); }
   .table-scroll { overflow-x:auto; }
   /* Kompakte Tabelle: pro Stelle möglichst eine Zeile (Titel max. zwei), alle
@@ -550,8 +581,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
        z-index:2; font-size:10.5px; white-space:nowrap; }
   th[data-col] { cursor:pointer; user-select:none; }
   th[data-col]:hover { color:var(--text); }
-  th .arw { color:#64748b; font-size:9px; margin-left:1px; }
-  tbody tr:hover { background:rgba(56,189,248,.06); }
+  th .arw { color:var(--faint); font-size:9px; margin-left:1px; }
+  tbody tr:hover { background:var(--hover); }
   td.center, th.center { text-align:center; }
   /* Geklemmter Text: clip1 = eine Zeile mit Auslassungspunkten, clip2 = zwei.
      Der volle Inhalt steht jeweils im title-Tooltip. */
@@ -578,7 +609,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .link-line { display:inline-flex; align-items:center; gap:4px; }
   select, input[type=text], input[type=date] { background:var(--bg); color:var(--text);
     border:1px solid var(--line); border-radius:8px; padding:5px 7px; font-size:12px; width:100%; }
-  input[type=text]::placeholder { color:#64748b; }
+  input[type=text]::placeholder { color:var(--faint); }
   input[type=date]::-webkit-calendar-picker-indicator { filter:invert(.7); }
   .badge { padding:1px 6px; border-radius:999px; font-size:10.5px; font-weight:600;
            white-space:nowrap; display:inline-block; max-width:100%; overflow:hidden;
@@ -629,7 +660,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
     background:var(--panel-2); color:var(--text); border:1px solid var(--accent);
     padding:12px 18px; border-radius:10px; font-size:13px; line-height:1.5; max-width:80vw;
-    box-shadow:0 8px 30px #000a; opacity:0; pointer-events:none; transition:opacity .25s,transform .25s; z-index:999; }
+    box-shadow:0 8px 30px var(--shadow); opacity:0; pointer-events:none; transition:opacity .25s,transform .25s; z-index:999; }
   #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   #toast code { background:var(--panel); padding:2px 6px; border-radius:5px; word-break:break-all; }
   .tabs { display:flex; gap:4px; margin-bottom:10px; border-bottom:1px solid var(--line); }
@@ -638,6 +669,91 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .tab:hover { color:var(--text); }
   .tab.active { color:var(--text); border-bottom-color:var(--accent); }
   .pane[hidden] { display:none; }
+
+  /* ---- Kopf, Schnellkennzahlen, Filter-Chips ---- */
+  .head-right { display:flex; align-items:center; gap:10px; }
+  button.icon-btn { padding:3px 9px; font-size:14px; line-height:1.3; }
+  .quick { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; margin:6px 0 12px; }
+  .qk { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px;
+        text-align:left; cursor:pointer; display:block; width:100%; color:var(--text); }
+  .qk:hover { border-color:var(--accent); }
+  .qk.on { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+  .qk .q-n { font-size:20px; font-weight:700; line-height:1.2; }
+  .qk .q-l { font-size:11px; color:var(--muted); }
+  .qk.static { cursor:default; }
+  .qk.static:hover { border-color:var(--line); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:0 0 8px; min-height:0; }
+  .chip { display:inline-flex; align-items:center; gap:6px; background:var(--panel-2);
+          border:1px solid var(--accent); color:var(--text); border-radius:999px;
+          padding:2px 4px 2px 10px; font-size:11.5px; }
+  .chip button { background:none; border:none; padding:0 6px; font-size:13px; line-height:1;
+                 color:var(--muted); cursor:pointer; }
+  .chip button:hover { color:var(--red); }
+  .chip-clear { background:none; border:none; color:var(--accent); font-size:11.5px; padding:2px 4px; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .toolbar .grow { max-width:260px; }
+  .toolbar .fitsel { max-width:200px; }
+  .status-toggles { gap:6px; }
+  .status-toggles label.toggle { padding:3px 9px; font-size:11.5px; }
+
+  /* ---- Statistik ---- */
+  .card.pad { padding:14px 16px; }
+  .card-title { font-size:12px; color:var(--text); font-weight:600; margin-bottom:2px; }
+  .card-sub { font-size:11px; color:var(--muted); margin-bottom:10px; }
+  .stats-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-bottom:16px; }
+  .stackbar { display:flex; height:18px; border-radius:6px; overflow:hidden; background:var(--panel-2); margin-bottom:12px; }
+  .stackbar > div { height:100%; cursor:pointer; min-width:2px; }
+  .stage-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; }
+  .stage { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:7px 10px;
+           cursor:pointer; text-align:left; color:var(--text); width:100%; display:block; }
+  .stage:hover, .stage.on { border-color:var(--accent); }
+  .stage .s-top { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+  .stage .dot { width:9px; height:9px; border-radius:2px; display:inline-block; }
+  .stage .s-n { font-size:18px; font-weight:700; }
+  .stage .s-n small { font-size:11px; color:var(--muted); font-weight:400; }
+  .week-chart { display:flex; align-items:flex-end; gap:10px; overflow-x:auto; padding:4px 2px 6px; }
+  .week-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; font-size:11px; color:var(--muted); }
+  .dist-row.click { cursor:pointer; border-radius:5px; }
+  .dist-row.click:hover { background:var(--hover); }
+  .dist-row.on { outline:1px solid var(--accent); }
+  .badge-plain { background:var(--panel-2); color:var(--muted); border:1px solid var(--line); }
+  .badge-info { background:var(--panel-2); color:var(--info); border:1px solid var(--line); }
+  .faint { color:var(--faint); }
+
+  /* ---- Legende ---- */
+  details.legend-box { margin-top:14px; background:var(--panel); border:1px solid var(--line);
+                       border-radius:10px; padding:8px 14px; }
+  details.legend-box summary { cursor:pointer; font-size:12.5px; font-weight:600; color:var(--muted); }
+  details.legend-box[open] summary { color:var(--text); margin-bottom:6px; }
+  details.legend-box .legend { margin-top:6px; }
+
+  /* ---- Schmale Bildschirme: Tabelle wird zu Karten ---- */
+  @media (max-width:980px) {
+    .stats-grid { grid-template-columns:minmax(0,1fr); }
+  }
+  @media (max-width:760px) {
+    body { padding:10px; }
+    .quick { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .qk { padding:6px 9px; }
+    .dist-grid { grid-template-columns:minmax(0,1fr); }
+    .toolbar .grow, .toolbar .fitsel { max-width:none; flex:1 1 100%; }
+    table, tbody, tr, td { display:block; width:100%; }
+    table { min-width:0; }
+    thead, colgroup { display:none; }
+    #table-main tr:not(.desc-row) { padding:10px 12px; border-bottom:1px solid var(--line);
+      display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; }
+    #table-main td { border:none; padding:0; text-align:left; overflow:visible; }
+    #table-main td[data-label]::before { content:attr(data-label); display:block; font-size:9.5px;
+      color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+    #table-main td.center { text-align:left; }
+    #table-main td.c-pos, #table-main td.c-company { grid-column:1 / -1; }
+    #table-main td.c-del { grid-column:1 / -1; text-align:right; }
+    #table-main td.c-pos .pos-title { font-weight:600; }
+    .status-cell, .linkcell { align-items:flex-start; }
+    tr.desc-row { display:block; }
+    tr.desc-row td { padding:0 0 10px; }
+    .table-scroll { overflow-x:visible; }
+  }
 </style>
 </head>
 <body>
@@ -646,8 +762,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <h1>Bewerbungs-Dashboard — Jacob Dietzmann</h1>
       <div class="sub">Live-Tracking · Änderungen werden über den lokalen Server dauerhaft gespeichert</div>
     </div>
-    <div class="sub" id="stamp">Stand: __GENERATED__</div>
+    <div class="head-right">
+      <div class="sub" id="stamp">Stand: __GENERATED__</div>
+      <button class="icon-btn" id="themeBtn" type="button" title="Hell/Dunkel umschalten" aria-label="Hell/Dunkel umschalten">◐</button>
+    </div>
   </header>
+
+  <!-- Immer sichtbar: Kennzahlen zum Anklicken (setzen einen Tabellenfilter). -->
+  <section class="quick" id="quickKpis" aria-label="Schnellübersicht"></section>
 
   <nav class="tabs" role="tablist">
     <button class="tab active" id="tabBtn-table" data-tab="table" role="tab"
@@ -657,23 +779,24 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   </nav>
 
   <section class="pane" id="tab-table" role="tabpanel" aria-labelledby="tabBtn-table">
-    <div class="toolbar" style="margin-top:0" id="statusToggles"></div>
+    <div class="toolbar status-toggles" style="margin-top:0" id="statusToggles"></div>
     <div class="toolbar">
-      <input type="text" id="searchBox" placeholder="Suche: Firma, Position, Branche …" style="max-width:260px" />
-      <select id="fitFilter" style="max-width:200px">
+      <input type="text" id="searchBox" class="grow" placeholder="Suche: Firma, Position, Branche …" />
+      <select id="fitFilter" class="fitsel">
         <option value="0">Alle Profil-Fits</option>
         <option value="50">Nur ≥ 50 % (mittel+)</option>
         <option value="65">Nur ≥ 65 % (gelb+)</option>
         <option value="80">Nur ≥ 80 % (grün)</option>
       </select>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
+      <label class="chk">
         <input type="checkbox" id="neuFilter" /> Nur neu gefundene
       </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap">
+      <label class="chk">
         <input type="checkbox" id="followupFilter" /> Nur Nachfassen fällig
       </label>
       <span id="neuInfo" class="sub" style="font-size:11px"></span>
     </div>
+    <div class="chips" id="activeFilters" aria-label="Aktive Filter"></div>
 
     <div class="card">
       <div class="table-scroll">
@@ -718,6 +841,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button id="export">Als JSON exportieren</button>
     </div>
 
+    <details class="legend-box" id="legendBox">
+    <summary>Legende &amp; Hilfe</summary>
     <div class="legend">
       <strong>Status-Workflow:</strong>
       <code>Dokumente erstellt</code> → <code>Versendet</code> → <code>Follow-up</code> → <code>Interview</code> · Endstatus <code>Abgelehnt/Abgelaufen</code><br>
@@ -731,26 +856,32 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <strong>Nachfassen:</strong> <span style="color:#f59e0b">⏰ Nachfassen fällig</span> erscheint bei versendeten Bewerbungen ohne Reaktion seit ≥ __FOLLOWUP_DAYS__ Tagen (Filter oben). Die Nachfrage-Texte erzeugt <code>python agent.py followup --write</code>; versendet wird nichts automatisch.<br>
       <strong>Status ändern:</strong> Direkt über das Dropdown in der Status-Spalte. Änderungen werden an den lokalen Server gesendet und in <code>data/state.json</code> gespeichert (Start über <code>dashboard-oeffnen.sh</code>).<br>
       <strong>Ordner öffnen:</strong> Öffnet den Bewerbungsordner (01_Bewerbungen bzw. 04_Agent/output) im Dateimanager, sofern das Dashboard über den Server läuft.<br>
-      <strong>Aktion (🗑):</strong> Entfernt den Eintrag aus dem Dashboard (nach Bestätigung); rückgängig nur über „Auf Standard zurücksetzen".
+      <strong>Aktion (🗑):</strong> Entfernt den Eintrag aus dem Dashboard (nach Bestätigung); rückgängig nur über „Auf Standard zurücksetzen".<br>
+      <strong>Klickbare Statistik:</strong> Kacheln oben, Status-Kacheln und Balken im Reiter „Statistik &amp; Diagramme" setzen einen Filter auf die Tabelle; er erscheint als Chip über der Tabelle und lässt sich dort wieder entfernen.
     </div>
+    </details>
   </section>
 
   <section class="pane" id="tab-stats" role="tabpanel" aria-labelledby="tabBtn-stats" hidden>
     <section class="kpis" id="kpis"></section>
 
-    <section class="card" style="padding:14px 16px;margin-bottom:16px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Status-Verteilung</div>
-      <div id="statusChart" style="display:flex;flex-direction:column;gap:6px"></div>
-    </section>
+    <div class="stats-grid">
+      <section class="card pad">
+        <div class="card-title">Status-Verteilung</div>
+        <div class="card-sub">Klick auf eine Kachel filtert die Tabelle</div>
+        <div id="statusChart"></div>
+      </section>
 
-    <section class="card" style="padding:14px 16px;margin-bottom:16px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Bewerbungsaktivität im Wochenverlauf</div>
-      <div id="timeChart" style="display:flex;align-items:flex-end;gap:12px;overflow-x:auto;padding:4px 2px 6px"></div>
-      <div id="timeChartLegend" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:11px;color:var(--muted)"></div>
-    </section>
+      <section class="card pad">
+        <div class="card-title">Bewerbungsaktivität im Wochenverlauf</div>
+        <div class="card-sub">Stellen pro Kalenderwoche, nach aktuellem Status</div>
+        <div class="week-chart" id="timeChart"></div>
+        <div class="week-legend" id="timeChartLegend"></div>
+      </section>
+    </div>
 
-    <section class="card" style="padding:14px 16px">
-      <div style="font-size:12px;color:var(--text);font-weight:600;margin-bottom:2px">Häufigkeitsverteilungen</div>
+    <section class="card pad">
+      <div class="card-title">Häufigkeitsverteilungen</div>
       <div class="dist-sub" id="distBasis"></div>
       <div class="dist-grid">
         <div>
@@ -985,7 +1116,7 @@ function qualityBadge(q) {
     title="Qualitätsprüfung ${symbol} ${q.n} Befund(e): ${esc((q.befunde || []).join(' · '))}">${symbol}${q.n}</span>`;
 }
 function salaryBadge(s, source) {
-  if (!s) return '<span style="color:#64748b">k. A.</span>';
+  if (!s) return '<span class="faint">k. A.</span>';
   const raw = String(s).trim();
   const title = raw + (source === "Schätzung" ? " (geschätzt, keine Angabe in der Anzeige)" : (source ? ` (${source})` : ""));
   // Lange Schreibweisen ("EUR 60,000 - 80,000") auf "60–80 T€" kürzen, damit
@@ -1003,7 +1134,7 @@ function salaryBadge(s, source) {
       if (v >= 1000) label = `${Math.round(v / 1000)} T€`;
     }
   }
-  return `<span class="badge" title="${esc(title)}" style="background:#1e293b;color:#94a3b8;border:1px solid #334155">${esc(label)}</span>`;
+  return `<span class="badge badge-plain" title="${esc(title)}">${esc(label)}</span>`;
 }
 function homeofficeBadge(h) {
   // Die Anzeigen liefern dutzende Schreibweisen ("Home Office in Absprache
@@ -1013,10 +1144,10 @@ function homeofficeBadge(h) {
   if (!raw || /^(k\.\s?a\.?|unbekannt)$/i.test(raw)) {
     return '<span class="micro" title="Homeoffice: keine Angabe">?</span>';
   }
-  let label, style = "background:#1e293b;color:#93c5fd;border:1px solid #334155";
+  let label, tone = "badge-info";
   if (/vor ort/i.test(raw)) {
     label = "vor Ort";
-    style = "background:#1e293b;color:#94a3b8;border:1px solid #334155";
+    tone = "badge-plain";
   } else if (/hybrid|anteilig|teilweise|tw\.|bis \d/i.test(raw)) {
     label = "Hybrid";
   } else if (/remote/i.test(raw)) {
@@ -1026,13 +1157,13 @@ function homeofficeBadge(h) {
   } else {
     label = raw.length > 9 ? raw.slice(0, 8) + "…" : raw;
   }
-  return `<span class="badge" title="${esc(raw)}" style="${style}">${esc(label)}</span>`;
+  return `<span class="badge ${tone}" title="${esc(raw)}">${esc(label)}</span>`;
 }
 function commuteBadge(r) {
   if (r.commuteMode === "Remote") {
-    return '<span class="badge" style="background:#1e293b;color:#93c5fd;border:1px solid #334155">Remote</span>';
+    return '<span class="badge badge-info">Remote</span>';
   }
-  if (r.commute == null) return '<span style="color:#64748b">k. A.</span>';
+  if (r.commute == null) return '<span class="faint">k. A.</span>';
   const c = +r.commute;
   const ratio = c / COMMUTE_LIMIT;
   // Farbe nach Restluft bis zur Grenze: je weniger Puffer, desto wärmer.
@@ -1054,7 +1185,7 @@ function commuteBadge(r) {
   return `<span class="badge" title="${esc(title)}" style="background:${bg};color:${color};border:1px solid ${color}55">${c} min</span>`;
 }
 function linkBadge(r) {
-  if (!r.link) return '<span style="color:#64748b">–</span>';
+  if (!r.link) return '<span class="faint">–</span>';
   // ``referrerpolicy="no-referrer"`` zusätzlich zu ``rel="noreferrer"``:
   // StepStone (und andere Portale mit WAF) brechen die Verbindung ab
   // (ERR_HTTP2_PROTOCOL_ERROR), wenn der Referer eine lokale Adresse ist — das
@@ -1096,7 +1227,7 @@ function statusMicro(r) {
 }
 // Datum in der Tabelle zwei(!)-stellig kürzen, das Jahr ist immer dasselbe.
 function shortDate(d) {
-  if (!d) return '<span style="color:#64748b">k. A.</span>';
+  if (!d) return '<span class="faint">k. A.</span>';
   const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(d).trim());
   return m ? `${m[1]}.${m[2]}.${m[3].slice(2)}` : String(d);
 }
@@ -1147,6 +1278,7 @@ function renderKpis() {
       <div class="value ${k.c}">${k.value}</div>
       <div class="target ${k.c}">${k.target}</div>
     </div>`).join("");
+  renderQuick();
   renderStatusChart();
   renderTimeChart();
   renderDistributions();
@@ -1171,20 +1303,164 @@ const HOME_COLORS = {
   "Vor Ort": "#f59e0b", "Unbekannt": "#64748b",
 };
 
-// Baut eine Balkenliste. ``items`` = [{label, n, color}], sortiert wie übergeben.
-function renderDistBars(elId, items) {
+// ---- Filter, die aus der Statistik kommen --------------------------------
+// ``ext`` hält je Dimension den gewählten Wert (oder null). Die Tabelle wertet
+// diese zusätzlich zu Suche/Fit/Neu/Nachfassen aus; Chips über der Tabelle zeigen
+// sie an und entfernen sie wieder.
+const ext = { status:null, homeoffice:null, commute:null, fit:null, company:null };
+const EXT_LABEL = { status:"Status", homeoffice:"Homeoffice", commute:"Fahrzeit", fit:"Fit", company:"Firma" };
+const ACTIVE_STATUSES = ["sent", "followup", "interview"];
+
+function visibleRows() {
+  return state.filter(r => !r.deleted && r.visible !== false);
+}
+function commuteBin(r) {
+  const v = r.commute;
+  if (v == null || v === "" || isNaN(+v)) return 4;
+  const m = +v;
+  if (m <= 15) return 0;
+  if (m <= 24) return 1;
+  if (m <= COMMUTE_LIMIT) return 2;
+  return 3;
+}
+function fitBin(r) {
+  if (r.fit == null || r.fit === "" || isNaN(+r.fit)) return 4;
+  const f = +r.fit;
+  return f >= 80 ? 0 : (f >= 65 ? 1 : (f >= 50 ? 2 : 3));
+}
+function companyKey(r) {
+  return (r.company || "").trim() || "(ohne Firma)";
+}
+function rowPasses(r) {
+  if (r.deleted || r.visible === false) return false;
+  // Ein aus der Statistik gewählter Status überstimmt die Ein-/Ausblend-Schalter,
+  // sonst bliebe „Absagen" anklicken bei ausgeblendeten Absagen leer.
+  if (ext.status) {
+    const ok = ext.status === "aktiv" ? ACTIVE_STATUSES.includes(r.status) : r.status === ext.status;
+    if (!ok) return false;
+  } else if (hiddenStatuses.has(r.status)) return false;
+  const minFit = +(document.getElementById("fitFilter")?.value || 0);
+  if (minFit && (+r.fit || 0) < minFit) return false;
+  if (document.getElementById("neuFilter")?.checked && !r.neuImLauf) return false;
+  if (document.getElementById("followupFilter")?.checked && !r.followupDue) return false;
+  const q = (document.getElementById("searchBox")?.value || "").trim().toLowerCase();
+  if (q) {
+    const hay = `${r.company} ${r.position} ${r.branch} ${r.location}`.toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  if (ext.homeoffice && homeofficeCategory(r.homeoffice) !== ext.homeoffice) return false;
+  if (ext.commute != null && commuteBin(r) !== +ext.commute) return false;
+  if (ext.fit != null && fitBin(r) !== +ext.fit) return false;
+  if (ext.company && companyKey(r) !== ext.company) return false;
+  return true;
+}
+
+const COMMUTE_LABELS = () => ["≤ 15 min", "16–24 min", `25–${COMMUTE_LIMIT} min`, `> ${COMMUTE_LIMIT} min`, "unbekannt"];
+const FIT_LABELS = ["80–100 %", "65–79 %", "50–64 %", "< 50 %", "unbekannt"];
+
+function extValueLabel(dim, v) {
+  if (dim === "status") return v === "aktiv" ? "Aktiv im Prozess" : (STATUS[v] ? STATUS[v].label : v);
+  if (dim === "commute") return COMMUTE_LABELS()[+v];
+  if (dim === "fit") return FIT_LABELS[+v];
+  return v;
+}
+
+function renderChips() {
+  const el = document.getElementById("activeFilters");
+  if (!el) return;
+  const chips = [];
+  Object.keys(ext).forEach(k => {
+    if (ext[k] != null && ext[k] !== "") {
+      chips.push({ key:k, text:`${EXT_LABEL[k]}: ${extValueLabel(k, ext[k])}` });
+    }
+  });
+  if (document.getElementById("neuFilter")?.checked) chips.push({ key:"neu", text:"Nur neu gefundene" });
+  if (document.getElementById("followupFilter")?.checked) chips.push({ key:"followup", text:"Nachfassen fällig" });
+  const minFit = +(document.getElementById("fitFilter")?.value || 0);
+  if (minFit) chips.push({ key:"minfit", text:`Fit ≥ ${minFit} %` });
+  const q = (document.getElementById("searchBox")?.value || "").trim();
+  if (q) chips.push({ key:"search", text:`Suche: „${q}"` });
+  el.innerHTML = chips.length
+    ? chips.map(c => `<span class="chip">${esc(c.text)}<button type="button" data-clear="${c.key}" aria-label="Filter entfernen" title="Filter entfernen">×</button></span>`).join("")
+      + (chips.length > 1 ? '<button type="button" class="chip-clear" data-clear="all">Alle zurücksetzen</button>' : "")
+    : "";
+}
+function clearFilter(key) {
+  const all = key === "all";
+  Object.keys(ext).forEach(k => { if (all || k === key) ext[k] = null; });
+  if (all || key === "neu") document.getElementById("neuFilter").checked = false;
+  if (all || key === "followup") document.getElementById("followupFilter").checked = false;
+  if (all || key === "minfit") document.getElementById("fitFilter").value = "0";
+  if (all || key === "search") document.getElementById("searchBox").value = "";
+  refreshAllViews();
+}
+// Setzt (oder löscht bei erneutem Klick) einen Filter und springt zur Tabelle.
+function applyFilter(dim, value, toTable) {
+  if (dim === "neu" || dim === "followup") {
+    const box = document.getElementById(dim === "neu" ? "neuFilter" : "followupFilter");
+    box.checked = !box.checked;
+  } else {
+    ext[dim] = (String(ext[dim]) === String(value)) ? null : value;
+  }
+  if (toTable) activateTab("table");
+  refreshAllViews();
+}
+document.getElementById("activeFilters").addEventListener("click", e => {
+  const b = e.target.closest("[data-clear]");
+  if (b) clearFilter(b.dataset.clear);
+});
+
+// Delegation für alles Anklickbare in Kennzahlen und Statistik.
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-fdim]");
+  if (!t) return;
+  applyFilter(t.dataset.fdim, t.dataset.fval, true);
+});
+
+// ---- Schnellkennzahlen (immer sichtbar) -------------------------------------
+function renderQuick() {
+  const el = document.getElementById("quickKpis");
+  if (!el) return;
+  const rows = visibleRows();
+  const count = f => rows.filter(f).length;
+  const neu = count(r => r.neuImLauf);
+  const aktiv = count(r => ACTIVE_STATUSES.includes(r.status));
+  const due = count(r => r.followupDue);
+  const iv = count(r => r.status === "interview");
+  const rej = count(r => r.status === "rejected");
+  const neuOn = document.getElementById("neuFilter")?.checked;
+  const dueOn = document.getElementById("followupFilter")?.checked;
+  const item = (n, label, dim, val, on, tone) => `
+    <button type="button" class="qk${on ? " on" : ""}" data-fdim="${dim}" data-fval="${val}" title="Tabelle auf „${esc(label)}" filtern">
+      <div class="q-n ${tone || ""}">${n}</div><div class="q-l">${label}</div>
+    </button>`;
+  el.innerHTML =
+    `<div class="qk static"><div class="q-n">${rows.length}</div><div class="q-l">Stellen in der Tabelle</div></div>`
+    + item(neu, "Neu gefunden", "neu", "1", neuOn, neu ? "" : "faint")
+    + item(aktiv, "Aktiv im Prozess", "status", "aktiv", ext.status === "aktiv")
+    + item(due, "Nachfassen fällig", "followup", "1", dueOn, due ? "warn" : "good")
+    + item(iv, "Interviews", "status", "interview", ext.status === "interview", iv ? "good" : "")
+    + item(rej, "Absagen", "status", "rejected", ext.status === "rejected", "");
+}
+
+// Baut eine Balkenliste. ``items`` = [{label, n, color, key}]; die Balkenlänge ist
+// der Anteil an der Grundmenge (nicht am größten Balken), damit 5 von 100 auch
+// nach 5 % aussieht. Mit ``dim`` sind die Zeilen anklickbar und filtern die Tabelle.
+function renderDistBars(elId, items, dim, total) {
   const el = document.getElementById(elId);
   if (!el) return;
-  const max = Math.max(1, ...items.map(i => i.n));
-  const total = items.reduce((a, i) => a + i.n, 0) || 1;
+  total = total || items.reduce((a, i) => a + i.n, 0) || 1;
   el.innerHTML = items.map(i => {
-    const w = Math.round((i.n / max) * 100);
     const share = Math.round((i.n / total) * 100);
+    const w = Math.max(0, Math.min(100, (i.n / total) * 100));
+    const clickable = dim && i.key != null && i.n > 0;
+    const on = dim && i.key != null && String(ext[dim]) === String(i.key);
+    const attrs = clickable ? ` data-fdim="${dim}" data-fval="${esc(i.key)}"` : "";
     return `
-      <div class="dist-row" title="${esc(i.label)}: ${i.n} (${share}%)">
+      <div class="dist-row${clickable ? " click" : ""}${on ? " on" : ""}"${attrs} title="${esc(i.label)}: ${i.n} (${share}%)${clickable ? " — Klick filtert die Tabelle" : ""}">
         <div class="dist-label" title="${esc(i.label)}">${esc(i.label)}</div>
         <div class="dist-track"><div class="dist-fill" style="width:${w}%;background:${i.color}"></div></div>
-        <div class="dist-num">${i.n} <span style="color:#64748b">· ${share}%</span></div>
+        <div class="dist-num">${i.n} <span class="faint">· ${share}%</span></div>
       </div>`;
   }).join("") || '<div class="dist-sub">Keine Daten.</div>';
 }
@@ -1193,8 +1469,9 @@ function renderDistributions() {
   // Gleiche Grundmenge wie die Status-Verteilung: sichtbare Zeilen, damit die
   // Zahlen untereinander konsistent sind.
   const rows = state.filter(r => !r.deleted && r.visible !== false);
+  const total = rows.length;
   const basisEl = document.getElementById("distBasis");
-  if (basisEl) basisEl.textContent = `Grundmenge: ${rows.length} Stellen (wie Status-Verteilung)`;
+  if (basisEl) basisEl.textContent = `Grundmenge: ${total} Stellen (wie Status-Verteilung) · Balken = Anteil an der Grundmenge`;
 
   // 1) Homeoffice
   const homeCounts = {};
@@ -1203,58 +1480,33 @@ function renderDistributions() {
     homeCounts[c] = (homeCounts[c] || 0) + 1;
   });
   renderDistBars("distHomeoffice", HOME_ORDER.map(k => ({
-    label: k, n: homeCounts[k] || 0, color: HOME_COLORS[k],
-  })));
+    label: k, key: k, n: homeCounts[k] || 0, color: HOME_COLORS[k],
+  })), "homeoffice", total);
 
   // 2) Fahrzeit — Bins um die konfigurierte Grenze herum
-  const limit = COMMUTE_LIMIT;
-  const bins = [
-    { label: "≤ 15 min", n: 0, color: "#22c55e" },
-    { label: "16–24 min", n: 0, color: "#84cc16" },
-    { label: `25–${limit} min`, n: 0, color: "#f59e0b" },
-    { label: `> ${limit} min`, n: 0, color: "#f97316" },
-    { label: "unbekannt", n: 0, color: "#64748b" },
-  ];
-  rows.forEach(r => {
-    const v = r.commute;
-    if (v == null || v === "" || isNaN(+v)) { bins[4].n++; return; }
-    const m = +v;
-    if (m <= 15) bins[0].n++;
-    else if (m <= 24) bins[1].n++;
-    else if (m <= limit) bins[2].n++;
-    else bins[3].n++;
-  });
-  renderDistBars("distCommute", bins);
+  const cLabels = COMMUTE_LABELS();
+  const cColors = ["#22c55e", "#84cc16", "#f59e0b", "#f97316", "#64748b"];
+  const bins = cLabels.map((label, k) => ({ label, key:k, n:0, color:cColors[k] }));
+  rows.forEach(r => { bins[commuteBin(r)].n++; });
+  renderDistBars("distCommute", bins, "commute", total);
 
   // 3) Profil-Fit
-  const fitBins = [
-    { label: "80–100 %", n: 0, color: "#22c55e" },
-    { label: "65–79 %", n: 0, color: "#f59e0b" },
-    { label: "50–64 %", n: 0, color: "#f97316" },
-    { label: "< 50 %", n: 0, color: "#ef4444" },
-    { label: "unbekannt", n: 0, color: "#64748b" },
-  ];
-  rows.forEach(r => {
-    if (r.fit == null || r.fit === "" || isNaN(+r.fit)) { fitBins[4].n++; return; }
-    const f = +r.fit;
-    if (f >= 80) fitBins[0].n++;
-    else if (f >= 65) fitBins[1].n++;
-    else if (f >= 50) fitBins[2].n++;
-    else fitBins[3].n++;
-  });
-  renderDistBars("distFit", fitBins);
+  const fColors = ["#22c55e", "#f59e0b", "#f97316", "#ef4444", "#64748b"];
+  const fitBins = FIT_LABELS.map((label, k) => ({ label, key:k, n:0, color:fColors[k] }));
+  rows.forEach(r => { fitBins[fitBin(r)].n++; });
+  renderDistBars("distFit", fitBins, "fit", total);
 
   // 4) Unternehmen — Top 10, Rest zusammengefasst
   const companyCounts = {};
   rows.forEach(r => {
-    const c = (r.company || "").trim() || "(ohne Firma)";
+    const c = companyKey(r);
     companyCounts[c] = (companyCounts[c] || 0) + 1;
   });
   const sorted = Object.entries(companyCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  const top = sorted.slice(0, 10).map(([label, n]) => ({ label, n, color: "#38bdf8" }));
+  const top = sorted.slice(0, 10).map(([label, n]) => ({ label, key:label, n, color: "#38bdf8" }));
   const restN = sorted.slice(10).reduce((a, [, n]) => a + n, 0);
   if (restN) top.push({ label: `weitere (${sorted.length - 10})`, n: restN, color: "#475569" });
-  renderDistBars("distCompany", top);
+  renderDistBars("distCompany", top, "company", total);
   const sub = document.getElementById("distCompanySub");
   if (sub) sub.textContent = `${sorted.length} Unternehmen im Bestand, Top 10 gezeigt`;
 }
@@ -1267,18 +1519,16 @@ function renderStatusChart() {
   // Unterlagen sichtbar sind, können das Research-Zeilen sein.
   const rows = state.filter(r => !r.deleted && r.visible !== false);
   const total = rows.length || 1;
-  el.innerHTML = SHOWN_STATUSES.map(s => {
-    const n = rows.filter(r => r.status === s).length;
-    const w = Math.round((n / total) * 100);
-    return `
-      <div style="display:flex;align-items:center;gap:10px;font-size:12px">
-        <div style="width:120px;color:var(--muted)">${STATUS[s].label}</div>
-        <div style="flex:1;background:var(--panel-2);border-radius:6px;overflow:hidden;height:16px">
-          <div style="width:${w}%;background:${STATUS[s].color};height:100%"></div>
-        </div>
-        <div style="width:36px;text-align:right">${n}</div>
-      </div>`;
-  }).join("");
+  const counts = SHOWN_STATUSES.map(s => rows.filter(r => r.status === s).length);
+  const bar = SHOWN_STATUSES.map((s, k) => counts[k]
+    ? `<div data-fdim="status" data-fval="${s}" title="${STATUS[s].label}: ${counts[k]}" style="width:${(counts[k] / total) * 100}%;background:${STATUS[s].color}"></div>`
+    : "").join("");
+  const tiles = SHOWN_STATUSES.map((s, k) => `
+    <button type="button" class="stage${ext.status === s ? " on" : ""}" data-fdim="status" data-fval="${s}" title="Tabelle auf „${STATUS[s].label}" filtern">
+      <div class="s-top"><span class="dot" style="background:${STATUS[s].color}"></span>${STATUS[s].label}</div>
+      <div class="s-n">${counts[k]} <small>· ${pct(counts[k], total)} %</small></div>
+    </button>`).join("");
+  el.innerHTML = `<div class="stackbar" aria-hidden="true">${bar}</div><div class="stage-grid">${tiles}</div>`;
 }
 
 function mondayOf(ts) {
@@ -1315,7 +1565,7 @@ function renderTimeChart() {
     if (b) b.counts[r.status]++;
   });
   const maxTotal = Math.max(1, ...buckets.map(b => SHOWN_STATUSES.reduce((a,s) => a + b.counts[s], 0)));
-  const scale = 120 / maxTotal;
+  const scale = 84 / maxTotal;
 
   el.innerHTML = buckets.map(b => {
     const total = SHOWN_STATUSES.reduce((a,s) => a + b.counts[s], 0);
@@ -1345,19 +1595,9 @@ function renderTimeChart() {
 function renderRows() {
   const tb = document.getElementById("rows");
   tb.innerHTML = "";
-  const q = (document.getElementById("searchBox")?.value || "").trim().toLowerCase();
-  const minFit = +(document.getElementById("fitFilter")?.value || 0);
+  renderChips();
   state.forEach((r, i) => {
-    if (r.deleted) return;
-    if (r.visible === false) return;
-    if (hiddenStatuses.has(r.status)) return;
-    if (minFit && (+r.fit || 0) < minFit) return;
-    if (document.getElementById("neuFilter")?.checked && !r.neuImLauf) return;
-    if (document.getElementById("followupFilter")?.checked && !r.followupDue) return;
-    if (q) {
-      const hay = `${r.company} ${r.position} ${r.branch} ${r.location}`.toLowerCase();
-      if (!hay.includes(q)) return;
-    }
+    if (!rowPasses(r)) return;
     const tr = document.createElement("tr");
     if (r.neuImLauf) tr.className = "ist-neu";
     const statusOpts = ORDER.map(s =>
@@ -1380,31 +1620,31 @@ function renderRows() {
             : "")
       : "";
     tr.innerHTML = `
-      <td><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span></td>
-      <td>
+      <td class="c-company" data-label="Unternehmen"><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span></td>
+      <td class="c-pos" data-label="Position">
         <div class="pos-line">
           <span class="pos-title clip2" title="${esc(r.position)}">${esc(r.position)}</span>
           <span class="pos-tags">${r.verfuegbar === false ? '<span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.neuImLauf ? '<span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu</span>' : ''}${(r.matched && r.matched.length) ? `<span class="micro" title="Treffer im Profil: ${esc(r.matched.join(", "))}">✓${r.matched.length}</span>` : ""}${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false" title="Stellenbeschreibung ein-/ausblenden">Text ▾</button>` : ""}</span>
         </div>
       </td>
-      <td><span class="clip1" title="${esc(r.branch || "k. A.")}">${esc(r.branch || "k. A.")}</span></td>
-      <td><span class="clip2" title="${esc(r.location || "k. A.")}">${esc(r.location || "k. A.")}</span></td>
-      <td class="center">${homeofficeBadge(r.homeoffice)}</td>
-      <td class="center">${commuteBadge(r)}</td>
-      <td class="center"><span title="Gefunden am ${esc(r.date || "unbekannt")}">${shortDate(r.date)}</span></td>
-      <td class="center">
+      <td data-label="Branche"><span class="clip1" title="${esc(r.branch || "k. A.")}">${esc(r.branch || "k. A.")}</span></td>
+      <td data-label="Ort"><span class="clip2" title="${esc(r.location || "k. A.")}">${esc(r.location || "k. A.")}</span></td>
+      <td class="center" data-label="Homeoffice">${homeofficeBadge(r.homeoffice)}</td>
+      <td class="center" data-label="Pendelweg">${commuteBadge(r)}</td>
+      <td class="center" data-label="Gefunden"><span title="Gefunden am ${esc(r.date || "unbekannt")}">${shortDate(r.date)}</span></td>
+      <td class="center" data-label="Status">
         <div class="status-cell">
           <select class="status-select ${STATUS[r.status].cls}" autocomplete="off" data-i="${i}" data-k="status" title="Status ändern">${statusOpts}</select>
           ${statusMicro(r)}
           ${(r.status === "interview" || r.status === "followup") ? `<input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)">` : ""}
         </div>
       </td>
-      <td class="center"><span class="clip1">${fitBadge(r.fit)} ${dimBadge(r.dim)}</span></td>
-      <td class="center">${salaryBadge(r.salary, r.salarySource)}</td>
-      <td class="center">
+      <td class="center" data-label="Fit"><span class="clip1">${fitBadge(r.fit)} ${dimBadge(r.dim)}</span></td>
+      <td class="center" data-label="Gehalt">${salaryBadge(r.salary, r.salarySource)}</td>
+      <td class="center" data-label="Links">
         <div class="linkcell">${linkBadge(r)}${folderLink ? `<span class="link-line">${folderLink}${qualityBadge(r.quality)}</span>` : ""}</div>
       </td>
-      <td class="center"><button class="row-delete" data-i="${i}" title="Eintrag aus dem Dashboard entfernen">🗑</button></td>
+      <td class="center c-del"><button class="row-delete" data-i="${i}" title="Eintrag aus dem Dashboard entfernen">🗑</button></td>
     `;
     tb.appendChild(tr);
 
@@ -1650,7 +1890,15 @@ statusTogglesEl.querySelectorAll("input[type=checkbox]").forEach(box => {
 
 document.getElementById("searchBox").addEventListener("input", renderRows);
 document.getElementById("fitFilter").addEventListener("change", renderRows);
-document.getElementById("neuFilter").addEventListener("change", renderRows);
+document.getElementById("neuFilter").addEventListener("change", refreshAllViews);
+document.getElementById("followupFilter").addEventListener("change", refreshAllViews);
+
+// Hell/Dunkel: Wahl merken, sonst gilt die Systemeinstellung (siehe <head>).
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("bewerbungsagent-theme", next); } catch (e) {}
+});
 
 function updateNeuInfo() {
   const el = document.getElementById("neuInfo");

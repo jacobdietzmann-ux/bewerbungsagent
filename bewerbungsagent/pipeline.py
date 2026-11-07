@@ -10,7 +10,10 @@ from .auswahl import (
     DEFAULT_COMMUTE_GRACE_MIN,
     DEFAULT_MAX_AUTO_PER_WEEK,
     DEFAULT_MAX_OFFEN_PRO_FIRMA,
+    TEXT_NACHLADEN_TAGE,
     apply_limits,
+    juenger_als,
+    rollentreffer_ohne_text,
     within_commute_grace,
 )
 from .commute import (
@@ -37,6 +40,7 @@ from .profile import Profile, normalize
 from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
 from .quality import check_application
 from .salary import enrich_salary
+from .search import resolve_mail_leads
 from .search import run_search as _search
 from .statuses import normalize_status
 from .storage import load_json, now_iso, save_json
@@ -107,6 +111,9 @@ def load_config_and_profile(config_path: Path | None = None):
 
 
 def _job_key(job: dict) -> str:
+    # Ein Mail-Lead behält nach dem Finden der URL seinen Bestandsschlüssel.
+    if job.get("bestand_key"):
+        return job["bestand_key"]
     url = normalize(job.get("url", ""))
     if url:
         return url
@@ -309,6 +316,9 @@ def run_searches(config: Config, profile: Profile) -> dict:
     definitionen = _tageslauf_definitionen(config)
     bestand = store.load_state()
     bekannt = _bekannt_kwargs(bestand)
+    # Vor der Suche: Gefundene URLs laufen im selben Tageslauf durch Fetch und Match.
+    leads = resolve_mail_leads(config, health)
+    fehler.extend(leads["fehler"])
     for name, definition in definitionen:
         jobs, errs, tri = _search(config, profile, definition, health=health, stats=stats,
                                   **bekannt)
@@ -327,17 +337,45 @@ def run_searches(config: Config, profile: Profile) -> dict:
     health = record(health, stats, now=now_iso(), max_failures=max_failures)
     store.set_meta("provider_health", health)
 
+    gefunden = len(alle)
+    alle.extend(_textluecken(bestand, alle))
     for i, job in enumerate(alle, start=1):
         job["id"] = i
     alle = _preserve_descriptions(alle, bestand)
     save_json(config.jobs_path(), alle)
     context = _enrich_job_context(config, alle)
     return {
-        "count": len(alle), "errors": fehler, "path": str(config.jobs_path()),
+        "count": gefunden, "errors": fehler, "path": str(config.jobs_path()),
         "context": context, "triage_rejected": triage,
         "provider_stats": stats, "provider_health": health,
         "searches": [name for name, _ in definitionen],
+        "textluecken": len(alle) - gefunden, "leads": leads,
     }
+
+
+def _textluecken(state: dict, jobs: list[dict]) -> list[dict]:
+    """Bestandsstellen ohne Text, die der nächste ``fetch`` noch retten kann.
+
+    ``fetch`` und ``match`` arbeiten nur auf ``jobs.json``, also auf dem letzten
+    Suchlauf. Eine Stelle, die dort fehlt, behielt ihren Titel-Fit für immer: Von
+    29 ausgeblendeten Rollentreffern mit URL standen am 07.11.2026 nur einer in
+    ``jobs.json``, 21 lieferten beim Direktaufruf noch Text, einer davon mit 100 %.
+    Sie laufen deshalb einmal mit, bis Text da ist oder die Anzeige als abgelaufen
+    gilt. Nutzerentscheidungen und abgeschlossene Vorgänge bleiben unberührt.
+    """
+    vorhanden = {_job_key(j) for j in jobs}
+    luecken = []
+    for app in state.get("applications") or []:
+        key = app.get("key")
+        if (not app.get("url") or key in vorhanden or _job_key(app) != key
+                or app.get("status") in _HISTORISCHE_STATUS
+                or str(app.get("deleted_reason") or "").lower().startswith(USER_DELETE_REASON)
+                or not rollentreffer_ohne_text(app)
+                or not juenger_als(app, TEXT_NACHLADEN_TAGE)):
+            continue
+        luecken.append({f: app.get(f) or "" for f in ("titel", "firma", "ort", "url", "quelle",
+                                                      "snippet", "branche", "branche_quelle")})
+    return luecken
 
 
 def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
@@ -1121,6 +1159,10 @@ def _merge_state(existing: dict, matches: list[dict],
                 if f in m and m[f] is not None:
                     if historisch and f in _SCORE_FELDER:
                         continue
+                    old[f] = m[f]
+            # Mail-Leads kommen ohne URL und Ort. Eine gefundene Anzeige füllt die Lücke.
+            for f in ("url", "ort"):
+                if m.get(f) and not old.get(f):
                     old[f] = m[f]
             old.setdefault("status", "research")
             old.setdefault("dokumente", {})

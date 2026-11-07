@@ -27,12 +27,21 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 
-from .matching import fit_value, has_role_signal
+from .matching import (
+    fit_value,
+    has_role_signal,
+    is_development_role,
+    is_software_role,
+    is_student_role,
+    is_technician_role,
+)
 
 DEFAULT_MAX_AUTO_PER_WEEK = 8
 DEFAULT_MAX_OFFEN_PRO_FIRMA = 2
 DEFAULT_COMMUTE_GRACE_MIN = 10
 DEFAULT_NEUFUND_MIN_FIT = 50
+# So lange versucht der Lauf, einen fehlenden Anzeigentext nachzuladen (ADR-055).
+TEXT_NACHLADEN_TAGE = 30
 
 # Status, in denen eine Bewerbung bei der Firma „offen" ist. ``docs`` zählt nur
 # mit vorhandenen Unterlagen (sonst ist es noch keine Bewerbung).
@@ -78,6 +87,36 @@ def within_commute_grace(app: dict, limit: int, grace: int, min_fit: int) -> boo
 def neufund_relevant(app: dict, min_fit: int = DEFAULT_NEUFUND_MIN_FIT) -> bool:
     """Darf ein neuer Fund ohne Unterlagen im Dashboard erscheinen?"""
     return has_role_signal(app.get("titel")) and fit_value(app) >= min_fit
+
+
+def ohne_text(app: dict) -> bool:
+    """True, wenn die Stelle keinen Anzeigentext hat und nur am Titel hängt."""
+    return not (app.get("beschreibung") or "").strip()
+
+
+def rollentreffer_ohne_text(app: dict) -> bool:
+    """Titel belegt die Zielrolle, aber der Text für eine Bewertung fehlt.
+
+    Ohne Text kann der Fit die 50 % nicht erreichen (0 von 341 geprüften Stellen,
+    ADR-055). Mit Text kommen 24,6 % dieser Rollentreffer auf mindestens 65 %.
+    Software-, Entwickler-, Studenten- und Technikerrollen fallen unabhängig vom
+    Text weg oder sind gedeckelt, eine abgelaufene Anzeige liefert keinen Text mehr.
+    """
+    titel = app.get("titel")
+    if not ohne_text(app) or app.get("verfuegbar") is False:
+        return False
+    if (is_student_role(titel) or is_technician_role(titel)
+            or is_software_role(titel) or is_development_role(titel)):
+        return False
+    return has_role_signal(titel)
+
+
+def juenger_als(app: dict, tage: int, now: datetime | None = None) -> bool:
+    """True, wenn die Stelle vor weniger als ``tage`` Tagen in den Bestand kam."""
+    erfasst = _parse(app.get("created"))
+    if erfasst is None:
+        return False
+    return erfasst >= (now or datetime.now().astimezone()) - timedelta(days=tage)
 
 
 def auto_docs_last_days(apps: Iterable[dict], now: datetime | None = None,

@@ -207,6 +207,11 @@ def main(argv=None) -> int:
                   f"({len(saved.get('query_terms', []))} Begriffe, {saved.get('location')})")
         result = run_search(config, profile, definition=definition)
         print(f"Suche abgeschlossen: {result['count']} Stelle(n) gefunden.")
+        leads = result.get("leads") or {}
+        if leads.get("gesucht"):
+            print(f"  Mail-Leads: {leads['gesucht']} gesucht, {leads['gefunden']} Anzeige(n) gefunden")
+        if result.get("textluecken"):
+            print(f"  Aus dem Bestand erneut zum Nachladen: {result['textluecken']} Stelle(n)")
         rejected = result.get("triage_rejected", 0)
         if rejected:
             print(f"  Ausgefiltert (domänenfremd, z. B. Vertrieb/Marketing): {rejected} "

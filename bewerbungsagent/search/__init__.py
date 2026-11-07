@@ -115,6 +115,13 @@ def _existing_jobs(config: Config) -> list[dict]:
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
                    "ATS", "Arbeitnow", "JobLeads", "XING", "Labo", manual.MAIL_LEAD}
 
+# Provider für die Anzeigensuche zu Mail-Leads (``search.lead_url_provider``).
+# Gemessen am 07.11.2026 auf 27 Leads (ADR-055): XING fand 5 von 5 geprüft richtig,
+# StepStone keine, LinkedIn antwortete mit 429 und Google lieferte nichts. Indeed
+# fehlt bewusst: Dort klappt die Suche nur mit abgeschalteter Automationserkennung.
+_LEAD_PROVIDER = {"xing": xing}
+_LEAD_TREFFER_JE_BEGRIFF = 20
+
 # Provider, die einen echten Browser brauchen. Sie liegen in eigenen Modulen und
 # erwarten eine **Liste** von Begriffen statt einem einzelnen.
 _BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser"}
@@ -422,7 +429,10 @@ def run_search(config: Config, profile: Profile,
     # 3) Mail-Leads zuletzt: kennt ein Web-Provider dieselbe Stelle, gewinnt dessen
     #    Anzeige samt Volltext (``add`` verwirft Doubletten nach Firma + Titel).
     for j in mail_leads:
-        add(j)
+        # ``add`` kennt nur exakt gleiche Titel. Der Abgleich fängt zusätzlich „Bertrandt
+        # Group" gegen „Bertrandt AG" und gekürzte Titel aus den Mails ab.
+        if not any(manual.lead_passt(j, job) for job in jobs):
+            add(j)
 
     # IDs vergeben.
     for i, job in enumerate(jobs, start=1):
@@ -460,6 +470,45 @@ def run_search(config: Config, profile: Profile,
     else:
         triage_rejected = 0
     return jobs, errors, triage_rejected
+
+
+def resolve_mail_leads(config: Config, health: dict | None = None) -> dict:
+    """Sucht zu offenen Mail-Leads die Anzeigen-URL über Firma + Titel.
+
+    Alle Begriffe laufen in einer Browsersitzung. Ein deaktivierter Provider wird
+    übersprungen, ein Fehler nicht wiederholt. Scheitern alle Provider, bleibt der
+    Lead für den nächsten Lauf offen. Der Text selbst kommt danach über ``fetch``.
+    """
+    s = config.data["search"]
+    ergebnis: dict = {"gesucht": 0, "gefunden": 0, "fehler": []}
+    namen = s.get("lead_url_provider", list(_LEAD_PROVIDER))
+    pfad = config.import_path()
+    if not s.get("enabled", True) or not namen:
+        return ergebnis
+    offen = manual.offene_leads(pfad)
+    if not offen:
+        return ergebnis
+    begriffe = list(dict.fromkeys(manual.suchbegriff(lead) for lead in offen))
+    anzeigen: list[dict] = []
+    gelaufen = False
+    for name in namen:
+        provider = _LEAD_PROVIDER.get(name)
+        if provider is None:
+            ergebnis["fehler"].append(f"Unbekannter Lead-Provider: {name}")
+            continue
+        if (health is not None and is_disabled(health, name)) or not provider.available():
+            continue
+        try:
+            anzeigen.extend(provider.search(begriffe, location=s.get("location", "München"),
+                                            max_results=_LEAD_TREFFER_JE_BEGRIFF,
+                                            with_description=False))
+            gelaufen = True
+        except Exception as exc:
+            ergebnis["fehler"].append(f"{name}: {exc}")
+    if gelaufen:
+        ergebnis["gesucht"] = len(offen)
+        ergebnis["gefunden"] = manual.leads_verknuepfen(pfad, anzeigen)
+    return ergebnis
 
 
 def _to_job(raw: dict) -> dict:

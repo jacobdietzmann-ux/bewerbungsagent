@@ -1654,3 +1654,31 @@ der bewirkt das Gegenteil (mehr Treffer).
 **Nebenbei.** `tests/test_followup.py::test_nicht_faellige_zeile` prüfte mit
 einem festen `sentAt="2026-10-24"` und wurde am 07.11.2026 ohne Codeänderung
 rot (Frist abgelaufen). Datum jetzt relativ zu `date.today()`.
+
+## ADR-050 – Anzeigentexte sind Pflicht, StepStone läuft über den Browser
+
+Ausgangslage (06./07.11.2026): Seit dem 30.10. kamen **alle** neuen Stellen ohne
+Anzeigentext an — StepStone und Arbeitnow liefern keinen mehr, die ATS-Boards
+nur teilweise. Der Score rechnet Titel ×6 + Text ×4 + Wort ×2; ohne Text blieb
+nur der Titel. Ergebnis: 0 von 185 textlosen Stellen über 65 %, während 42 von
+542 mit Text die Schwelle erreichten. Eine Woche ohne neue Dashboard-Treffer war
+die Folge — kein Stellenmangel, ein Pipeline-Loch.
+
+**Entscheidungen.**
+
+1. **`fetch` gehört in den Tageslauf**: `search → fetch (--limit 300) → match →
+   enrich → dashboard`. Vorher lief `fetch` nur von Hand.
+2. **`agent.py fetch --limit/--only-unsure`**, damit der Lauf begrenzbar ist.
+3. **StepStone über den Browser** (`stepstone_browser`): Der HTTP-Provider
+   bekommt seit Ende Oktober oft eine leere 200-Antwort (Bot-Abwehr), im Browser
+   lädt die Liste normal (48 Treffer „Testingenieur" München, 25 Karten/Seite).
+   Der Provider holt nur Titel/Firma/Ort/URL; den Text lädt anschließend
+   `fetch` im selben Verfahren.
+4. **`base.fetch` mit curl-Fallback**, wenn `requests` in den ReadTimeout läuft.
+5. **Arbeitnow auf eine Seite begrenzt** (`arbeitnow_pages: 1`): 337 der 512
+   neuen Einträge stammten von dort, überwiegend englische Nicht-Automotive-Jobs.
+   `glassdoor` aus der Provider-Liste entfernt (nie implementiert, meldete bei
+   jedem Lauf „Unbekannter Provider").
+
+**Folgen.** Nach dem Nachladen von 40 Anzeigen: 542 mit Text → 42 ≥ 65 %,
+185 ohne Text → 0. Bestand im Dashboard 219 Zeilen, 6 offene ≥ 65 %.

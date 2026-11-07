@@ -9,7 +9,8 @@ from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
 from ..provider_health import is_disabled
-from . import arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual, stepstone, xing
+from . import (arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual,
+               stepstone, stepstone_browser, xing)
 
 
 def _clean_url(url: str) -> str:
@@ -105,7 +106,7 @@ _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
 
 # Provider, die einen echten Browser brauchen. Sie liegen in eigenen Modulen und
 # erwarten eine **Liste** von Begriffen statt einem einzelnen.
-_BROWSER_PROVIDERS = {"xing", "indeed"}
+_BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser"}
 
 
 def _terms_for_provider(s: dict, name: str) -> list[str]:
@@ -226,7 +227,8 @@ def run_search(config: Config, profile: Profile,
                 current = None
                 continue
             provider = {"duckduckgo": duckduckgo, "bing": bing,
-                        "stepstone": stepstone, "jobspy": jobspy,
+                        "stepstone": stepstone, "stepstone_browser": stepstone_browser,
+                        "jobspy": jobspy,
                         "ats": ats, "arbeitnow": arbeitnow,
                         "jobleads": ats, "xing": xing, "indeed": indeed,
                         "labo": labo}.get(name)

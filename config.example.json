@@ -8,6 +8,7 @@
     "enabled": true,
     "providers": [
       "manual",
+      "stepstone_browser",
       "stepstone",
       "jobspy",
       "ats",

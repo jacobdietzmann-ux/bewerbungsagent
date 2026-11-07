@@ -9,8 +9,19 @@ from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
 from ..provider_health import is_disabled
-from . import (arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual,
-               stepstone, stepstone_browser, xing)
+from . import (
+    arbeitnow,
+    ats,
+    bing,
+    duckduckgo,
+    indeed,
+    jobspy,
+    labo,
+    manual,
+    stepstone,
+    stepstone_browser,
+    xing,
+)
 
 
 def _clean_url(url: str) -> str:
@@ -146,7 +157,8 @@ def _filter_boards(boards: list[dict], firmen: list[str] | None) -> list[dict]:
 def run_search(config: Config, profile: Profile,
                definition: dict | None = None,
                health: dict | None = None,
-               stats: dict | None = None) -> tuple[list[dict], list[str], int]:
+               stats: dict | None = None,
+               known_urls: set[str] | None = None) -> tuple[list[dict], list[str], int]:
     """Führt eine Suche aus.
 
     ``definition`` (optional) überschreibt einzelne Suchparameter — für
@@ -158,13 +170,22 @@ def run_search(config: Config, profile: Profile,
     (``provider_health``): deaktivierte Provider werden übersprungen.
     ``stats`` (optional, Ausgabe) sammelt je Provider ``gefunden``/``fehler``;
     der Aufrufer verrechnet sie mit der Historie.
+    ``known_urls`` (optional) nennt Anzeigen, deren Text schon im Bestand liegt;
+    Provider mit Detailabruf sparen sich dafür die Anfrage.
     """
+    bekannt = {"known_urls": known_urls} if known_urls else {}
     s = dict(config.data["search"])
     if definition:
         for key in ("query_terms", "location", "providers", "ats_firmen",
                     "max_results_per_provider"):
             if definition.get(key) is not None:
                 s[key] = definition[key]
+        # Eigene Begriffe gelten für alle Provider. Sonst liefe zum Beispiel XING
+        # mit ``xing_terms`` ein zweites Mal die Standardsuche.
+        if definition.get("query_terms") is not None:
+            for key in [k for k in s if k.endswith("_terms") and k != "query_terms"
+                        and not k.endswith("_max_terms")]:
+                del s[key]
     jobs: list[dict] = []
     errors: list[str] = []
     seen: set[str] = set()
@@ -254,6 +275,7 @@ def run_search(config: Config, profile: Profile,
                         max_results=s.get(f"{name}_max_results",
                                           s.get("max_results_per_provider", 25)),
                         with_description=s.get(f"{name}_with_description", True),
+                        **(bekannt if name in ("xing", "indeed") else {}),
                     ):
                         add(job)
                 except Exception as exc:
@@ -290,10 +312,15 @@ def run_search(config: Config, profile: Profile,
                     boards,
                     user_agent=s.get("user_agent", "Mozilla/5.0"),
                     only_near_munich=s.get("ats_only_near_munich", True),
+                    **bekannt,
                 )
                 for job in jobs_found:
                     add(job)
-                errors.extend(ats_errors)
+                # Statistikzeilen sind keine Fehler: Sie zählten als Fehlversuch
+                # der Quelle und standen mit „!" im Log.
+                errors.extend(e for e in ats_errors if not ats.is_info(e))
+                stats.setdefault(name, {"gefunden": 0, "fehler": []}).setdefault(
+                    "hinweise", []).extend(e for e in ats_errors if ats.is_info(e))
             elif name == "jobleads":
                 # JobLeads ist ein Aggregator mit Such-URLs; anders als die
                 # ATS-Boards gibt es keine feste Karriereseite. Ein Eintrag ist
@@ -330,6 +357,7 @@ def run_search(config: Config, profile: Profile,
                             only_near_munich=s.get("ats_only_near_munich", True),
                             with_description=extra.get("with_description", True),
                             max_jobs=extra.get("max_jobs", 100),
+                            **bekannt,
                         ):
                             add(job)
                     except Exception as exc:
@@ -412,12 +440,17 @@ def run_search(config: Config, profile: Profile,
         jobs, rejected = _triage.split(jobs, config)
         if rejected:
             try:
-                from ..storage import save_json
-                save_json(config.data_dir / "triage_rejected.json",
-                          [{"titel": j.get("titel"), "firma": j.get("firma"),
-                            "url": j.get("url"),
-                            "grund": _triage.verdict_for(j, config).reason}
-                           for j in rejected])
+                from ..storage import load_json, save_json
+                pfad = config.data_dir / "triage_rejected.json"
+                protokoll = [{"titel": j.get("titel"), "firma": j.get("firma"),
+                              "url": j.get("url"),
+                              "grund": _triage.verdict_for(j, config).reason}
+                             for j in rejected]
+                # Weitere Suchen eines Tageslaufs ergänzen das Protokoll der
+                # Standard-Suche, statt es zu ersetzen.
+                if definition:
+                    protokoll = [*(load_json(pfad, []) or []), *protokoll]
+                save_json(pfad, protokoll)
             except Exception as exc:  # pragma: no cover - defensiv
                 errors.append(f"triage-Protokoll: {exc}")
         # IDs nach dem Filter neu und lückenlos vergeben.

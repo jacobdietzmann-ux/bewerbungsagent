@@ -84,11 +84,13 @@ def _karten(page) -> list[dict]:
 
 def search(terms: str | list[str], location: str = "München", *,
            max_results: int = 30, with_description: bool = True,
-           headed: bool = False) -> list[dict]:
+           headed: bool = False, known_urls: set[str] | None = None) -> list[dict]:
     """XING-Treffer samt Anzeigentext.
 
     ``terms`` darf eine Liste sein: alle Begriffe laufen in **einer**
-    Browsersitzung, weil jeder Browserstart teuer ist.
+    Browsersitzung, weil jeder Browserstart teuer ist. ``max_results`` gilt je
+    Begriff. Für ``known_urls`` wird der Text nicht erneut geladen, er kommt aus
+    dem Bestand.
     """
     begriffe = [terms] if isinstance(terms, str) else list(terms or [])
     begriffe = [b.strip() for b in begriffe if b and b.strip()]
@@ -100,7 +102,9 @@ def search(terms: str | list[str], location: str = "München", *,
     with browser_page(headed=headed) as page:
         consent_erledigt = False
         for begriff in begriffe:
-            page.goto(search_url(begriff), timeout=45000, wait_until="domcontentloaded")
+            vorher = len(gesammelt)
+            page.goto(search_url(begriff, location), timeout=45000,
+                      wait_until="domcontentloaded")
             page.wait_for_timeout(2500)
             if not consent_erledigt:
                 consent_erledigt = dismiss_consent(page, _CONSENT_LABELS)
@@ -121,19 +125,18 @@ def search(terms: str | list[str], location: str = "München", *,
                         "ort": karte["ort"] or location,
                         "url": url,
                     }
-                if len(gesammelt) >= max_results:
+                if len(gesammelt) - vorher >= max_results:
                     break
                 if not _mehr_klicken(page):
                     break
 
-            if len(gesammelt) >= max_results:
-                break
-
-        ergebnis = list(gesammelt.values())[:max_results]
+        ergebnis = list(gesammelt.values())
 
         if with_description:
+            bekannt = known_urls or set()
             for eintrag in ergebnis:
-                eintrag["beschreibung"] = _beschreibung(page, eintrag["url"])
+                if eintrag["url"] not in bekannt:
+                    eintrag["beschreibung"] = _beschreibung(page, eintrag["url"])
 
     return [_job(e) for e in ergebnis]
 

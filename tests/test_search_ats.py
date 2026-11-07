@@ -171,7 +171,8 @@ class TestWorkday:
              "externalPath": "/job/2"},
         ]
         monkeypatch.setattr(ats.requests, "post", self._responder(postings))
-        jobs, errors = ats.search([{"firma": "Airbus", "ats": "workday",
+        monkeypatch.setattr(ats.requests, "get", lambda *_a, **_k: _Resp({}))
+        jobs, _errors = ats.search([{"firma": "Airbus", "ats": "workday",
                                     "tenant": "ag", "site": "Airbus"}])
         assert [j["titel"] for j in jobs] == ["Systemingenieur"]
 
@@ -216,7 +217,7 @@ class TestEightfold:
     def test_search_mit_eightfold_eintrag(self, monkeypatch):
         monkeypatch.setattr(ats.requests, "get",
                             self._responder([self._position(0)]))
-        jobs, errors = ats.search([{"firma": "Qualcomm", "ats": "eightfold",
+        jobs, _errors = ats.search([{"firma": "Qualcomm", "ats": "eightfold",
                                     "host": "careers.qualcomm.com",
                                     "domain": "qualcomm.com"}])
         assert [j["titel"] for j in jobs] == ["Engineer 0"]
@@ -263,7 +264,7 @@ class TestSuccessFactorsJ2W:
         tiles = [self._tile("/job/1/", "Entwicklungsingenieur",
                             "Taufkirchen, DE, 82024")]
         monkeypatch.setattr(ats.requests, "get", self._responder(tiles))
-        jobs, errors = ats.search([{"firma": "HENSOLDT", "ats": "successfactors",
+        jobs, _errors = ats.search([{"firma": "HENSOLDT", "ats": "successfactors",
                                     "host": "jobs.hensoldt.net"}])
         assert [j["titel"] for j in jobs] == ["Entwicklungsingenieur"]
 

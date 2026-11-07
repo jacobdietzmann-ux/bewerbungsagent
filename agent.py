@@ -90,6 +90,16 @@ def _print_provider_stats(stats: dict) -> None:
         fehler = len(st.get("fehler") or [])
         print(f"  - {name}: {st.get('gefunden', 0)} Fund(e)"
               + (f", {fehler} Fehler" if fehler else ""))
+        for hinweis in st.get("hinweise") or []:
+            print(f"      {hinweis}")
+
+
+def _print_failed(failed: list[dict]) -> None:
+    """Meldet Stellen, deren Unterlagen nicht erzeugt werden konnten."""
+    if failed:
+        print(f"Unterlagen fehlgeschlagen: {len(failed)} Stelle(n).")
+    for f in failed:
+        print(f"  ! {f['firma']} — {f['titel']}: {f['fehler']}")
 
 
 def main(argv=None) -> int:
@@ -274,6 +284,7 @@ def main(argv=None) -> int:
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")
         print(f"Automatisch beworben (FIT ≥ {FIT_BAND_UNTERLAGEN} %): "
               f"{result['generated_count']} Stelle(n).")
+        _print_failed(result.get("failed") or [])
         if result.get("skipped_budget"):
             print(f"Zurückgestellt (Wochenbudget erreicht): {len(result['skipped_budget'])} "
                   "Stelle(n) — kommen nächste Woche dran.")
@@ -300,6 +311,10 @@ def main(argv=None) -> int:
             print(f"  - {g['firma']} — {g['titel']}")
             for name, rel in g["dokumente"].items():
                 print(f"      {name}: {rel}")
+        _print_failed(result.get("failed") or [])
+        if result.get("skipped_bestand"):
+            print(f"  Übersprungen (Dublette, gelöscht oder abgeschlossen): "
+                  f"{result['skipped_bestand']} Stelle(n)")
         skipped = result.get("skipped_commute") or []
         if skipped:
             print(f"  Übersprungen (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
@@ -475,6 +490,7 @@ def main(argv=None) -> int:
             print(f"  ! {err}")
         print(f"Matching: {result['match']} Stelle(n)")
         print(f"Dokumente: {len(result['generated'])} Datei(en)")
+        _print_failed(result.get("failed") or [])
         print(f"Dashboard: {result['dashboard']['path']}")
 
     elif args.command == "ablauf":
@@ -496,6 +512,8 @@ def main(argv=None) -> int:
               f"{result.get('beschreibung_versuche', 0)}× gelaufen")
         print(f"  Matching        : {(result.get('match') or {}).get('matched', 0)} Stelle(n)")
         print(f"  Dokumente       : {len((result.get('generate') or {}).get('generated', []))} Datei(en)")
+        _print_failed([*(result.get("enrich") or {}).get("failed", []),
+                       *(result.get("generate") or {}).get("failed", [])])
         if review:
             print("  Freigabe        : erfolgt im Dashboard (Status ändern oder Eintrag löschen)")
         else:

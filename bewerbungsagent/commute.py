@@ -482,7 +482,13 @@ class _Geocoder:
         MicroNova-Stelle in Vierkirchen (85256) ergab das 529 km und 306 min
         Pendelzeit. Hier werden bis zu fünf Treffer geholt und der nächstgelegene
         innerhalb von ``max_km`` genommen.
+
+        Ein Ort ohne nahen Namensvetter (Erlangen, Bamberg) wird gemerkt. Sonst
+        kostet jede Stelle dort bei jedem Lauf erneut eine Sekunde Wartezeit.
         """
+        marker = f"near|{normalize(query or '')}"
+        if self.cache.get(marker):
+            return None
         self._throttle()
         try:
             r = requests.get(
@@ -505,6 +511,8 @@ class _Geocoder:
                     "display_name": item.get("display_name", query)}
                    for item in data if item.get("lat") and item.get("lon")]
         nah = [t for t in treffer if _haversine_km(home, t) <= max_km]
+        if treffer and not nah:
+            self.cache[marker] = {"kein_nahtreffer": True}
         return _nearest(nah, home)
 
     def remember(self, query: str, result: dict | None) -> None:

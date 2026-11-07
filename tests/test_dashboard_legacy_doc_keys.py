@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from bewerbungsagent.dashboard import (_APPLICATION_DOCUMENT_KEYS, _canonical_doc_key,
-                                       _existing_documents, documented_applications)
+from bewerbungsagent.dashboard import (
+    _APPLICATION_DOCUMENT_KEYS,
+    _canonical_doc_key,
+    _existing_documents,
+    documented_applications,
+)
 
 
 @pytest.mark.parametrize("label, canonical", [

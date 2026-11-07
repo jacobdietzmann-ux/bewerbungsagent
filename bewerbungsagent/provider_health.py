@@ -14,11 +14,19 @@ Regeln:
 * Ab ``max_failures`` Fehlläufen in Folge wird die Quelle deaktiviert.
 * Ein deaktivierter Provider wird übersprungen (nicht als Fehler gezählt);
   ``agent.py providers --enable NAME`` schaltet ihn zurück.
+* Nach ``DEFAULT_RETRY_HOURS`` Stunden wird eine abgeschaltete Quelle einmal
+  probeweise wieder zugelassen (``release_due``). Scheitert die Probe, bleibt
+  der Fehlerzähler über der Grenze und die Quelle ist sofort wieder aus;
+  gelingt sie, ist sie wieder aktiv. So schalten kurze Netzausfälle oder
+  fehlende Browser-Binärdateien keine Quelle dauerhaft ab.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
+
 DEFAULT_MAX_FAILURES = 3
+DEFAULT_RETRY_HOURS = 24
 
 
 def empty_entry() -> dict:
@@ -40,6 +48,35 @@ def empty_entry() -> dict:
 
 def is_disabled(health: dict | None, name: str) -> bool:
     return bool(((health or {}).get(name) or {}).get("deaktiviert"))
+
+
+def release_due(health: dict | None, *, now: str,
+                retry_hours: float = DEFAULT_RETRY_HOURS) -> dict:
+    """Lässt abgeschaltete Quellen nach ``retry_hours`` einmal probeweise zu.
+
+    ``retry_hours <= 0`` schaltet die Wiederholung ab. Der Fehlerzähler bleibt
+    unverändert, damit ein einziger weiterer Fehlschlag wieder abschaltet.
+    """
+    out = {name: dict(entry) for name, entry in (health or {}).items()}
+    if retry_hours <= 0:
+        return out
+    try:
+        current = datetime.fromisoformat(now)
+    except ValueError:
+        return out
+    for entry in out.values():
+        since = entry.get("deaktiviert_am")
+        if not entry.get("deaktiviert") or not since:
+            continue
+        try:
+            started = datetime.fromisoformat(since)
+            hours = (current - started).total_seconds() / 3600
+        except (ValueError, TypeError):
+            continue
+        if hours >= retry_hours:
+            entry["deaktiviert"] = False
+            entry["deaktiviert_am"] = None
+    return out
 
 
 def record(health: dict | None, stats: dict | None, *, now: str,

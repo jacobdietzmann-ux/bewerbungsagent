@@ -17,7 +17,6 @@ import pytest
 
 from bewerbungsagent.search import browser, indeed, xing
 
-
 # --------------------------------------------------------------------------
 # Gemeinsamer Browser-Helfer
 # --------------------------------------------------------------------------

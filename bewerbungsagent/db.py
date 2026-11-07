@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,8 @@ USER_DELETE_REASON = "nutzerkriterium: im dashboard entfernt"
 # nicht durch den abschließenden Voll-Schreibvorgang verloren gehen. Die DB ist
 # die frischere Quelle, deshalb gewinnt sie hier.
 _RUN_FOREIGN_FIELDS = ("sentAt", "notes", "contact", "interviewDate", "statusChangedAt",
-                       "deletedAt")
+                       "deletedAt", "research_sichtbar", "unterlagen_gewuenscht",
+                       "absage_grund", "absage_talentpool")
 
 
 def _protected_user(db_user: dict | None, incoming: dict) -> dict:
@@ -254,15 +256,40 @@ class Store:
                         updated_at=now,
                     ))
                 else:
-                    row.provider = provider
-                    row.user = _protected_user(row.user, user)
-                    row.updated_at = now
+                    # Unveränderte Zeilen bleiben stehen: ``updated_at`` zeigt so
+                    # die echte letzte Änderung, und das WAL wächst nicht bei
+                    # jedem Lauf um den kompletten Bestand.
+                    geschuetzt = _protected_user(row.user, user)
+                    if row.provider != provider or row.user != geschuetzt:
+                        row.provider = provider
+                        row.user = geschuetzt
+                        row.updated_at = now
             # Nicht mehr enthaltene Einträge entfernen (Voll-Replace).
             for key, row in existing.items():
                 if key not in keep_keys:
                     session.delete(row)
             session.merge(Meta(key="updated", value=now))
             session.commit()
+
+    def update_app(self, key: str, change: Callable[[dict], None]) -> bool:
+        """Ändert genau einen Eintrag; ``False``, wenn der Key fehlt.
+
+        Für Schritte, die pro Stelle schreiben (Unterlagen erzeugen). Der Weg
+        über ``load_state``/``save_state`` kostete je Stelle den ganzen Bestand
+        und konnte parallele Dashboard-Änderungen anderer Zeilen überschreiben.
+        """
+        now = now_iso()
+        with self._Session() as session:
+            row = session.query(Application).filter(Application.key == key).one_or_none()
+            if row is None:
+                return False
+            app = _merge(row.key, row.provider, row.user)
+            change(app)
+            row.provider, row.user = _split(app)
+            row.updated_at = now
+            session.merge(Meta(key="updated", value=now))
+            session.commit()
+        return True
 
     def apply_overlay(self, overlay: dict) -> None:
         """Übernimmt Nutzer-Feldänderungen aus dem Dashboard (POST /state).
@@ -274,7 +301,8 @@ class Store:
             return
         now = now_iso()
         with self._Session() as session:
-            rows = {r.key: r for r in session.query(Application).all()}
+            rows = {r.key: r for r in session.query(Application)
+                    .filter(Application.key.in_(list(overlay))).all()}
             changed = False
             for key, entry in overlay.items():
                 if not isinstance(entry, dict):

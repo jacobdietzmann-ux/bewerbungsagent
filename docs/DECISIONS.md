@@ -1682,3 +1682,57 @@ die Folge — kein Stellenmangel, ein Pipeline-Loch.
 
 **Folgen.** Nach dem Nachladen von 40 Anzeigen: 542 mit Text → 42 ≥ 65 %,
 185 ohne Text → 0. Bestand im Dashboard 219 Zeilen, 6 offene ≥ 65 %.
+
+## ADR-052 – Quellen-Wiederaktivierung und Playwright-Selbstheilung
+
+Ausgangslage (07.11.2026): XING, Indeed und `stepstone_browser` waren
+abgeschaltet, ohne dass die Seiten blockierten. Ursachen: ein kurzer Netzausfall
+(`ERR_INTERNET_DISCONNECTED`) und ein Playwright-Update, dessen Browser-Binärdatei
+fehlte (`Executable doesn't exist`). Nach 3 Fehlläufen blieb eine Quelle für
+immer aus; ohne XING/Indeed fielen rund zwei Drittel der brauchbaren Treffer weg.
+
+**Entscheidungen.**
+
+1. **`provider_health.release_due`**: Eine abgeschaltete Quelle wird nach
+   `search.provider_health.retry_hours` (Standard 24, `0` = aus) einmal probeweise
+   zugelassen. Der Fehlerzähler bleibt, ein weiterer Fehlschlag schaltet sofort
+   wieder ab, ein Erfolg reaktiviert.
+2. **`search/browser._launch`**: Meldet Chromium „Executable doesn't exist“, läuft
+   einmal pro Prozess `python -m playwright install chromium`, danach ein
+   zweiter Startversuch. Abschaltbar mit `BEWERBUNGSAGENT_NO_AUTOINSTALL=1`.
+3. **JobLeads** liegt hinter einer Cloudflare-Abfrage (`Cf-Mitigated: challenge`)
+   und ist aus der Provider-Liste genommen; die Bot-Abwehr wird nicht umgangen.
+   JobLeads-Mails laufen weiter über den Mail-Import.
+
+## ADR-053 – Review 07.11.2026: Mengenlauf nur für offene Einträge, Limits je Begriff
+
+**Ausgangslage.** Ein Mengenlauf überschrieb am 07.11.2026 drei bestehende Ordner,
+darunter den einer versendeten Bewerbung. `run_generate` las `matches.json`; dort
+stehen auch Treffer, die `_merge_state` als Dublette einer anderen Börse verwirft.
+Außerdem endeten die Browser-Suchen meist beim ersten Begriff, weil `max_results`
+alle Begriffe zusammen begrenzte. `agent.py search` und der Tageslauf übergingen
+Suchen mit `"daily": true`, und `agent.py pipeline` ließ `run_enrich` aus.
+
+**Entscheidungen.**
+
+1. **`run_generate` prüft den Bestand.** Der Mengenlauf überspringt Treffer ohne
+   eigenen Eintrag sowie gelöschte und abgeschlossene Stellen. `--ids` bleibt ein
+   ausdrücklicher Wunsch. `run_enrich` schließt abgeschlossene Stellen ebenso aus.
+2. **Ein Fehler betrifft nur seine Stelle.** `_generate_sicher` sammelt Fehler in
+   `failed`. Das Wochenbudget zählt nur erfolgreich erzeugte Unterlagen.
+3. **`max_results` gilt je Begriff** bei `stepstone_browser`, `xing` und `indeed`.
+4. **Bekannte Texte werden nicht neu geladen.** `known_urls` kommt aus dem Bestand
+   und spart Detailabrufe; `_preserve_descriptions` spielt den Text zurück.
+5. **Arbeitnow liefert den Volltext**, begrenzt auf 20.000 Zeichen. Workday filtert
+   über die Facette `locationCountry` (Board-Feld `country`, Standard `Germany`)
+   und lädt Texte über den JSON-Detail-Endpunkt.
+6. **`run_search` ohne Definition führt alle Tagessuchen aus**, `run_full` enthält
+   `run_enrich`.
+7. **Statistikzeilen sind keine Fehler.** `ats.is_info` trennt sie; sie stehen in
+   `hinweise` statt in `fehler`.
+
+**Folgen.** Scores bleiben unverändert (Alt-Neu-Vergleich auf 11.314 echten
+Texten: 0 Abweichungen). Mehr Begriffe bedeuten mehr Browserzeit; nach dem ersten
+Lauf entfällt der Textabruf für bekannte Anzeigen. Die Board-Einstellungen in der
+`config.json` brauchen keine Änderung. Gespeicherte Suchen mit dem Provider
+`stepstone` sollten auf `stepstone_browser` wechseln.

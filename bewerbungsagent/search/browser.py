@@ -22,7 +22,10 @@ damit das Paket nicht vom Skript abhängt.
 from __future__ import annotations
 
 import contextlib
+import os
+import subprocess
 import sys
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -38,6 +41,66 @@ def _chromium_executable_path() -> Path | None:
     if sys.platform.startswith("linux") and system.is_file():
         return system
     return None
+
+
+_INSTALL_LOCK = threading.Lock()
+_install_versucht = False
+_INSTALL_TIMEOUT_S = 900
+
+
+def _browser_fehlt(exc: BaseException) -> bool:
+    """Erkennt „Chromium-Binärdatei passt nicht zur Playwright-Version"."""
+    text = str(exc)
+    return "Executable doesn't exist" in text or "playwright install" in text
+
+
+def install_chromium() -> bool:
+    """Lädt das zur installierten Playwright-Version passende Chromium.
+
+    Passiert, wenn das Python-Paket ``playwright`` aktualisiert wurde, die
+    Browser-Binärdateien aber noch von der alten Version stammen (Fehler
+    ``Executable doesn't exist``). Läuft höchstens **einmal pro Prozess**,
+    damit ein dauerhaft fehlschlagender Download den Lauf nicht blockiert.
+    Mit ``BEWERBUNGSAGENT_NO_AUTOINSTALL=1`` abschaltbar.
+    """
+    global _install_versucht
+    if os.environ.get("BEWERBUNGSAGENT_NO_AUTOINSTALL", "").strip() in ("1", "true"):
+        return False
+    with _INSTALL_LOCK:
+        if _install_versucht:
+            return False
+        _install_versucht = True
+        print("  Playwright-Browser fehlt oder ist veraltet -> "
+              "installiere Chromium (einmalig) ...", flush=True)
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                capture_output=True, text=True, timeout=_INSTALL_TIMEOUT_S,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"  Chromium-Installation fehlgeschlagen: {exc}", flush=True)
+            return False
+        if result.returncode != 0:
+            print("  Chromium-Installation fehlgeschlagen: "
+                  f"{(result.stderr or result.stdout).strip()[-300:]}", flush=True)
+            return False
+        return True
+
+
+def _launch(p, headed: bool):
+    """Startet Chromium; repariert einen fehlenden Browser einmal selbst."""
+    def start():
+        return p.chromium.launch(
+            executable_path=_chromium_executable_path(),
+            headless=not headed,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+        )
+    try:
+        return start()
+    except Exception as exc:
+        if not _browser_fehlt(exc) or not install_chromium():
+            raise
+        return start()
 
 
 def available() -> bool:
@@ -60,11 +123,7 @@ def browser_page(*, headed: bool = False) -> Iterator:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            executable_path=_chromium_executable_path(),
-            headless=not headed,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-        )
+        browser = _launch(p, headed)
         context = browser.new_context(user_agent=USER_AGENT, locale="de-DE")
         page = context.new_page()
         try:

@@ -17,6 +17,7 @@ Nutzung:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import subprocess
@@ -32,6 +33,9 @@ RUN_LOG = DATA / "watch_runs.json"
 RUN_OUTPUT = DATA / "watch_last_run.log"
 NOTIFY_CONFIG = Path(os.environ.get("NOTIFY_CONFIG", Path.home() / "telegram-bot" / "config.json"))
 MAX_TG_LEN = 3800
+# Ohne Text bewertet ``match`` nur den Titel, der nächste Lauf holt das nach.
+# Ein Fehler hier darf die übrigen Schritte deshalb nicht verhindern.
+OPTIONAL_STEPS = {"fetch"}
 # Anzeigen pro Tageslauf nachladen (Browser). 300 × ~2,5 s ≈ 12 Minuten; reicht
 # für einen Suchlauf, ohne den 07:00-Job endlos werden zu lassen.
 FETCH_LIMIT = 300
@@ -73,16 +77,20 @@ def run_pipeline(timeout: int = 3600) -> bool:
         for step, extra in steps:
             log.write(f"\n##### {step} ({datetime.now().isoformat(timespec='seconds')})\n")
             log.flush()
-            proc = subprocess.run(
-                [python, "agent.py", step, *extra],
-                cwd=str(AGENT_DIR), env=env, timeout=timeout,
-                stdout=log, stderr=subprocess.STDOUT,
-            )
-            log.write(f"##### {step} exit={proc.returncode}\n")
-            if proc.returncode != 0:
-                _log(f"Schritt '{step}' fehlgeschlagen (exit {proc.returncode}) — siehe {RUN_OUTPUT}")
+            try:
+                code = subprocess.run(
+                    [python, "agent.py", step, *extra],
+                    cwd=str(AGENT_DIR), env=env, timeout=timeout,
+                    stdout=log, stderr=subprocess.STDOUT,
+                ).returncode
+            except subprocess.TimeoutExpired:
+                code = -1
+            log.write(f"##### {step} exit={code}\n")
+            if code != 0:
+                _log(f"Schritt '{step}' fehlgeschlagen (exit {code}) — siehe {RUN_OUTPUT}")
                 ok = False
-                break
+                if step not in OPTIONAL_STEPS:
+                    break
     return ok
 
 
@@ -272,10 +280,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="auch senden, wenn es nichts Neues gibt (Standard: still bleiben)")
     args = parser.parse_args(argv)
 
-    try:
+    with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
 
     if not args.no_search:
         _log("Pipeline startet (search -> match -> enrich -> dashboard) …")

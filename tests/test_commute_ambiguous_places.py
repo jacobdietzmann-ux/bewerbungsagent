@@ -7,8 +7,7 @@ Nominatim liefert den ersten Treffer — die MicroNova-Stelle bekam 529 km und
 
 from __future__ import annotations
 
-from bewerbungsagent.commute import (_nearest, _haversine_km, _strip_noise,
-                                    resolve_office)
+from bewerbungsagent.commute import _haversine_km, _nearest, _strip_noise, resolve_office
 
 HOME = {"lat": 48.1953, "lon": 11.6528}          # Garching bei München
 VIERKIRCHEN_BAYERN = {"lat": 48.3517, "lon": 11.4653}

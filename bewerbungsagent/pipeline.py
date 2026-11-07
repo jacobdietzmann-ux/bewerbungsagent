@@ -34,7 +34,7 @@ from .importer import import_old_dashboard
 from .industry import classify_industry
 from .matching import fit_value, has_role_signal, is_student_role, is_technician_role, match_jobs
 from .profile import Profile, normalize
-from .provider_health import DEFAULT_MAX_FAILURES, record
+from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
 from .quality import check_application
 from .salary import enrich_salary
 from .search import run_search as _search
@@ -226,17 +226,45 @@ def _dimensionen_blockieren(config: Config, dims: dict) -> bool:
 # Schritte
 # --------------------------------------------------------------------------
 
+def _retry_hours(config: Config) -> float:
+    cfg = (config.data.get("search") or {}).get("provider_health") or {}
+    value = cfg.get("retry_hours")
+    return DEFAULT_RETRY_HOURS if value is None else float(value)
+
+
+def _urls_mit_text(state: dict) -> set[str]:
+    """Anzeigen, deren Text schon im Bestand liegt: Provider laden sie nicht erneut."""
+    return {a["url"] for a in state.get("applications", [])
+            if a.get("url") and (a.get("beschreibung") or "").strip()}
+
+
+def _bekannt_kwargs(state: dict) -> dict:
+    bekannt = _urls_mit_text(state)
+    return {"known_urls": bekannt} if bekannt else {}
+
+
 def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
+    """Führt eine Suche aus.
+
+    Ohne ``definition`` laufen alle Tageslauf-Suchen (Standard plus
+    ``"daily": true``). Sonst bliebe eine als täglich markierte Suche in
+    ``jobwatch`` und ``agent.py ablauf`` wirkungslos, die beide hier einsteigen.
+    """
+    if definition is None:
+        return run_searches(config, profile)
     store = _store(config)
-    health = store.get_meta("provider_health") or {}
+    health = release_due(store.get_meta("provider_health") or {}, now=now_iso(),
+                         retry_hours=_retry_hours(config))
     stats: dict = {}
+    bestand = store.load_state()
     jobs, errors, triage_rejected = _search(config, profile, definition,
-                                            health=health, stats=stats)
+                                            health=health, stats=stats,
+                                            **_bekannt_kwargs(bestand))
     max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
                        .get("max_failures") or DEFAULT_MAX_FAILURES)
     health = record(health, stats, now=now_iso(), max_failures=max_failures)
     store.set_meta("provider_health", health)
-    jobs = _preserve_descriptions(jobs, store.load_state())
+    jobs = _preserve_descriptions(jobs, bestand)
     save_json(config.jobs_path(), jobs)
     context = _enrich_job_context(config, jobs)
     return {
@@ -271,15 +299,19 @@ def run_searches(config: Config, profile: Profile) -> dict:
     eigenen Begriffe, Provider und Board-Auswahl.
     """
     store = _store(config)
-    health = store.get_meta("provider_health") or {}
+    health = release_due(store.get_meta("provider_health") or {}, now=now_iso(),
+                         retry_hours=_retry_hours(config))
     stats: dict = {}
     alle: list[dict] = []
     gesehen: set[str] = set()
     fehler: list[str] = []
     triage = 0
     definitionen = _tageslauf_definitionen(config)
+    bestand = store.load_state()
+    bekannt = _bekannt_kwargs(bestand)
     for name, definition in definitionen:
-        jobs, errs, tri = _search(config, profile, definition, health=health, stats=stats)
+        jobs, errs, tri = _search(config, profile, definition, health=health, stats=stats,
+                                  **bekannt)
         triage += tri
         fehler.extend(f"{name}: {e}" for e in errs)
         for job in jobs:
@@ -297,7 +329,7 @@ def run_searches(config: Config, profile: Profile) -> dict:
 
     for i, job in enumerate(alle, start=1):
         job["id"] = i
-    alle = _preserve_descriptions(alle, store.load_state())
+    alle = _preserve_descriptions(alle, bestand)
     save_json(config.jobs_path(), alle)
     context = _enrich_job_context(config, alle)
     return {
@@ -567,11 +599,16 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     # ausdrücklicher Wunsch und erzeugt weiter neu.
     bereits_dokumentiert: set[str] = set()
     ko_blockiert: dict[str, str] = {}
+    gesperrt: set[str] = set()
+    bekannte_keys: set[str] = set()
     if job_ids is None:
         for a in _store(config).load_state().get("applications", []):
             key = a.get("key") or _job_key(a)
             if not key:
                 continue
+            bekannte_keys.add(key)
+            if a.get("deleted") or a.get("status") in _HISTORISCHE_STATUS:
+                gesperrt.add(key)
             if a.get("dokumente"):
                 bereits_dokumentiert.add(key)
             # Harte K.O.-Kriterien aus der mehrdimensionalen Bewertung (P0a).
@@ -589,10 +626,20 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     skipped_existing = []
     skipped_role = []
     skipped_ko = []
+    skipped_bestand = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
             continue
+        # ``matches.json`` enthält auch, was ``_merge_state`` als Dublette einer
+        # anderen Börse verworfen hat, sowie gelöschte und abgeschlossene Stellen.
+        # Solche Treffer haben keinen eigenen offenen Eintrag: Der Mengenlauf
+        # überschrieb sonst den Ordner einer bereits versendeten Bewerbung.
+        if job_ids is None and bekannte_keys:
+            key = m.get("key") or _job_key(m)
+            if key not in bekannte_keys or key in gesperrt:
+                skipped_bestand.append(m)
+                continue
         # Studenten-/Praktikumsstellen werden nie bedient.
         if is_student_role(m.get("titel")):
             skipped_student.append(m)
@@ -640,11 +687,15 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
             max_per_week=max_woche, max_per_company=max_firma)
 
     created = []
+    fehlgeschlagen: list[dict] = []
     for job in selected:
-        created.extend(_generate_one(config, profile, job, template=template,
-                                     auto=job_ids is None))
+        created.extend(_generate_sicher(config, profile, job, fehlgeschlagen,
+                                        template=template, auto=job_ids is None))
+    if created:
+        _store(config).export_json(config.state_path())
 
     return {"generated": created, "jobs_processed": len(selected),
+            "failed": fehlgeschlagen, "skipped_bestand": len(skipped_bestand),
             "skipped_budget": skipped_budget, "skipped_firma": skipped_firma,
             "skipped_commute": skipped_commute, "skipped_student": skipped_student,
             "skipped_technician": skipped_technician, "skipped_ko": skipped_ko,
@@ -670,8 +721,10 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     state = store.load_state()
     apps = state.get("applications", [])
 
-    # 1) Pendelweg
-    commute_stats = enrich_commute(apps, config.data_dir, *_commute_settings(config))
+    # 1) Pendelweg. Ausgeblendete Stellen behalten ihren gespeicherten Wert; die
+    #    Neubewertung unten braucht keine frische Abfrage.
+    offen = [a for a in apps if not a.get("deleted") or not a.get("pendel_modus")]
+    commute_stats = enrich_commute(offen, config.data_dir, *_commute_settings(config))
 
     # 1b) Homeoffice-Anteil aus der Beschreibung (falls noch nicht gesetzt).
     for a in apps:
@@ -863,7 +916,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     skipped_role = []
     kandidaten = []
     for a in apps:
-        if a.get("deleted"):
+        if a.get("deleted") or a.get("status") in _HISTORISCHE_STATUS:
             continue
         if a.get("verfuegbar") is False:
             continue
@@ -889,10 +942,12 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     kandidaten, ueber_budget, ueber_firma = apply_limits(
         kandidaten, apps, company_key=_company_key_fn(config),
         max_per_week=max_woche, max_per_company=max_firma)
+    fehlgeschlagen: list[dict] = []
     for a in kandidaten:
-        a["unterlagen_erzeugt_am"] = now_iso()
-        for created in _generate_one(config, profile, a, auto=True):
+        for created in _generate_sicher(config, profile, a, fehlgeschlagen, auto=True):
             generated.append(created)
+            # Erst nach Erfolg: ein Fehlversuch zählt nicht gegen das Wochenbudget.
+            a["unterlagen_erzeugt_am"] = now_iso()
             # Dokument-Referenzen direkt in den In-Memory-Zustand übernehmen,
             # damit sie nicht durch den finalen ``_persist_state`` verloren gehen.
             a["dokumente"] = {**a.get("dokumente", {}), **created["dokumente"]}
@@ -921,6 +976,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "research_filter": research_stats,
         "generated": generated,
         "generated_count": len(generated),
+        "failed": fehlgeschlagen,
         "skipped_role": skipped_role,
         "skipped_budget": [{"firma": a.get("firma"), "titel": a.get("titel"),
                             "fit": _fit_value(a)} for a in ueber_budget],
@@ -949,13 +1005,19 @@ def run_import_old(config: Config) -> dict:
     return {"imported": len(apps), "total": len(merged)}
 
 
+def dashboard_kwargs(config: Config) -> dict:
+    """Konfigurierte Dashboard-Optionen für ``agent.py dashboard`` und den Server."""
+    return {
+        "followup_days": int((config.data.get("followup") or {}).get("after_days")
+                             or DEFAULT_AFTER_DAYS),
+        "min_fit": _dashboard_min_fit(config),
+    }
+
+
 def run_dashboard(config: Config) -> dict:
     state = _store(config).load_state()
     path = build_dashboard(state, config.dashboard_path, _commute_limit_minutes(config),
-                           letzter_fund_meta(config),
-                           followup_days=int((config.data.get("followup") or {}).get("after_days")
-                                             or DEFAULT_AFTER_DAYS),
-                           min_fit=_dashboard_min_fit(config))
+                           letzter_fund_meta(config), **dashboard_kwargs(config))
     all_applications = state.get("applications", [])
     documented = documented_applications(all_applications)
     applications = dashboard_applications(all_applications, _commute_limit_minutes(config))
@@ -989,9 +1051,13 @@ def run_dashboard(config: Config) -> dict:
 def run_full(config: Config, profile: Profile) -> dict:
     s = run_searches(config, profile)
     m = run_match(config, profile)
+    # Wie im Graphen: Erst ``run_enrich`` setzt Fit-, Research- und K.O.-Regeln um.
+    e = run_enrich(config, profile)
     g = run_generate(config, profile)
     d = run_dashboard(config)
-    return {"search": s, "match": m["matched"], "generated": g["generated"], "dashboard": d}
+    return {"search": s, "match": m["matched"], "enrich": e,
+            "generated": [*e["generated"], *g["generated"]],
+            "failed": [*e["failed"], *g["failed"]], "dashboard": d}
 
 
 # --------------------------------------------------------------------------
@@ -1115,6 +1181,21 @@ def _flag_far_commute(app: dict, limit: int) -> bool:
     return True
 
 
+def _generate_sicher(config: Config, profile: Profile, job: dict, fehlgeschlagen: list[dict],
+                     template: str | None = None, auto: bool = False) -> list[dict]:
+    """Wie ``_generate_one``, aber eine defekte Stelle stoppt den Lauf nicht.
+
+    Ein gesperrtes PDF auf dem Sync-Laufwerk oder ein LibreOffice-Fehler brach
+    sonst ``run_enrich`` ab, bevor dessen Bereinigung gespeichert war.
+    """
+    try:
+        return _generate_one(config, profile, job, template=template, auto=auto)
+    except Exception as exc:
+        fehlgeschlagen.append({"firma": job.get("firma"), "titel": job.get("titel"),
+                               "fehler": f"{type(exc).__name__}: {exc}"})
+        return []
+
+
 def _generate_one(config: Config, profile: Profile, job: dict, template: str | None = None,
                   auto: bool = False) -> list[dict]:
     match = job  # matches sind Jobs inkl. Score-Feldern
@@ -1198,18 +1279,15 @@ def _rel(path: Path) -> str:
 
 def _record_docs(config: Config, job: dict, files: dict,
                  qualitaet: dict | None = None, auto: bool = False) -> None:
-    store = _store(config)
-    state = store.load_state()
-    key = job.get("key") or _job_key(job)
-    for a in state.get("applications", []):
-        if a.get("key") == key:
-            a["dokumente"] = {**a.get("dokumente", {}), **files}
-            if qualitaet is not None:
-                a["qualitaet"] = qualitaet
-            if auto:
-                # Zählt gegen das Wochenbudget (``auswahl.auto_docs_last_days``).
-                a["unterlagen_erzeugt_am"] = now_iso()
-            if a.get("status") in (None, "research", "neu"):
-                a["status"] = "docs"
-            break
-    _persist_state(config, store, state)
+    """Schreibt die Unterlagen nur in den betroffenen Eintrag."""
+    def eintragen(a: dict) -> None:
+        a["dokumente"] = {**(a.get("dokumente") or {}), **files}
+        if qualitaet is not None:
+            a["qualitaet"] = qualitaet
+        if auto:
+            # Zählt gegen das Wochenbudget (``auswahl.auto_docs_last_days``).
+            a["unterlagen_erzeugt_am"] = now_iso()
+        if a.get("status") in (None, "research", "neu"):
+            a["status"] = "docs"
+
+    _store(config).update_app(job.get("key") or _job_key(job), eintragen)

@@ -132,30 +132,63 @@ def ashby(board: str, firma: str, user_agent: str | None = None) -> list[dict]:
     return jobs
 
 
-def _workday_page(list_url: str, headers: dict, offset: int) -> dict:
+def _workday_page(list_url: str, headers: dict, offset: int,
+                  facets: dict | None = None) -> dict:
     """Eine Seite des Workday-Job-Index (``limit`` ist auf 20 begrenzt)."""
     r = requests.post(
         list_url, headers=headers, timeout=_TIMEOUT,
-        json={"appliedFacets": {}, "limit": 20,
+        json={"appliedFacets": facets or {}, "limit": 20,
               "offset": offset, "searchText": ""},
     )
     r.raise_for_status()
     return r.json()
 
 
+def _workday_country_facet(groups: list[dict] | None, country: str) -> dict | None:
+    """``appliedFacets`` für ein Land aus den Facetten der ersten Antwort."""
+    gesucht = normalize(country)
+    for group in groups or []:
+        parameter = group.get("facetParameter")
+        for value in group.get("values") or []:
+            if "values" in value:
+                treffer = _workday_country_facet([value], country)
+                if treffer:
+                    return treffer
+            elif (parameter == "locationCountry" and value.get("id")
+                  and normalize(value.get("descriptor") or "") == gesucht):
+                return {parameter: [value["id"]]}
+    return None
+
+
+def _workday_description(detail_url: str, headers: dict) -> str:
+    """Anzeigentext aus dem öffentlichen Workday-Detail-Endpunkt."""
+    try:
+        r = requests.get(detail_url, headers=headers, timeout=_TIMEOUT)
+        r.raise_for_status()
+        return (r.json().get("jobPostingInfo") or {}).get("jobDescription") or ""
+    except (requests.RequestException, ValueError):
+        return ""
+
+
 def workday(tenant: str, site: str, firma: str,
-            user_agent: str | None = None, max_jobs: int = 2000) -> list[dict]:
+            user_agent: str | None = None, max_jobs: int = 2000, *,
+            country: str | None = None, with_description: bool = False,
+            only_near_munich: bool = True,
+            known_urls: set[str] | None = None) -> list[dict]:
     """Workday: externe Karriereseite ohne Authentifizierung.
 
     Die Stellenliste kommt über ``POST /wday/cxs/{tenant}/{site}/jobs`` — die
     JSON-Antwort ist öffentlich, aber ``limit`` ist auf 20 begrenzt, daher wird
     paginiert (parallel, weil einzelne Konzerne mehrere tausend Stellen führen).
-    Jede Stelle trägt Titel, Ort und den Pfad zur Detailseite, aber **keinen**
-    Beschreibungstext: der liegt nur als ``application/ld+json`` auf der
-    Detailseite und wird über den Browser-Fetch nachgeladen.
+    Die Liste trägt Titel, Ort und den Pfad zur Detailseite.
 
-    ``max_jobs`` begrenzt die Zahl der abzurufenden Einträge; der München-Filter
-    greift erst danach.
+    ``country`` filtert serverseitig über die Facette ``locationCountry``. Der
+    Index liefert ungefiltert höchstens 2.000 von über 3.000 Stellen (Airbus,
+    live geprüft am 07.11.2026), der Rest war für den München-Filter unsichtbar.
+
+    ``with_description`` lädt den Text über den JSON-Detail-Endpunkt, nur für
+    Stellen im Umkreis und nicht für ``known_urls``. ``max_jobs`` begrenzt die
+    Zahl der abzurufenden Einträge; der München-Filter greift erst danach.
     """
     headers = {**(_ua(user_agent)), "Accept": "application/json",
                "Content-Type": "application/json"}
@@ -163,6 +196,9 @@ def workday(tenant: str, site: str, firma: str,
     base = f"https://{tenant}.wd3.myworkdayjobs.com"
 
     first = _workday_page(list_url, headers, 0)
+    facets = _workday_country_facet(first.get("facets"), country) if country else None
+    if facets:
+        first = _workday_page(list_url, headers, 0, facets)
     postings = first.get("jobPostings") or []
     total = first.get("total") or len(postings)
     limit = min(total, max_jobs)
@@ -170,7 +206,7 @@ def workday(tenant: str, site: str, firma: str,
     if limit > len(postings):
         offsets = list(range(len(postings), limit, 20))
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            for page in pool.map(lambda o: _workday_page(list_url, headers, o),
+            for page in pool.map(lambda o: _workday_page(list_url, headers, o, facets),
                                  offsets):
                 postings.extend(page.get("jobPostings") or [])
 
@@ -186,6 +222,20 @@ def workday(tenant: str, site: str, firma: str,
             url=f"{base}/en-US/{site}{path}",
             beschreibung="",
         ))
+    if with_description:
+        bekannt = known_urls or set()
+        offen = [j for j in jobs if j["url"] not in bekannt
+                 and (not only_near_munich or is_near_munich(j["ort"]))]
+        api = f"{base}/wday/cxs/{tenant}/{site}"
+        prefix = f"{base}/en-US/{site}"
+
+        def laden(job: dict) -> str:
+            return _workday_description(f"{api}{job['url'].removeprefix(prefix)}", headers)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            for job, text in zip(offen, pool.map(laden, offen), strict=True):
+                job.update(_job(firma=firma, titel=job["titel"], ort=job["ort"],
+                                url=job["url"], beschreibung=text))
     return jobs
 
 
@@ -243,7 +293,8 @@ def eightfold(host: str, domain: str, firma: str, *, location: str = "munich",
 def smartrecruiters(company: str, firma: str, *, city: str | None = None,
                     country: str | None = None,
                     user_agent: str | None = None,
-                    max_jobs: int = 500) -> list[dict]:
+                    max_jobs: int = 500,
+                    known_urls: set[str] | None = None) -> list[dict]:
     """SmartRecruiters: ``/v1/companies/{company}/postings`` (Renesas u. a.).
 
     Die Liste liefert 100 Stellen pro Seite inklusive Ort; ``city``/``country``
@@ -274,7 +325,12 @@ def smartrecruiters(company: str, firma: str, *, city: str | None = None,
         if offset >= total:
             break
 
+    bekannt = known_urls or set()
+
     def _detail(posting: dict) -> str:
+        url = (posting.get("postingUrl") or posting.get("ref") or "").strip()
+        if url in bekannt:
+            return ""
         try:
             d = requests.get(
                 f"{base}/{posting.get('id')}", headers=headers, timeout=_TIMEOUT
@@ -437,8 +493,16 @@ def _diehl_items(html: str) -> list[tuple[str, str, str, str]]:
 
 
 def _diehl_detail(url: str, user_agent: str | None) -> str:
-    r = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
-    r.raise_for_status()
+    """Abschnitte der Detailseite; eine defekte Seite kostet nur diesen Text.
+
+    Der Fehler lief vorher durch ``pool.map`` bis ``search`` durch und verwarf
+    alle Diehl-Stellen des Laufs.
+    """
+    try:
+        r = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
+        r.raise_for_status()
+    except requests.RequestException:
+        return ""
     teile = []
     for heading, block in _DIEHL_SECTION_RE.findall(r.text):
         teile.append(clean_html(html_unescape(heading)).strip())
@@ -448,7 +512,8 @@ def _diehl_detail(url: str, user_agent: str | None) -> str:
 
 def diehl(list_url: str, firma: str, *, division: str | None = None,
           only_near_munich: bool = True, max_pages: int = 12,
-          max_jobs: int = 400, user_agent: str | None = None) -> list[dict]:
+          max_jobs: int = 400, user_agent: str | None = None,
+          known_urls: set[str] | None = None) -> list[dict]:
     """Diehl-Karriereseite (``new.diehl.com/career/…/job-offers``).
 
     Die Liste ist serverseitig gerendert und paginiert über ``?p=N`` (12 je
@@ -480,8 +545,10 @@ def diehl(list_url: str, firma: str, *, division: str | None = None,
     treffer = treffer[:max_jobs]
     if not treffer:
         return []
+    bekannt = known_urls or set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        beschreibungen = list(pool.map(lambda t: _diehl_detail(t[2], user_agent), treffer))
+        beschreibungen = list(pool.map(
+            lambda t: "" if t[2] in bekannt else _diehl_detail(t[2], user_agent), treffer))
     return [_job(firma=firma, titel=titel, ort=ort, url=url, beschreibung=desc)
             for (titel, ort, url), desc in zip(treffer, beschreibungen, strict=True)]
 
@@ -489,7 +556,8 @@ def diehl(list_url: str, firma: str, *, division: str | None = None,
 def typo3_jobboard(list_url: str, firma: str, *,
                    user_agent: str | None = None,
                    only_near_munich: bool = True,
-                   max_jobs: int = 500) -> list[dict]:
+                   max_jobs: int = 500,
+                   known_urls: set[str] | None = None) -> list[dict]:
     """TYPO3-Jobbörse mit Solr-Suche (MTU Aero Engines).
 
     Die Übersichtsseite enthält **alle** Stellen (keine Paginierung) und trägt
@@ -518,9 +586,11 @@ def typo3_jobboard(list_url: str, firma: str, *,
     if not parsed:
         return []
 
+    bekannt = known_urls or set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         descriptions = list(pool.map(
-            lambda entry: _mtu_description(entry[2], user_agent), parsed))
+            lambda entry: "" if entry[2] in bekannt else _mtu_description(entry[2], user_agent),
+            parsed))
 
     jobs: list[dict] = []
     for (title, place, url), desc in zip(parsed, descriptions, strict=True):
@@ -676,7 +746,8 @@ def jobleads(list_url: str, firma: str = "JobLeads", *,
              user_agent: str | None = None,
              only_near_munich: bool = True,
              with_description: bool = True,
-             max_jobs: int = 100) -> list[dict]:
+             max_jobs: int = 100,
+             known_urls: set[str] | None = None) -> list[dict]:
     """JobLeads-Suchergebnisseite (serverseitig gerendert, ohne Login).
 
     Die Trefferliste steht vollständig im HTML: jede Stelle ist eine
@@ -729,10 +800,12 @@ def jobleads(list_url: str, firma: str = "JobLeads", *,
 
     descriptions: list[str] = [""] * len(entries)
     if with_description:
+        bekannt = known_urls or set()
         with concurrent.futures.ThreadPoolExecutor(
                 max_workers=_JOBLEADS_WORKERS) as pool:
             descriptions = list(pool.map(
-                lambda e: _jobleads_description(e["url"], user_agent), entries))
+                lambda e: "" if e["url"] in bekannt
+                else _jobleads_description(e["url"], user_agent), entries))
 
     jobs: list[dict] = []
     for entry, desc in zip(entries, descriptions, strict=True):
@@ -1093,8 +1166,17 @@ def boards_from_jobs(jobs: list[dict]) -> list[dict]:
 # Abfrage
 # --------------------------------------------------------------------------
 
+_INFO_RE = re.compile(r"^ats \(.*\): \d+ gefunden, \d+ im Umkreis$")
+
+
+def is_info(line: str) -> bool:
+    """True für die Statistikzeile eines Boards (kein Fehler)."""
+    return bool(_INFO_RE.match(line or ""))
+
+
 def search(boards: list[dict], *, user_agent: str | None = None,
-           only_near_munich: bool = True) -> tuple[list[dict], list[str]]:
+           only_near_munich: bool = True,
+           known_urls: set[str] | None = None) -> tuple[list[dict], list[str]]:
     """Fragt alle konfigurierten Boards ab.
 
     ``only_near_munich`` filtert direkt nach der Abfrage: eine Firma mit 141
@@ -1102,6 +1184,8 @@ def search(boards: list[dict], *, user_agent: str | None = None,
     festzustellen, dass 130 zu weit entfernt sind.
 
     Rückgabe: ``(jobs, fehler)`` — ein defektes Board stoppt die anderen nicht.
+    Die zweite Liste enthält je Board auch eine Statistikzeile (``is_info``).
+    Für ``known_urls`` wird keine Detailseite geladen; der Text liegt im Bestand.
     """
     jobs: list[dict] = []
     errors: list[str] = []
@@ -1120,7 +1204,11 @@ def search(boards: list[dict], *, user_agent: str | None = None,
             try:
                 found = workday(tenant, site, firma,
                                 user_agent=user_agent,
-                                max_jobs=entry.get("max_jobs", 2000))
+                                max_jobs=entry.get("max_jobs", 2000),
+                                country=entry.get("country", "Germany"),
+                                with_description=entry.get("with_description", True),
+                                only_near_munich=only_near_munich,
+                                known_urls=known_urls)
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")
                 continue
@@ -1160,7 +1248,8 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                                         city=entry.get("city"),
                                         country=entry.get("country"),
                                         user_agent=user_agent,
-                                        max_jobs=entry.get("max_jobs", 500))
+                                        max_jobs=entry.get("max_jobs", 500),
+                                        known_urls=known_urls)
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")
                 continue
@@ -1191,6 +1280,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                     user_agent=user_agent,
                     only_near_munich=only_near_munich,
                     max_jobs=entry.get("max_jobs", 500),
+                    known_urls=known_urls,
                 )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")
@@ -1208,6 +1298,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                     only_near_munich=only_near_munich,
                     max_pages=int(entry.get("max_pages", 12)),
                     max_jobs=int(entry.get("max_jobs", 400)),
+                    known_urls=known_urls,
                 )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")
@@ -1224,6 +1315,7 @@ def search(boards: list[dict], *, user_agent: str | None = None,
                     only_near_munich=only_near_munich,
                     with_description=entry.get("with_description", True),
                     max_jobs=entry.get("max_jobs", 100),
+                    known_urls=known_urls,
                 )
             except requests.RequestException as exc:
                 errors.append(f"ats ({firma}): {type(exc).__name__}")

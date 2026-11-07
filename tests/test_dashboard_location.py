@@ -7,7 +7,6 @@ und die Starter liegen in ``00_Dashboard``.
 
 from __future__ import annotations
 
-import inspect
 import json
 from pathlib import Path
 

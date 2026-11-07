@@ -94,7 +94,8 @@ ALLOWED_ORIGINS = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}", "null
 MAX_BODY_BYTES = 5 * 1024 * 1024
 # Pfade (relativ zu ROOT, klein geschrieben), die nie statisch ausgeliefert
 # werden: persönliche Konfiguration, Datenbank, Snapshots, Repo-Interna.
-_BLOCKED_PREFIXES = ("04_agent/config", "04_agent/data/", "04_agent/.git", "04_agent/.env")
+_BLOCKED_PREFIXES = ("04_agent/config", "04_agent/data/", "04_agent/.git", "04_agent/.env",
+                     "02_profil-und-assets/")
 _BLOCKED_SUFFIXES = (".db", ".db-wal", ".db-shm", ".env", ".bak")
 
 
@@ -262,14 +263,13 @@ def _rebuild_dashboard() -> bytes:
             # das Dashboard mit dem Modul-Standard und ignorierte
             # ``max_pendelzeit_min`` aus der config.json.
             from bewerbungsagent.commute import commute_limit_minutes
-            from bewerbungsagent.pipeline import _dashboard_min_fit, letzter_fund_meta
-            # Sichtbarkeitsschwelle aus der config.json (dashboard.min_fit_visible)
-            # mitgeben: ohne sie baute der Server das Dashboard ohne Fit-Grenze und
-            # überschrieb damit den Stand, den `agent.py dashboard` erzeugt hatte.
+            from bewerbungsagent.pipeline import dashboard_kwargs, letzter_fund_meta
+            # Dieselben Optionen wie ``agent.py dashboard``: Sonst überschreibt
+            # der Server dessen Stand mit abweichenden Grenzen.
             path = _dash.build_dashboard(state, config.dashboard_path,
                                          commute_limit_minutes(config.data),
                                          letzter_fund_meta(config),
-                                         min_fit=_dashboard_min_fit(config))
+                                         **dashboard_kwargs(config))
             with open(path, "rb") as fh:
                 html = fh.read()
         except Exception as exc:

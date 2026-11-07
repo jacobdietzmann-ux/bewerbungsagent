@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from bewerbungsagent.dashboard import _to_data, build_dashboard
 from bewerbungsagent.followup import (
@@ -104,7 +104,10 @@ class TestDashboard:
         assert row["followupDays"] > DEFAULT_AFTER_DAYS
 
     def test_nicht_faellige_zeile(self):
-        row = _to_data(_app(sentAt="2026-10-24"), followup_days=DEFAULT_AFTER_DAYS)
+        # Datum relativ zu heute: ein festes Datum wird nach genug Tagen fällig
+        # und der Test kippt ohne Codeänderung (real am 07.11.2026 passiert).
+        frisch = (date.today() - timedelta(days=2)).isoformat()
+        row = _to_data(_app(sentAt=frisch), followup_days=DEFAULT_AFTER_DAYS)
         assert row["followupDue"] is False
         assert row["followupDays"] == 0
 

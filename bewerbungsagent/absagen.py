@@ -155,6 +155,14 @@ _FORTSCHRITT = [
     r"(?:forwarded|weitergeleitet) .{0,60}(?:specialist|fachabteilung|fachbereich|hiring)",
 ]
 _APPKONTEXT = [r"\bbewerbung\b", r"\bapplication\b", r"\bbewerbungsprozess\b"]
+# Betriebs- und Teamevents sehen wie Einladungen aus („Wir Laden Dich zu der
+# Limonadenfeier ein", IGEL 06.11.2026 — echtes Beispiel). Kein Bewerbungstermin,
+# solange nicht ausdrücklich von Gespräch/Interview die Rede ist.
+_VERANSTALTUNG = [
+    r"weihnachtsfeier", r"limonadenfeier", r"firmenfeier", r"sommerfest",
+    r"jahresabschlussfeier", r"betriebsausflug", r"team ?event", r"teamabend",
+    r"save[- ]the[- ]date", r"\bdresscode\b", r"gl(?:ue|u)hwein", r"kick-?off",
+]
 # Absage-Floskeln, die wie eine Einladung aussehen („leider können wir Sie nicht
 # zu einem Gespräch einladen").
 _NEGATION = [
@@ -481,6 +489,9 @@ def art_of(subject: str | None, body: str | None) -> str:
         return ""
     text = _norm(f"{subject or ''}\n{_ohne_zitat(body)}")
     if _any(_NEGATION, text):
+        return ""
+    if _any(_VERANSTALTUNG, text) and not _any(
+            [rf"(?:vorstellungs|bewerbungs){_GESPRAECH}", r"\binterview\b"], text):
         return ""
     if _any(_ANGEBOT, text) or (_any(_APPKONTEXT, text) and _any(_ANGEBOT_SCHWACH, text)):
         return "angebot"

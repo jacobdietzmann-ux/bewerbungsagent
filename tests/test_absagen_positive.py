@@ -76,6 +76,16 @@ class TestArtOf:
         # Limonadenfeier, 06.11.2026) — ohne Bewerbungskontext kein Angebot.
         assert art_of("Limonadenfeier (ehem. Weihnachtsfeier) Einladung 26.11.2026",
                       "Bitte gebt uns bis 15.11. Bescheid. Zusage oder Absage?") == ""
+        # Die echte Mail (IGEL) sagt „Wir Laden Dich zu der Limonadenfeier ein":
+        # das Einladungsmuster „laden … ein" greift, ohne Event-Filter wäre das
+        # ein Bewerbungstermin.
+        assert art_of("Limonadenfeier (ehem. Weihnachtsfeier) Einladung 26.11.2026",
+                      "Wir Laden Dich zu der Limonadenfeier ein. Treffpunkt BMW Welt, "
+                      "Dresscode: Smart, Beginn mit Glühwein auf der Terrasse.") == ""
+        # Ein echter Termin bleibt ein Termin, auch wenn ein Event erwähnt wird.
+        assert art_of("Einladung zum Vorstellungsgespräch",
+                      "Wir laden Sie zu einem Vorstellungsgespräch ein; den Kick-off "
+                      "im Team besprechen wir dort.") == "einladung"
 
     def test_eingangsbestaetigung_ist_kein_fortschritt(self):
         assert art_of("Application Received – Filics",

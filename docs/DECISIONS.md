@@ -1630,3 +1630,27 @@ dass der Prozess läuft.
 
 **Betrieb.** Nach dem Buchen von Hand blieben real 2 statt 7 Prüffälle und
 5 Mails als „schon erfasst".
+
+## ADR-051 – Betriebsfeiern sind keine Bewerbungstermine
+
+**Problem.** Der Mailcheck meldete am 07.11.2026 eine „Einladungen / Zusagen (1
+neu)" — es war die Einladung zur **Limonadenfeier** des aktuellen Arbeitgebers
+(IGEL, BMW Welt). Ursache: `art_of` prüft `_EINLADUNG` ohne Bewerbungskontext,
+und das Muster `laden (?:wir )?(?:sie|dich) … ein` trifft „Wir Laden Dich zu der
+Limonadenfeier ein". Zugeordnet wurde daraufhin „6 offene Bewerbungen bei der
+Firma, Titel nicht eindeutig". Der bereits vorhandene Schutz griff nur bei
+„Zusage" (`_ANGEBOT_SCHWACH` mit `_APPKONTEXT`), nicht bei der Einladung.
+
+**Entscheidung.** `_VERANSTALTUNG` (Weihnachts-/Limonaden-/Firmenfeier,
+Sommerfest, Betriebsausflug, Team-Event, Save-the-Date, Dresscode, Glühwein,
+Kick-off) schaltet `art_of` auf `""` — **außer** die Mail nennt ausdrücklich
+„Vorstellungs-/Bewerbungsgespräch" oder „Interview". Damit bleibt eine echte
+Einladung, die ein Teamevent erwähnt, eine Einladung.
+
+**Grenze.** Die Liste ist an echten Formulierungen gebaut, kein NLP. Kommt eine
+neue Feierformulierung durch, gehört sie hierher — nicht in `_APPKONTEXT`, denn
+der bewirkt das Gegenteil (mehr Treffer).
+
+**Nebenbei.** `tests/test_followup.py::test_nicht_faellige_zeile` prüfte mit
+einem festen `sentAt="2026-10-24"` und wurde am 07.11.2026 ohne Codeänderung
+rot (Frist abgelaufen). Datum jetzt relativ zu `date.today()`.

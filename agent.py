@@ -102,7 +102,11 @@ def main(argv=None) -> int:
     ssearch.add_argument("name", nargs="?", default=None,
                          help="Name einer gespeicherten Suche (siehe `agent.py searches`)")
     sub.add_parser("searches", help="Gespeicherte Suchen auflisten")
-    sub.add_parser("fetch", help="Vollständige Stellenbeschreibungen per Browser laden")
+    fetch_p = sub.add_parser("fetch", help="Vollständige Stellenbeschreibungen per Browser laden")
+    fetch_p.add_argument("--limit", type=int, default=None,
+                         help="höchstens N Anzeigen laden (Standard: alle ohne Text)")
+    fetch_p.add_argument("--only-unsure", action="store_true",
+                         help="nur Stellen, deren Titel allein nicht für die Triage reicht")
     sub.add_parser("match", help="Fit-Scoring gegen das Skill-Profil ausführen")
     sub.add_parser("import-old", help="Inhalt des alten Dashboards übernehmen")
     sub.add_parser("enrich", help="Pendelweg + Gehalt + Bereinigung (FIT-Filter) + Auto-Bewerbung")
@@ -215,7 +219,7 @@ def main(argv=None) -> int:
 
     elif args.command == "fetch":
         from fetch_descriptions import fetch_descriptions
-        result = fetch_descriptions(config)
+        result = fetch_descriptions(config, limit=args.limit, only_unsure=args.only_unsure)
         print(f"Beschreibungen geladen: {result['fetched']} | leer: {result['skipped']} "
               f"| Fehler: {result['errors']}")
         print("Tipp: `python agent.py match` berechnet danach den präzisen Fit.")

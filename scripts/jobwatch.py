@@ -32,6 +32,9 @@ RUN_LOG = DATA / "watch_runs.json"
 RUN_OUTPUT = DATA / "watch_last_run.log"
 NOTIFY_CONFIG = Path(os.environ.get("NOTIFY_CONFIG", Path.home() / "telegram-bot" / "config.json"))
 MAX_TG_LEN = 3800
+# Anzeigen pro Tageslauf nachladen (Browser). 300 × ~2,5 s ≈ 12 Minuten; reicht
+# für einen Suchlauf, ohne den 07:00-Job endlos werden zu lassen.
+FETCH_LIMIT = 300
 
 
 def _log(msg: str) -> None:
@@ -52,19 +55,26 @@ def _pendelgrenze(default: int = 30) -> int:
         return default
 
 
-def run_pipeline(timeout: int = 2400) -> bool:
-    """search -> match -> enrich -> dashboard. Gibt True zurück, wenn alle Schritte ok."""
+def run_pipeline(timeout: int = 3600) -> bool:
+    """search -> fetch -> match -> enrich -> dashboard.
+
+    ``fetch`` gehört in den Tageslauf: StepStone und Arbeitnow liefern keine
+    Anzeigentexte mehr, und ohne Text zählt nur der Titel — der Fit fällt auf
+    0–34 % und keine Stelle erreicht mehr die 65-Prozent-Schwelle. Der Lauf ist
+    auf ``FETCH_LIMIT`` Anzeigen begrenzt (Browser, ~2–3 s pro Anzeige).
+    """
     env = dict(os.environ)
     env["PYTHONPATH"] = str(AGENT_DIR)
     python = env.get("JOBWATCH_PYTHON") or str(Path.home() / ".venvs" / "bewerbungsagent" / "Scripts" / "python.exe")
-    steps = ["search", "match", "enrich", "dashboard"]
+    steps = [("search", []), ("fetch", ["--limit", str(FETCH_LIMIT)]),
+             ("match", []), ("enrich", []), ("dashboard", [])]
     ok = True
     with RUN_OUTPUT.open("w", encoding="utf-8", errors="replace") as log:
-        for step in steps:
+        for step, extra in steps:
             log.write(f"\n##### {step} ({datetime.now().isoformat(timespec='seconds')})\n")
             log.flush()
             proc = subprocess.run(
-                [python, "agent.py", step],
+                [python, "agent.py", step, *extra],
                 cwd=str(AGENT_DIR), env=env, timeout=timeout,
                 stdout=log, stderr=subprocess.STDOUT,
             )

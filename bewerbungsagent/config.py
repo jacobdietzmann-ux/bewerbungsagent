@@ -81,6 +81,8 @@ DEFAULT_CONFIG: dict = {
         "ats_only_near_munich": True,
         # Arbeitnow liefert 300 Stellen pro Seite ohne serverseitigen Filter.
         "arbeitnow_pages": 3,
+        # Provider für die Anzeigensuche zu Mail-Leads; [] schaltet sie ab (ADR-055).
+        "lead_url_provider": ["xing"],
         # JobLeads liefert die Trefferliste samt Volltext (JSON-LD) ohne Login.
         # Einträge sind Suchbegriffe (URL wird gebaut) oder Dicts mit fertiger
         # ``list_url``, z. B.:

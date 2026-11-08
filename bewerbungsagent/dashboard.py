@@ -433,6 +433,9 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         # Suchrauschen und erscheinen nicht mehr im Dashboard (``auswahl``).
         "neufundRelevant": neufund_relevant(app),
         "pendelKnapp": bool(app.get("pendel_knapp")),
+        # Prüffall „Text fehlt, Titel passt" (ADR-055): eigene Liste, nicht in der Tabelle.
+        "textFehlt": bool(app.get("text_fehlt")),
+        "quelle": app.get("quelle", "") or "",
         "deleted": bool(app.get("deleted")),
     }
 
@@ -471,8 +474,8 @@ def build_dashboard(state: dict, output_path: Path,
         # ohne diese Ausnahme wäre das „neu gefunden"-Label nie zu sehen. Sie
         # fallen automatisch wieder aus der Tabelle, sobald ein späterer Lauf
         # andere Stellen als die neuesten markiert.
-        row["visible"] = row["id"] in visible_keys or (
-            row["neuImLauf"] and row.get("neufundRelevant", True))
+        row["visible"] = (row["id"] in visible_keys or (
+            row["neuImLauf"] and row.get("neufundRelevant", True))) and not row["textFehlt"]
     data.sort(key=lambda r: r["fit"], reverse=True)
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2).replace("</", "<\\/")
@@ -690,6 +693,15 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
                  color:var(--muted); cursor:pointer; }
   .chip button:hover { color:var(--red); }
   .chip-clear { background:none; border:none; color:var(--accent); font-size:11.5px; padding:2px 4px; }
+  /* ---- Prüffälle „Text fehlt, Titel passt" (ADR-055) ---- */
+  .pruef { padding:10px 14px; margin:0 0 10px; }
+  .pruef p { margin:4px 0 6px; }
+  .pruef-liste { margin:0; padding-left:18px; }
+  .pruef-liste li { margin:4px 0; overflow-wrap:anywhere; }
+  .pruef-liste a { color:var(--accent); margin-left:6px; }
+  .pruef-weg { background:none; border:1px solid var(--line); border-radius:6px; color:var(--muted);
+               font-size:11.5px; padding:1px 6px; margin-left:6px; cursor:pointer; }
+  .pruef-weg:hover { color:var(--red); }
   .chk { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); white-space:nowrap; }
   .toolbar .grow { max-width:260px; }
   .toolbar .fitsel { max-width:200px; }
@@ -797,6 +809,12 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <span id="neuInfo" class="sub" style="font-size:11px"></span>
     </div>
     <div class="chips" id="activeFilters" aria-label="Aktive Filter"></div>
+
+    <div class="card pruef" id="pruefPanel" hidden>
+      <strong>Prüffälle: Text fehlt, Titel passt</strong> <span id="pruefAnzahl" class="sub"></span>
+      <p class="sub">Der Titel passt zur Zielrolle, aber der Anzeigentext fehlt. Ohne Text bleibt der Fit unter 50 %, deshalb stehen diese Stellen nicht in der Tabelle und in keiner Kennzahl. Bitte selbst ansehen. „Verwerfen" entfernt die Stelle, nach 14 Tagen ohne Text blendet der Lauf sie aus.</p>
+      <ul class="pruef-liste" id="pruefListe"></ul>
+    </div>
 
     <div class="card">
       <div class="table-scroll">
@@ -1236,7 +1254,28 @@ function shortDate(d) {
 // dürfen nie auseinanderlaufen — jede Änderung (Status, Löschen, Datum) muss
 // beide aktualisieren. Einzelne render*-Aufrufe an den Editierstellen hatten
 // genau das vergessen.
+function renderPruef() {
+  const panel = document.getElementById("pruefPanel");
+  if (!panel) return;
+  const faelle = state.map((r, i) => [r, i]).filter(([r]) => r.textFehlt && !r.deleted);
+  panel.hidden = !faelle.length;
+  document.getElementById("pruefAnzahl").textContent = `(${faelle.length})`;
+  document.getElementById("pruefListe").innerHTML = faelle.map(([r, i]) => {
+    // Mail-Leads haben oft keine URL: dann führt der Link zu einer Websuche.
+    const ziel = r.link || ("https://www.google.com/search?q="
+      + encodeURIComponent(`${r.company} ${r.position} Stellenanzeige`));
+    const linkText = r.link ? "Anzeige" : "Suchen";
+    const info = [r.quelle, r.date].filter(Boolean).join(" · ");
+    return `<li><strong>${esc(r.company)}</strong> – ${esc(r.position)}`
+      + (info ? ` <span class="sub">${esc(info)}</span>` : "")
+      + `<a href="${esc(ziel)}" target="_blank" rel="noopener">${linkText}</a>`
+      + `<button type="button" class="pruef-weg" data-i="${i}">Verwerfen</button></li>`;
+  }).join("");
+  panel.querySelectorAll(".pruef-weg").forEach(b => b.addEventListener("click", onDelete));
+}
+
 function refreshAllViews() {
+  renderPruef();
   renderRows();
   renderKpis();            // KPIs + Status-Verteilung + Wochenverlauf + Verteilungen
   updateStatusToggleCounts();

@@ -10,7 +10,14 @@ from .auswahl import (
     DEFAULT_COMMUTE_GRACE_MIN,
     DEFAULT_MAX_AUTO_PER_WEEK,
     DEFAULT_MAX_OFFEN_PRO_FIRMA,
+    TEXT_FEHLT_TAGE,
+    TEXT_NACHLADEN_TAGE,
     apply_limits,
+    juenger_als,
+    ohne_text,
+    rollentreffer_ohne_text,
+    stille_rollentreffer,
+    text_fehlt_titel_passt,
     within_commute_grace,
 )
 from .commute import (
@@ -37,7 +44,9 @@ from .profile import Profile, normalize
 from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
 from .quality import check_application
 from .salary import enrich_salary
+from .search import resolve_mail_leads
 from .search import run_search as _search
+from .search.manual import MAIL_LEAD, lead_passt
 from .statuses import normalize_status
 from .storage import load_json, now_iso, save_json
 
@@ -107,6 +116,9 @@ def load_config_and_profile(config_path: Path | None = None):
 
 
 def _job_key(job: dict) -> str:
+    # Ein Mail-Lead behält nach dem Finden der URL seinen Bestandsschlüssel.
+    if job.get("bestand_key"):
+        return job["bestand_key"]
     url = normalize(job.get("url", ""))
     if url:
         return url
@@ -309,6 +321,9 @@ def run_searches(config: Config, profile: Profile) -> dict:
     definitionen = _tageslauf_definitionen(config)
     bestand = store.load_state()
     bekannt = _bekannt_kwargs(bestand)
+    # Vor der Suche: Gefundene URLs laufen im selben Tageslauf durch Fetch und Match.
+    leads = resolve_mail_leads(config, health)
+    fehler.extend(leads["fehler"])
     for name, definition in definitionen:
         jobs, errs, tri = _search(config, profile, definition, health=health, stats=stats,
                                   **bekannt)
@@ -327,17 +342,88 @@ def run_searches(config: Config, profile: Profile) -> dict:
     health = record(health, stats, now=now_iso(), max_failures=max_failures)
     store.set_meta("provider_health", health)
 
+    gefunden = len(alle)
+    alle.extend(_textluecken(bestand, alle))
     for i, job in enumerate(alle, start=1):
         job["id"] = i
     alle = _preserve_descriptions(alle, bestand)
     save_json(config.jobs_path(), alle)
     context = _enrich_job_context(config, alle)
     return {
-        "count": len(alle), "errors": fehler, "path": str(config.jobs_path()),
+        "count": gefunden, "errors": fehler, "path": str(config.jobs_path()),
         "context": context, "triage_rejected": triage,
         "provider_stats": stats, "provider_health": health,
         "searches": [name for name, _ in definitionen],
+        "textluecken": len(alle) - gefunden, "leads": leads,
     }
+
+
+def _textluecken(state: dict, jobs: list[dict]) -> list[dict]:
+    """Bestandsstellen ohne Text, die der nächste ``fetch`` noch retten kann.
+
+    ``fetch`` und ``match`` arbeiten nur auf ``jobs.json``, also auf dem letzten
+    Suchlauf. Eine Stelle, die dort fehlt, behielt ihren Titel-Fit für immer: Von
+    29 ausgeblendeten Rollentreffern mit URL standen am 07.11.2026 nur einer in
+    ``jobs.json``, 21 lieferten beim Direktaufruf noch Text, einer davon mit 100 %.
+    Sie laufen deshalb einmal mit, bis Text da ist oder die Anzeige als abgelaufen
+    gilt. Nutzerentscheidungen und abgeschlossene Vorgänge bleiben unberührt.
+    """
+    vorhanden = {_job_key(j) for j in jobs}
+    luecken = []
+    for app in state.get("applications") or []:
+        key = app.get("key")
+        if (not app.get("url") or key in vorhanden or _job_key(app) != key
+                or app.get("status") in _HISTORISCHE_STATUS
+                or _vom_nutzer_geloescht(app)
+                or not rollentreffer_ohne_text(app)
+                or not juenger_als(app, TEXT_NACHLADEN_TAGE)):
+            continue
+        luecken.append({f: app.get(f) or "" for f in ("titel", "firma", "ort", "url", "quelle",
+                                                      "snippet", "branche", "branche_quelle")})
+    return luecken
+
+
+def _vom_nutzer_geloescht(app: dict) -> bool:
+    """Im Dashboard gelöscht: eine Entscheidung, die kein Lauf zurücknimmt."""
+    return str(app.get("deleted_reason") or "").lower().startswith(USER_DELETE_REASON)
+
+
+def _grund_unter_ausblendgrenze(app: dict) -> str:
+    """Ausblendgrund unter ``FIT_BAND_AUSBLENDEN``: sagt, warum der Fit fehlt (ADR-055)."""
+    if ohne_text(app) and app.get("verfuegbar") is False:
+        return "Anzeige abgelaufen (ohne Text)"
+    if rollentreffer_ohne_text(app):
+        return f"Text fehlt seit über {TEXT_FEHLT_TAGE} Tagen"
+    return f"FIT < {FIT_BAND_AUSBLENDEN} %"
+
+
+# Ausblendgründe, die ein Lauf neu bewertet, sobald sich Fit oder Text ändern.
+_NEU_BEWERTBAR = ("fit", "text fehlt", "anzeige abgelaufen")
+
+
+def _lead_dubletten(apps: list[dict]) -> int:
+    """Blendet Mail-Leads aus, deren Anzeige mit Text schon im Bestand liegt.
+
+    Am 07.11.2026 standen so zwei Leads ohne Text neben ihrer bewerteten Anzeige
+    (Panasonic bei StepStone mit 58 %, Software Engineering bei XING mit 62 %).
+    Der Abgleich ist derselbe wie bei der URL-Suche (``manual.lead_passt``).
+    """
+    mit_text = [a for a in apps if a.get("quelle") != MAIL_LEAD and not ohne_text(a)
+                and not _vom_nutzer_geloescht(a)]
+    n = 0
+    for lead in apps:
+        if (lead.get("quelle") != MAIL_LEAD or not ohne_text(lead) or lead.get("dokumente")
+                or lead.get("status") in _HISTORISCHE_STATUS or _vom_nutzer_geloescht(lead)
+                or str(lead.get("deleted_reason") or "").startswith("Dublette")):
+            continue
+        treffer = next((a for a in mit_text if lead_passt(lead, a)), None)
+        if treffer:
+            lead["deleted"] = True
+            lead["deleted_reason"] = (f"Dublette: dieselbe Stelle wie {treffer.get('firma')} "
+                                      f"({treffer.get('quelle') or 'Bestand'})")
+            lead.pop("text_fehlt", None)
+            n += 1
+    return n
 
 
 def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
@@ -545,7 +631,7 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
     limit = _commute_limit_minutes(config)
     kept = removed = restored = 0
     for a in apps:
-        if normalize_status(a.get("status")) != "research":
+        if normalize_status(a.get("status")) != "research" or a.get("text_fehlt"):
             continue
         reason = (a.get("deleted_reason") or "")
         is_filtered = reason.lower().startswith(RESEARCH_REASON_PREFIX)
@@ -766,6 +852,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     #       Wunsch), sie sind also kein Suchrauschen. Der Pendelweg-Ausschluss
     #       gilt weiterhin, weil er eine harte Vorgabe ist.
     _ACTIVE_STATUSES = {"sent", "followup", "interview", "rejected"}
+    still_vorher = stille_rollentreffer(apps)
+    lead_dubletten = _lead_dubletten(apps)
+    text_fehlt = 0
     deleted_count = 0
     deleted_commute = 0
     deleted_student = 0
@@ -774,6 +863,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     restored_reason = 0
     restored_active = 0
     for a in apps:
+        # Der Prüffall wird in jedem Lauf neu abgeleitet (ADR-055).
+        a.pop("text_fehlt", None)
         # Im Dashboard gelöscht: das ist eine Entscheidung des Nutzers, keine
         # ableitbare Bewertung. Der Lauf darf sie nicht wieder einblenden.
         if str(a.get("deleted_reason") or "").lower().startswith(USER_DELETE_REASON):
@@ -847,8 +938,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             # bewusste Entscheidung, kein ableitbarer Zustand.
             if not reason or "nutzerkriterium" in low or "neubewertung" in low:
                 continue
-            if low.startswith("fit"):
-                if _fit_value(a) < FIT_BAND_AUSBLENDEN:
+            if low.startswith(_NEU_BEWERTBAR):
+                if _fit_value(a) < FIT_BAND_AUSBLENDEN and not text_fehlt_titel_passt(a):
+                    a["deleted_reason"] = _grund_unter_ausblendgrenze(a)
                     continue                 # Grund gilt weiter
             elif low.startswith("pendel"):
                 pass                         # Pendelweg ist oben schon geprüft
@@ -857,6 +949,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             a.pop("deleted", None)
             a.pop("deleted_reason", None)
             restored_reason += 1
+            if _fit_value(a) < FIT_BAND_AUSBLENDEN:
+                a["text_fehlt"] = True       # Prüffall „Text fehlt, Titel passt"
+                text_fehlt += 1
             continue
         if _commute_grace(config, a):
             # Knapp über der Grenze, aber starker Treffer: bleibt als Research
@@ -870,8 +965,14 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                 deleted_commute += 1
                 continue
         if _fit_value(a) < FIT_BAND_AUSBLENDEN and not a.get("dokumente"):
+            # Ohne Text kann ein Rollentreffer die 50 % nicht erreichen (ADR-055).
+            # Er bleibt als Prüffall sichtbar, statt still zu verschwinden.
+            if text_fehlt_titel_passt(a):
+                a["text_fehlt"] = True
+                text_fehlt += 1
+                continue
             a["deleted"] = True
-            a["deleted_reason"] = f"FIT < {FIT_BAND_AUSBLENDEN} %"
+            a["deleted_reason"] = _grund_unter_ausblendgrenze(a)
             deleted_count += 1
 
     # 4b) Research-Pool begrenzen: nur Funde im Fit-Fenster, mit sehr hohem Fit
@@ -967,6 +1068,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "dimensionen_ko": dim_blockiert,
         "research_checked": research_checked,
         "deleted_fit_under_50": deleted_count,
+        "text_fehlt": text_fehlt,
+        "lead_dubletten": lead_dubletten,
+        "stille_rollentreffer": {"vorher": still_vorher, "nachher": stille_rollentreffer(apps)},
         "deleted_commute": deleted_commute,
         "deleted_student": deleted_student,
         "deleted_technician": deleted_technician,
@@ -1121,6 +1225,10 @@ def _merge_state(existing: dict, matches: list[dict],
                 if f in m and m[f] is not None:
                     if historisch and f in _SCORE_FELDER:
                         continue
+                    old[f] = m[f]
+            # Mail-Leads kommen ohne URL und Ort. Eine gefundene Anzeige füllt die Lücke.
+            for f in ("url", "ort"):
+                if m.get(f) and not old.get(f):
                     old[f] = m[f]
             old.setdefault("status", "research")
             old.setdefault("dokumente", {})

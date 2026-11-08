@@ -85,9 +85,16 @@ _EXPIRED_PATTERNS = [
     r"(position|role)\s+has\s+been\s+filled",
     r"this\s+(position|role|job)\s+is\s+(no longer|closed|filled)",
     r"nicht\s+mehr\s+vakant",
+    r"job\s+posting\s+has\s+been\s+removed",
 ]
 
 _EXPIRED_RE = re.compile("|".join(_EXPIRED_PATTERNS), re.IGNORECASE)
+
+# Manche Portale melden eine abgelaufene Anzeige nur über die Weiterleitung.
+# LinkedIn schickt alte Links auf eine Trefferliste (``trk=expired_jd_redirect``).
+# Deren Text sieht wie eine Anzeige aus, gehört aber zu fremden Stellen: Am
+# 07.11.2026 kamen so „Linux-Administrator"-Texte zu einer RF-Stelle.
+_EXPIRED_REDIRECT_RE = re.compile(r"[?&]trk=expired_jd_redirect\b", re.IGNORECASE)
 
 
 def _is_expired(text: str) -> str | None:
@@ -98,6 +105,12 @@ def _is_expired(text: str) -> str | None:
     """
     match = _EXPIRED_RE.search(text)
     return match.group(0) if match else None
+
+
+def _is_expired_redirect(url: str | None) -> str | None:
+    """Liefert den Marker, wenn die Zieladresse eine abgelaufene Anzeige verrät."""
+    match = _EXPIRED_REDIRECT_RE.search(url or "")
+    return match.group(0).lstrip("?&") if match else None
 
 
 def _extract_description(text: str) -> str:
@@ -223,7 +236,7 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
             firma = job.get("firma", "")[:24]
             try:
                 text = load_page_text(page, url)
-                marker = _is_expired(text)
+                marker = _is_expired(text) or _is_expired_redirect(page.url)
                 if marker:
                     job["verfuegbar"] = False
                     job["verfuegbar_grund"] = marker

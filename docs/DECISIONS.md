@@ -1737,6 +1737,67 @@ Lauf entfällt der Textabruf für bekannte Anzeigen. Die Board-Einstellungen in 
 `config.json` brauchen keine Änderung. Gespeicherte Suchen mit dem Provider
 `stepstone` sollten auf `stepstone_browser` wechseln.
 
+## ADR-054 – Stellen, die fehlen, und Quellen, die ausfallen, werden sichtbar
+
+**Ausgangslage.** Am 07.11.2026 tauchten 22 von 60 offenen Einträgen im Suchlauf
+nicht mehr auf, der Bestand merkte sich das aber nicht. `verfuegbar` wird nur beim
+ersten Nachladen gesetzt. Ausfälle einzelner Boards standen nur im Digest, wenn
+der Bestand schrumpfte, und das kann er seit dem Wechsel auf die Datenbank nicht
+mehr durch einen Ausfall. Das Log-Parsing nannte außerdem `Standard` statt der
+Quelle, weil `run_searches` die Zeilen mit dem Suchnamen beginnt. NXP meldete nur
+`JSONDecodeError`, der Workday-Host `wd3` stand fest im Code.
+
+**Entscheidungen.**
+
+1. **`zuletzt_gesehen` kommt von der Suche.** `run_search` und `run_searches`
+   stempeln `jobs.json`, `_merge_state` übernimmt den Wert. So frischt ein `match`
+   ohne neue Suche nichts auf. Findet eine andere Börse dieselbe Stelle, rückt der
+   Zeitpunkt beim bestehenden Eintrag trotzdem vor. Versendete Stellen bekommen das
+   Feld auch; Status und Bewertung bleiben nach ADR-039 eingefroren.
+2. **Vermisst heißt: Die Quelle lief, die Stelle fehlte.** „Vermutlich abgelaufen"
+   vergleicht `zuletzt_gesehen` mit dem letzten Erfolg der eigenen Quelle
+   (`provider_health.letzter_abruf`), nicht mit dem heutigen Datum. Ein Ausfall,
+   eine abgeschaltete Quelle oder ein pausierter Tageslauf macht keine Stelle
+   verdächtig. Es gilt nur für offene Stellen, wird beim Anzeigen berechnet und
+   löscht nichts. Frist: `search.abgelaufen_nach_tagen`, Standard 7, `0` = aus.
+3. **Altbestand beginnt beim ersten Lauf.** Offene Einträge ohne Feld, die dieser
+   Lauf nicht findet, erhalten den aktuellen Zeitpunkt. Seit wann sie fehlen, ist
+   unbekannt; `created` würde am ersten Tag fast alles markieren. Die 22 Einträge
+   erscheinen deshalb erst nach Ablauf der Frist.
+4. **Boards führen eine eigene Historie (`board_health`)** mit `provider_health.record`,
+   werden aber nie abgeschaltet (`max_failures=None`).
+5. **`ats.search` trennt Fehler und Statistik.** Die Fehlerliste enthält nur noch
+   echte Fehler, die Statistik steht im Ausgabeparameter `status`. Das ersetzt
+   `ats.is_info` aus ADR-053, Nr. 7. Alle Boards laufen über `_abfragen` mit einer
+   einzigen Fehlerbehandlung.
+6. **Der Digest liest die Historie, nicht das Log.** `parse_failed_sources` entfällt.
+   `stoerungen` und `aenderungen_seit` melden neue Ausfälle, Abschaltungen und
+   Erholungen je Änderung einmal, in einem eigenen Block `Quellen:`. Als gemeldet
+   gilt nur, was zugestellt wurde (`gemeldete_quellen` im Snapshot): Ein gescheiterter
+   Versand oder `--dry-run` holt die Meldung nach. Die Probe aus `release_due` bleibt
+   still, die Quelle ist weiter gestört.
+7. **Workday-Host je Board.** Feld `host`: Instanz (`wd5`) oder ganzer Hostname,
+   Standard `wd3`. Antwortet ein JSON-Board mit HTML, nennt `BoardAntwortFehler`
+   Seitentitel und Host statt `JSONDecodeError`; `_fehlertext` nennt bei HTTP-Fehlern
+   den Status.
+
+**Live geprüft (07.11.2026).** Airbus liefert auf `wd3` JSON und auf `wd1`/`wd5`
+HTTP 422, also ist 422 das Zeichen für einen falschen Host. NXP liefert auf `wd3`
+per 303 die Seite „Workday is currently unavailable." von `community.workday.com`,
+auf `wd1`, `wd5`, `wd10`, `wd12`, `wd103` und `wd105` HTTP 422, auf `wd2` und `wd101`
+keine Verbindung. Das spricht gegen einen falschen Host; ein anderer Wert behebt NXP
+also vermutlich nicht. Der Standard `wd3` bleibt.
+
+**Grenzen.** Die Frist von 7 Tagen ist gesetzt, nicht gemessen: Für eine Kalibrierung
+fehlt die Historie (Hard Rule 3). Börsen liefern nur die ersten Treffer je Begriff,
+eine Anzeige kann also herausrutschen und trotzdem online sein. Deshalb „vermutlich".
+Ein Board, das fehlerfrei 0 Stellen liefert, gilt nicht als Ausfall; seine Stellen
+gelten nach der Frist als vermutlich abgelaufen. `quelle` nennt die erste Fundstelle.
+
+**Folgen.** `board_health` ist ein neuer Meta-Schlüssel, ein Schema-Umbau entfällt.
+Beim ersten Digest erscheinen bestehende Störungen einmal als neu, auch solche von
+Quellen, die nicht mehr konfiguriert sind.
+
 ## ADR-055 – Stellen ohne Anzeigentext verschwinden nicht mehr still
 
 **Problem.** Ohne Anzeigentext bewertet der Score nur den Titel. Ein Rollentreffer

@@ -322,6 +322,17 @@ JobSpy loggt HTTP-Fehler nur („JobSpy:Indeed - 403“), statt sie zu werfen.
 `search/jobspy.py` fängt diese Log-Meldungen ab und wirft, wenn kein einziger
 Treffer ankam — sonst wäre eine tote Quelle für die Statistik unsichtbar.
 
+ATS-Boards führen dieselbe Historie unter `board_health`, werden aber nie
+abgeschaltet. Der Digest (`scripts/jobwatch.py`) leitet daraus über `stoerungen`
+und `aenderungen_seit` seine Meldungen ab und merkt sich in
+`data/watch_snapshot.json` (`gemeldete_quellen`), was zugestellt wurde. Jede
+Änderung erscheint einmal, unabhängig davon, ob der Bestand schrumpft (ADR-054).
+
+`zuletzt_gesehen` hält pro Stelle fest, wann die Suche sie zuletzt lieferte.
+„Vermutlich abgelaufen" vergleicht das mit dem letzten Erfolg der Quelle, nicht
+mit dem heutigen Datum: Ein Ausfall oder ein pausierter Tageslauf macht keine
+Stelle verdächtig. Die Markierung wird beim Anzeigen berechnet und löscht nichts.
+
 ## Evaluation (`eval/`)
 
 Offline-Messung des Fit-Scorings gegen die echten Bewerbungsentscheidungen.

@@ -63,6 +63,21 @@ def _collect(stats: dict, name: str, gefunden: int, fehler: list[str]) -> None:
     entry["fehler"].extend(str(f) for f in fehler)
 
 
+def _collect_boards(entry: dict, status: dict) -> None:
+    """Hängt Ergebnis und Statistik der ATS-Boards an den Eintrag der Quelle.
+
+    Mehrere Suchen eines Tageslaufs können dasselbe Board abfragen. ``boards``
+    summiert deshalb, ``hinweise`` ist die lesbare Statistik für die Konsole.
+    """
+    boards = entry.setdefault("boards", {})
+    hinweise = entry.setdefault("hinweise", [])
+    for name, st in status.items():
+        _collect(boards, name, st["gefunden"], st["fehler"])
+        if not st["fehler"]:
+            hinweise.append(f"ats ({name}): {st['gefunden']} gefunden, "
+                            f"{st['im_umkreis']} im Umkreis")
+
+
 def _is_listing_page(title: str) -> bool:
     """Erkennt Aggregator-/Übersichtsseiten („N Jobs in München …“) anhand des Titels."""
     t = normalize(title)
@@ -315,19 +330,19 @@ def run_search(config: Config, profile: Profile,
                 # Karriereseiten abklappert.
                 firmen = s.get("ats_firmen")
                 boards = _filter_boards(boards, firmen)
+                board_status: dict = {}
                 jobs_found, ats_errors = provider.search(
                     boards,
                     user_agent=s.get("user_agent", "Mozilla/5.0"),
                     only_near_munich=s.get("ats_only_near_munich", True),
+                    status=board_status,
                     **bekannt,
                 )
                 for job in jobs_found:
                     add(job)
-                # Statistikzeilen sind keine Fehler: Sie zählten als Fehlversuch
-                # der Quelle und standen mit „!" im Log.
-                errors.extend(e for e in ats_errors if not ats.is_info(e))
-                stats.setdefault(name, {"gefunden": 0, "fehler": []}).setdefault(
-                    "hinweise", []).extend(e for e in ats_errors if ats.is_info(e))
+                errors.extend(ats_errors)
+                _collect_boards(stats.setdefault(name, {"gefunden": 0, "fehler": []}),
+                                board_status)
             elif name == "jobleads":
                 # JobLeads ist ein Aggregator mit Such-URLs; anders als die
                 # ATS-Boards gibt es keine feste Karriereseite. Ein Eintrag ist

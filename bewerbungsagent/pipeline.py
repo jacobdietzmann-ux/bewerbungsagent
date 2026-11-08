@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from .auswahl import (
+    DEFAULT_ABGELAUFEN_NACH_TAGEN,
     DEFAULT_COMMUTE_GRACE_MIN,
     DEFAULT_MAX_AUTO_PER_WEEK,
     DEFAULT_MAX_OFFEN_PRO_FIRMA,
@@ -16,6 +17,7 @@ from .auswahl import (
     juenger_als,
     ohne_text,
     rollentreffer_ohne_text,
+    stelle_offen,
     stille_rollentreffer,
     text_fehlt_titel_passt,
     within_commute_grace,
@@ -244,6 +246,30 @@ def _retry_hours(config: Config) -> float:
     return DEFAULT_RETRY_HOURS if value is None else float(value)
 
 
+def _quellen_verbuchen(config: Config, store: Store, health: dict, stats: dict,
+                       jetzt: str) -> dict:
+    """Schreibt die Historie der Quellen und der ATS-Boards eines Laufs fort."""
+    max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
+                       .get("max_failures") or DEFAULT_MAX_FAILURES)
+    health = record(health, stats, now=jetzt, max_failures=max_failures)
+    store.set_meta("provider_health", health)
+    boards = (stats.get("ats") or {}).get("boards")
+    if boards:
+        store.set_meta("board_health", record(store.get_meta("board_health") or {}, boards,
+                                              now=jetzt, max_failures=None))
+    return health
+
+
+def _als_gesehen_stempeln(jobs: list[dict], jetzt: str) -> None:
+    """Hält in ``jobs.json`` fest, wann die Suche eine Stelle wirklich sah.
+
+    ``run_match`` läuft auch ohne neue Suche auf derselben Datei. Ein Stempel erst
+    beim Matching ließe jede Stelle aus einem alten Stand frisch aussehen.
+    """
+    for job in jobs:
+        job["zuletzt_gesehen"] = jetzt
+
+
 def _urls_mit_text(state: dict) -> set[str]:
     """Anzeigen, deren Text schon im Bestand liegt: Provider laden sie nicht erneut."""
     return {a["url"] for a in state.get("applications", [])
@@ -265,18 +291,17 @@ def run_search(config: Config, profile: Profile, definition: dict | None = None)
     if definition is None:
         return run_searches(config, profile)
     store = _store(config)
-    health = release_due(store.get_meta("provider_health") or {}, now=now_iso(),
+    jetzt = now_iso()
+    health = release_due(store.get_meta("provider_health") or {}, now=jetzt,
                          retry_hours=_retry_hours(config))
     stats: dict = {}
     bestand = store.load_state()
     jobs, errors, triage_rejected = _search(config, profile, definition,
                                             health=health, stats=stats,
                                             **_bekannt_kwargs(bestand))
-    max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
-                       .get("max_failures") or DEFAULT_MAX_FAILURES)
-    health = record(health, stats, now=now_iso(), max_failures=max_failures)
-    store.set_meta("provider_health", health)
+    health = _quellen_verbuchen(config, store, health, stats, now_iso())
     jobs = _preserve_descriptions(jobs, bestand)
+    _als_gesehen_stempeln(jobs, jetzt)
     save_json(config.jobs_path(), jobs)
     context = _enrich_job_context(config, jobs)
     return {
@@ -311,7 +336,8 @@ def run_searches(config: Config, profile: Profile) -> dict:
     eigenen Begriffe, Provider und Board-Auswahl.
     """
     store = _store(config)
-    health = release_due(store.get_meta("provider_health") or {}, now=now_iso(),
+    jetzt = now_iso()
+    health = release_due(store.get_meta("provider_health") or {}, now=jetzt,
                          retry_hours=_retry_hours(config))
     stats: dict = {}
     alle: list[dict] = []
@@ -337,16 +363,15 @@ def run_searches(config: Config, profile: Profile) -> dict:
                 gesehen.add(key)
             alle.append(job)
 
-    max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
-                       .get("max_failures") or DEFAULT_MAX_FAILURES)
-    health = record(health, stats, now=now_iso(), max_failures=max_failures)
-    store.set_meta("provider_health", health)
+    health = _quellen_verbuchen(config, store, health, stats, now_iso())
 
     gefunden = len(alle)
     alle.extend(_textluecken(bestand, alle))
     for i, job in enumerate(alle, start=1):
         job["id"] = i
     alle = _preserve_descriptions(alle, bestand)
+    # Nachgeladene Textlücken hat die Suche nicht gesehen.
+    _als_gesehen_stempeln(alle[:gefunden], jetzt)
     save_json(config.jobs_path(), alle)
     context = _enrich_job_context(config, alle)
     return {
@@ -1109,12 +1134,24 @@ def run_import_old(config: Config) -> dict:
     return {"imported": len(apps), "total": len(merged)}
 
 
+def abgelaufen_kwargs(config: Config) -> dict:
+    """Grundlage für „vermutlich abgelaufen“ in Dashboard und ``shortlist``."""
+    store = _store(config)
+    tage = (config.data.get("search") or {}).get("abgelaufen_nach_tagen")
+    return {
+        "quellen": {"provider": store.get_meta("provider_health") or {},
+                    "boards": store.get_meta("board_health") or {}},
+        "abgelaufen_tage": DEFAULT_ABGELAUFEN_NACH_TAGEN if tage is None else int(tage),
+    }
+
+
 def dashboard_kwargs(config: Config) -> dict:
     """Konfigurierte Dashboard-Optionen für ``agent.py dashboard`` und den Server."""
     return {
         "followup_days": int((config.data.get("followup") or {}).get("after_days")
                              or DEFAULT_AFTER_DAYS),
         "min_fit": _dashboard_min_fit(config),
+        **abgelaufen_kwargs(config),
     }
 
 
@@ -1189,6 +1226,13 @@ def _merge_state(existing: dict, matches: list[dict],
                  synonyms: dict | None = None) -> dict:
     apps = existing.get("applications", []) if isinstance(existing, dict) else []
     by_key = {a.get("key"): a for a in apps if a.get("key")}
+    jetzt = now_iso()
+
+    def gesehen(app: dict, treffer: dict) -> None:
+        # Zählt auch für beworbene Stellen: Das Feld gehört nicht zu Status und
+        # Bewertung, die ADR-039 einfriert.
+        app["zuletzt_gesehen"] = treffer.get("zuletzt_gesehen") or jetzt
+
     # Felder, die aus dem Matching-Ergebnis übernommen werden.
     # Wichtig: ``score_job()`` liefert nur Scoring-Felder plus die Kopie des Job-
     # Datensatzes. Fehlt ein Feld dort (z. B. ``verfuegbar``, weil jobs.json
@@ -1210,12 +1254,18 @@ def _merge_state(existing: dict, matches: list[dict],
     # URL erneut gefunden wird, darf keine zweite Bewerbung erzeugen — sonst
     # entstehen zwei Ordner und im schlimmsten Fall zwei Bewerbungen auf
     # dieselbe Stelle.
-    vorhandene_identitaet = {_identity(a, aliases, synonyms) for a in apps if a.get("key")}
+    vorhandene_identitaet: dict[tuple, list[dict]] = {}
+    for a in apps:
+        if a.get("key"):
+            vorhandene_identitaet.setdefault(_identity(a, aliases, synonyms), []).append(a)
     # Bereits beworbene Rollen: gleiche Firma + gleicher Titel gilt als dieselbe
     # Stelle, auch wenn eine Börse sie unter mehreren Orten führt (Glassdoor
     # listet dieselbe Anzeige für München, Dachau und Freising).
-    beworben = {(_company_key(a.get("firma"), aliases), _title_key(a.get("titel"), synonyms))
-                for a in apps if a.get("status") in ("sent", "followup", "interview")}
+    beworben: dict[tuple, list[dict]] = {}
+    for a in apps:
+        if a.get("status") in ("sent", "followup", "interview"):
+            rolle = (_company_key(a.get("firma"), aliases), _title_key(a.get("titel"), synonyms))
+            beworben.setdefault(rolle, []).append(a)
     for m in matches:
         key = m["key"]
         if key in by_key:
@@ -1233,15 +1283,22 @@ def _merge_state(existing: dict, matches: list[dict],
             old.setdefault("status", "research")
             old.setdefault("dokumente", {})
             old.setdefault("created", now_iso())
+            gesehen(old, m)
             _flag_far_commute(old, limit)
             result.append(old)
         else:
             ident = _identity(m, aliases, synonyms)
-            if ident in vorhandene_identitaet or (ident[0], ident[1]) in beworben:
+            gleiche = [*vorhandene_identitaet.get(ident, []),
+                       *beworben.get((ident[0], ident[1]), [])]
+            if gleiche:
                 # Dieselbe Stelle, andere Quelle: der bestehende Eintrag
                 # dokumentiert den Vorgang (Status, Unterlagen, Notizen) und
-                # bleibt unangetastet.
+                # bleibt unangetastet. Nur ``zuletzt_gesehen`` rückt vor, sonst
+                # gälte er als vermisst, obwohl die Stelle gerade gefunden wurde.
+                for vorhanden in gleiche:
+                    gesehen(vorhanden, m)
                 continue
+            gesehen(m, m)
             m.setdefault("status", "research")
             m.setdefault("dokumente", {})
             m.setdefault("created", now_iso())
@@ -1249,12 +1306,16 @@ def _merge_state(existing: dict, matches: list[dict],
             # Neue Stellen mit zu weitem Pendelweg gar nicht erst anlegen.
             _flag_far_commute(m, limit)
             result.append(m)
-            vorhandene_identitaet.add(ident)
+            vorhandene_identitaet.setdefault(ident, []).append(m)
         seen.add(key)
 
     # Bereits erfasste, aber aktuell nicht mehr gefundene Stellen behalten.
     for a in apps:
         if a.get("key") not in seen:
+            # Altbestand ohne Feld: Seit wann er fehlt, ist unbekannt. Die Frist
+            # beginnt deshalb hier; ``created`` meldete sonst am ersten Tag alles.
+            if stelle_offen(a):
+                a.setdefault("zuletzt_gesehen", jetzt)
             result.append(a)
 
     # ``id`` wird bei jedem Match-Lauf neu vergeben (1..n) und kollidierte

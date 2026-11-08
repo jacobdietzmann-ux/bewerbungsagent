@@ -19,6 +19,11 @@ Regeln:
   der Fehlerzähler über der Grenze und die Quelle ist sofort wieder aus;
   gelingt sie, ist sie wieder aktiv. So schalten kurze Netzausfälle oder
   fehlende Browser-Binärdateien keine Quelle dauerhaft ab.
+* ATS-Boards führen dieselbe Historie unter ``board_health``, werden aber nie
+  abgeschaltet: Ein Board kostet nur eine Anfrage und fällt oft nur kurz aus.
+
+``stoerungen`` und ``aenderungen_seit`` machen daraus die Meldungen des Digests,
+``letzter_abruf`` den Bezugspunkt für „vermutlich abgelaufen“ (ADR-054).
 """
 
 from __future__ import annotations
@@ -27,6 +32,26 @@ from datetime import datetime
 
 DEFAULT_MAX_FAILURES = 3
 DEFAULT_RETRY_HOURS = 24
+
+AUSFALL = "ausfall"
+ABGESCHALTET = "abgeschaltet"
+
+# Anzeigen tragen in ``quelle`` den Anzeigenamen, die Historie den Providernamen.
+_PROVIDER_JE_QUELLE = {
+    "ATS": ("ats",),
+    "StepStone": ("stepstone_browser", "stepstone"),
+    "XING": ("xing",),
+    "Indeed": ("indeed", "jobspy"),
+    "LinkedIn": ("jobspy",),
+    "Google Jobs": ("jobspy",),
+    "Glassdoor": ("jobspy",),
+    "JobSpy": ("jobspy",),
+    "Arbeitnow": ("arbeitnow",),
+    "JobLeads": ("jobleads",),
+    "Labo": ("labo",),
+    "Bing": ("bing",),
+    "DuckDuckGo": ("duckduckgo",),
+}
 
 
 def empty_entry() -> dict:
@@ -80,12 +105,13 @@ def release_due(health: dict | None, *, now: str,
 
 
 def record(health: dict | None, stats: dict | None, *, now: str,
-           max_failures: int = DEFAULT_MAX_FAILURES) -> dict:
+           max_failures: int | None = DEFAULT_MAX_FAILURES) -> dict:
     """Verrechnet die Ergebnisse eines Laufs und liefert ein neues Health-Dict.
 
     ``stats`` ist das, was ``search.run_search`` pro Quelle liefert:
     ``{"gefunden": n, "fehler": [texte], "uebersprungen": "grund"|None}``.
     Übersprungene Quellen zählen weder als Erfolg noch als Fehler.
+    ``max_failures=None`` führt nur die Historie und schaltet nichts ab.
     """
     out = {name: dict(entry) for name, entry in (health or {}).items()}
     for name, result in (stats or {}).items():
@@ -105,7 +131,8 @@ def record(health: dict | None, stats: dict | None, *, now: str,
             entry["serie_fehler"] += 1
             entry["letzter_fehler"] = now
             entry["letzter_fehler_text"] = errors[0][:300]
-            if entry["serie_fehler"] >= max_failures and not entry["deaktiviert"]:
+            if (max_failures is not None and entry["serie_fehler"] >= max_failures
+                    and not entry["deaktiviert"]):
                 entry["deaktiviert"] = True
                 entry["deaktiviert_am"] = now
         else:
@@ -135,3 +162,70 @@ def reset(health: dict | None = None) -> dict:
 def active(health: dict | None) -> list[str]:
     """Namen der Quellen, die aktuell nicht abgeschaltet sind."""
     return sorted(name for name in (health or {}) if not is_disabled(health, name))
+
+
+def letzter_abruf(app: dict, health: dict | None, boards: dict | None = None) -> str | None:
+    """Letzter erfolgreicher Lauf der Quelle, aus der eine Stelle stammt.
+
+    Fehlt eine Stelle in einem Lauf, ihre Quelle war aber ausgefallen oder
+    abgeschaltet, sagt das nichts über die Anzeige. Maßstab ist deshalb nicht die
+    Uhrzeit, sondern der letzte Lauf, in dem die Quelle wirklich geantwortet hat.
+    Das gilt auch, wenn der Tageslauf einige Tage gar nicht lief. Eine Quelle ohne
+    Historie (Import, Mail-Lead) vergleicht mit dem letzten Erfolg irgendeiner Quelle.
+    """
+    health = health or {}
+    firma = app.get("firma")
+    if app.get("quelle") == "ATS" and firma in (boards or {}):
+        return boards[firma].get("letzter_erfolg")
+    namen = [n for n in _PROVIDER_JE_QUELLE.get(app.get("quelle"), ()) if n in health]
+    eintraege = [health[n] for n in namen] if namen else health.values()
+    return max(filter(None, (e.get("letzter_erfolg") for e in eintraege)), default=None)
+
+
+def stoerungen(health: dict | None, boards: dict | None = None) -> dict[str, dict]:
+    """Aktuell gestörte Quellen: ``{name: {"zustand": …, "grund": text}}``.
+
+    ``zustand`` ist ``ABGESCHALTET`` oder ``AUSFALL``. Ein Teilausfall zählt nicht:
+    Hat eine Quelle trotz einzelner Fehler geliefert, trägt sie weiter bei.
+    """
+    out: dict[str, dict] = {}
+    for name, entry in (health or {}).items():
+        if entry.get("deaktiviert"):
+            zustand = ABGESCHALTET
+        elif entry.get("serie_fehler"):
+            zustand = AUSFALL
+        else:
+            continue
+        out[name] = {"zustand": zustand, "grund": entry.get("letzter_fehler_text")}
+    for name, entry in (boards or {}).items():
+        if entry.get("serie_fehler"):
+            out[f"ATS-Board {name}"] = {"zustand": AUSFALL,
+                                        "grund": entry.get("letzter_fehler_text")}
+    return out
+
+
+def aenderungen_seit(gemeldet: dict | None, aktuell: dict[str, dict]) -> tuple[dict, dict]:
+    """Vergleicht den zuletzt gemeldeten Stand mit den aktuellen Störungen.
+
+    Liefert ``(stand, aenderungen)``: ``stand`` ist ``{name: zustand}`` zum
+    Speichern, ``aenderungen`` hat die Listen ``neu`` und ``abgeschaltet`` mit
+    ``(name, grund)`` sowie ``wieder_da`` mit Namen. Ohne Änderung sind alle leer.
+
+    Der Wechsel von ``ABGESCHALTET`` zu ``AUSFALL`` bleibt still: Das ist die
+    Probe aus ``release_due`` nach einem Teillauf, die Quelle ist weiter gestört.
+    """
+    gemeldet = gemeldet or {}
+    stand: dict[str, str] = {}
+    neu: list[tuple[str, str | None]] = []
+    abgeschaltet: list[tuple[str, str | None]] = []
+    for name, eintrag in sorted(aktuell.items()):
+        alt, zustand = gemeldet.get(name), eintrag["zustand"]
+        if alt == ABGESCHALTET and zustand == AUSFALL:
+            stand[name] = ABGESCHALTET
+            continue
+        stand[name] = zustand
+        if zustand == alt:
+            continue
+        (neu if zustand == AUSFALL else abgeschaltet).append((name, eintrag.get("grund")))
+    wieder_da = sorted(set(gemeldet) - set(aktuell))
+    return stand, {"neu": neu, "abgeschaltet": abgeschaltet, "wieder_da": wieder_da}

@@ -31,7 +31,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .auswahl import neufund_relevant
+from .auswahl import DEFAULT_ABGELAUFEN_NACH_TAGEN, neufund_relevant, vermutlich_abgelaufen
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
@@ -368,8 +368,16 @@ def _quality_summary(quality: dict | None) -> dict | None:
     }
 
 
+def _fmt_tag(value) -> str:
+    """ISO-Zeitstempel als „07.11.2026“, leer bei unbekanntem Wert."""
+    zeitpunkt = _parse_iso(value)
+    return f"{zeitpunkt:%d.%m.%Y}" if zeitpunkt else ""
+
+
 def _to_data(app: dict, letzter_fund: dict | None = None,
-             followup_days: int = DEFAULT_AFTER_DAYS) -> dict:
+             followup_days: int = DEFAULT_AFTER_DAYS, *,
+             quellen: dict | None = None,
+             abgelaufen_tage: int = DEFAULT_ABGELAUFEN_NACH_TAGEN) -> dict:
     fit = fit_value(app)
 
     docs = []
@@ -424,6 +432,8 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         "notes": app.get("notes", "") or "",
         "beschreibung": app.get("beschreibung", "") or "",
         "verfuegbar": _availability(app),
+        "vermutlichAbgelaufen": vermutlich_abgelaufen(app, quellen, abgelaufen_tage),
+        "zuletztGesehen": _fmt_tag(app.get("zuletzt_gesehen")),
         "matched": app.get("matched_skills", []) or [],
         "interviewDate": app.get("interviewDate", "") or "",
         "statusChangedAt": app.get("statusChangedAt", "") or "",
@@ -453,7 +463,9 @@ def build_dashboard(state: dict, output_path: Path,
                     commute_limit: int = MAX_COMMUTE_MINUTES,
                     letzter_fund: dict | None = None,
                     followup_days: int = DEFAULT_AFTER_DAYS,
-                    min_fit: int | None = None) -> Path:
+                    min_fit: int | None = None,
+                    quellen: dict | None = None,
+                    abgelaufen_tage: int = DEFAULT_ABGELAUFEN_NACH_TAGEN) -> Path:
     apps = state.get("applications", []) if isinstance(state, dict) else []
     # Der komplette Bestand wird eingebettet, damit der Wochenverlauf auch
     # frühere Bewerbungen ohne Dokumente zeigt: die Tabelle sowie die
@@ -468,7 +480,8 @@ def build_dashboard(state: dict, output_path: Path,
         # Wert, damit beide denselben Stand erzeugen.
         visible_keys = {_app_id(a) for a in dashboard_applications(apps, commute_limit)
                         if fit_value(a) >= min_fit}
-    data = [_to_data(a, letzter_fund, followup_days=followup_days) for a in apps]
+    data = [_to_data(a, letzter_fund, followup_days=followup_days, quellen=quellen,
+                     abgelaufen_tage=abgelaufen_tage) for a in apps]
     for row in data:
         # Neu gefundene Stellen sind noch unbewertet und haben keine Unterlagen —
         # ohne diese Ausnahme wäre das „neu gefunden"-Label nie zu sehen. Sie
@@ -618,6 +631,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
            white-space:nowrap; display:inline-block; max-width:100%; overflow:hidden;
            text-overflow:ellipsis; }
   .badge-neu { background:rgba(56,189,248,.18); color:#7dd3fc; border:1px solid rgba(56,189,248,.5); }
+  .badge-vermisst { background:rgba(245,158,11,.14); color:var(--amber); border:1px solid rgba(245,158,11,.5); }
   tr.ist-neu > td:first-child { box-shadow:inset 3px 0 0 #38bdf8; }
   .s-research { background:#334155; color:#cbd5e1; }
   .s-docs     { background:#1d4ed833; color:#93c5fd; border:1px solid #1d4ed855; }
@@ -1663,7 +1677,7 @@ function renderRows() {
       <td class="c-pos" data-label="Position">
         <div class="pos-line">
           <span class="pos-title clip2" title="${esc(r.position)}">${esc(r.position)}</span>
-          <span class="pos-tags">${r.verfuegbar === false ? '<span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.neuImLauf ? '<span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu</span>' : ''}${(r.matched && r.matched.length) ? `<span class="micro" title="Treffer im Profil: ${esc(r.matched.join(", "))}">✓${r.matched.length}</span>` : ""}${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false" title="Stellenbeschreibung ein-/ausblenden">Text ▾</button>` : ""}</span>
+          <span class="pos-tags">${r.verfuegbar === false ? '<span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.vermutlichAbgelaufen ? `<span class="badge badge-vermisst" title="Zuletzt gesehen am ${esc(r.zuletztGesehen)}. Die Quelle lief seitdem erfolgreich, die Stelle fehlte. Gelöscht wurde nichts.">vermutlich abgelaufen</span>` : ''}${r.neuImLauf ? '<span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu</span>' : ''}${(r.matched && r.matched.length) ? `<span class="micro" title="Treffer im Profil: ${esc(r.matched.join(", "))}">✓${r.matched.length}</span>` : ""}${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false" title="Stellenbeschreibung ein-/ausblenden">Text ▾</button>` : ""}</span>
         </div>
       </td>
       <td data-label="Branche"><span class="clip1" title="${esc(r.branch || "k. A.")}">${esc(r.branch || "k. A.")}</span></td>

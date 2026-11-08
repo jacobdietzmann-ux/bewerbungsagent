@@ -26,6 +26,7 @@ from bewerbungsagent.followup import run_followup
 from bewerbungsagent.pipeline import (
     FIT_BAND_AUSBLENDEN,
     FIT_BAND_UNTERLAGEN,
+    abgelaufen_kwargs,
     load_config_and_profile,
     run_dashboard,
     run_enrich,
@@ -475,7 +476,7 @@ def main(argv=None) -> int:
     elif args.command == "shortlist":
         from bewerbungsagent.auswahl import shortlist
         apps = Store(config.db_path()).load_state().get("applications", [])
-        liste = shortlist(apps, top=args.top)
+        liste = shortlist(apps, top=args.top, **abgelaufen_kwargs(config))
         if not liste:
             print("Keine fertigen, unversendeten Bewerbungen.")
             return 0
@@ -487,6 +488,8 @@ def main(argv=None) -> int:
                 hinweise.append("Ansprechpartner fehlt")
             if s["pendel_knapp"]:
                 hinweise.append("Pendelweg knapp drüber")
+            if s["vermutlich_abgelaufen"]:
+                hinweise.append("vermutlich abgelaufen")
             print(f"{i:>2}. {s['fit']:>3} %  {s['firma']} — {s['titel']} ({s['ort'] or '?'})"
                   + (f"  [{', '.join(hinweise)}]" if hinweise else ""))
             if s.get("url"):

@@ -229,10 +229,12 @@ def test_dispatch_kennt_sitemap(monkeypatch):
     _fake_requests(monkeypatch, _SEITEN)
     boards = [{"firma": "E.ON", "ats": "sitemap", "sitemap": _SITEMAP_URL,
                "url_must_contain": "muenchen"}]
-    jobs, errors = ats.search(boards)
+    status: dict = {}
+    jobs, errors = ats.search(boards, status=status)
     assert [j["titel"] for j in jobs] == ["Test Engineer (m/w/d)",
                                           "Werkstudent Operations (m/w/d)"]
-    assert any("2 im Umkreis" in e for e in errors)
+    assert errors == []
+    assert status["E.ON"]["im_umkreis"] == 2
 
 
 def test_dispatch_meldet_fehlende_sitemap():

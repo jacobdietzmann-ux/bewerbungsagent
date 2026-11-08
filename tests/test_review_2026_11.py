@@ -187,21 +187,18 @@ class TestAtsMeldungen:
         monkeypatch.setattr(ats.requests, "get", get)
         assert ats._diehl_detail("https://new.diehl.com/x", None) == ""
 
-    @pytest.mark.parametrize("zeile,info", [
-        ("ats (Airbus): 2000 gefunden, 31 im Umkreis", True),
-        ("ats (NXP): JSONDecodeError", False),
-    ])
-    def test_statistikzeile_ist_kein_fehler(self, zeile, info):
-        assert ats.is_info(zeile) is info
-
     def test_quelle_gilt_nicht_als_fehlgeschlagen(self, monkeypatch, tmp_path, tmp_config):
         from bewerbungsagent import search as suche
 
         tmp_config["search"].update(enabled=True, providers=["ats"], ats_boards=[{"firma": "A"}])
         pfad = tmp_path / "config.json"
         pfad.write_text(json.dumps(tmp_config), encoding="utf-8")
-        monkeypatch.setattr(suche.ats, "search", lambda *_a, **_k: (
-            [], ["ats (A): 5 gefunden, 0 im Umkreis"]))
+
+        def search(*_a, status, **_k):
+            status["A"] = {"gefunden": 5, "im_umkreis": 0, "fehler": []}
+            return [], []
+
+        monkeypatch.setattr(suche.ats, "search", search)
         stats: dict = {}
         _jobs, fehler, _n = suche.run_search(Config(pfad), None, stats=stats)
         assert fehler == []
@@ -356,6 +353,16 @@ class TestAblauf:
         suche.run_search(Config(pfad), None, definition={"query_terms": ["NIO"]})
         suche.run_search(Config(pfad), None)
         assert gesehen == [["NIO"], ["Testingenieur"]]
+
+    def test_textluecke_gilt_nicht_als_gesehen(self, config, monkeypatch):
+        monkeypatch.setattr(pipeline, "_search", lambda *_a, **_k: ([], [], 0))
+        monkeypatch.setattr(pipeline, "enrich_commute", lambda *_a: {})
+        monkeypatch.setattr(pipeline, "_textluecken", lambda *_a: [
+            {"key": "alt", "titel": "T", "url": "https://example.test/alt",
+             "zuletzt_gesehen": "2026-10-01T00:00:00+01:00"}])
+        pipeline.run_searches(config, None)
+        jobs = json.loads(config.jobs_path().read_text(encoding="utf-8"))
+        assert jobs[0]["zuletzt_gesehen"] == "2026-10-01T00:00:00+01:00"
 
     def test_pipeline_ruft_enrich_auf(self, config, monkeypatch):
         reihenfolge: list[str] = []

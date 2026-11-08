@@ -586,6 +586,10 @@ def diehl(list_url: str, firma: str, *, division: str | None = None,
     for page in range(1, max(1, max_pages) + 1):
         sep = "&" if "?" in list_url else "?"
         r = requests.get(f"{list_url}{sep}p={page}", headers=_ua(user_agent), timeout=_TIMEOUT)
+        # Hinter der letzten Seite antwortet Diehl mit 404. Das ist das Listenende,
+        # kein Ausfall: Der Fehler verwarf sonst alle bereits gelesenen Stellen.
+        if page > 1 and r.status_code == 404:
+            break
         r.raise_for_status()
         items = _diehl_items(r.text)
         if not items:

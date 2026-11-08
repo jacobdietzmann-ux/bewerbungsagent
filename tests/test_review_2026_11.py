@@ -180,6 +180,24 @@ class TestWorkday:
 
 
 class TestAtsMeldungen:
+    def test_diehl_404_hinter_letzter_seite_ist_listenende(self, monkeypatch):
+        monkeypatch.setattr(ats, "_diehl_items", lambda html: (
+            [("Testingenieur", "Diehl Aviation", "München", "https://new.diehl.com/j")]
+            if html == "seite1" else []))
+        monkeypatch.setattr(ats, "_diehl_detail", lambda *_a: "")
+
+        def get(url, **_k):
+            return _Antwort("seite1") if url.endswith("p=1") else _Antwort("", status=404)
+
+        monkeypatch.setattr(ats.requests, "get", get)
+        jobs = ats.diehl("https://new.diehl.com/x?d=4", "Diehl")
+        assert [j["titel"] for j in jobs] == ["Testingenieur"]
+
+    def test_diehl_404_auf_erster_seite_bleibt_fehler(self, monkeypatch):
+        monkeypatch.setattr(ats.requests, "get", lambda *_a, **_k: _Antwort("", status=404))
+        with pytest.raises(requests.HTTPError):
+            ats.diehl("https://new.diehl.com/x?d=4", "Diehl")
+
     def test_defekte_diehl_detailseite_kostet_nur_den_text(self, monkeypatch):
         def get(*_a, **_k):
             return _Antwort("", status=503)

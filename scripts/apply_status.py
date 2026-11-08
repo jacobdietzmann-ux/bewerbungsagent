@@ -27,7 +27,7 @@ def main(path: str) -> int:
     if not isinstance(daten, list) or not daten:
         print(json.dumps({"applied": 0, "reason": "leer"}))
         return 0
-    store = Store(Config(PROJECT / "config.json").db_path())
+    store = Store(Config().db_path())
     overlay = {}
     for e in daten:
         key = e.get("key")

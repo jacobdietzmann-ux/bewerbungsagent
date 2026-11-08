@@ -1,7 +1,10 @@
 # Vorschlag: Live-Ordner hält nur noch Daten
 
-**Status: Vorschlag, Entscheidung offen.** Nichts davon ist umgesetzt oder
-ausgeführt. Der Umzug läuft erst nach ausdrücklicher Freigabe.
+**Status: Variante A entschieden (ADR-057), Code-Teil umgesetzt, Umzug offen.**
+Entschieden wurde am 08.11.2026: Variante A, `glassdoor.py` kommt ins Repo, Linux und
+der Raspberry Pi laufen weiter und ziehen mit um. Die Code-Änderungen aus dem
+Abschnitt unten sind eingespielt und ändern ohne `BEWERBUNGSAGENT_HOME` nichts. Den
+Umzug selbst führt niemand ohne ausdrückliches Go aus.
 
 ## Empfehlung
 
@@ -62,7 +65,7 @@ Die Datenbank bleibt in `%LOCALAPPDATA%\bewerbungsagent\jobs.db`
 (`BEWERBUNGSAGENT_DB`). Die Code-Kopien wandern nach `05_Backups/`, sie werden
 nicht gelöscht.
 
-## Code-Änderungen vor dem Umzug
+## Code-Änderungen vor dem Umzug (umgesetzt)
 
 Ohne gesetzte Variable verhält sich alles wie heute. Die Änderungen lassen sich also
 einspielen, ohne dass schon etwas umzieht.
@@ -72,20 +75,20 @@ einspielen, ohne dass schon etwas umzieht.
 | `bewerbungsagent/config.py` | `AGENT_ROOT` kommt aus `BEWERBUNGSAGENT_HOME`, sonst wie bisher. `dashboard.py`, `documents.py`, `followup.py` und `quality.py` folgen dadurch von selbst. |
 | `server.py` | `ROOT`, `STATE_FILE` und der DB-Rückfall hängen an `AGENT_ROOT` statt am Skriptordner, `DASHBOARD_SRC` bleibt am Code. `_BLOCKED_PREFIXES` kommt aus `AGENT_ROOT.name`, damit die Sperre nicht am Ordnernamen hängt. |
 | `scripts/jobwatch.py` | `AGENT_DIR` teilt sich in Code (`agent.py`, `cwd`) und Daten (`config.json`, `data/`). |
-| `scripts/lauf.sh` | `AGENT_DIR` wird der Datenordner, `agent.py` kommt aus dem eigenen Checkout. |
+| `scripts/lauf.sh` | `AGENT_DIR` ist der Datenordner. Liegt dort noch `agent.py`, läuft wie bisher diese Kopie; sonst der Code aus dem eigenen Checkout mit `BEWERBUNGSAGENT_HOME`. Der Wechsel geschieht also von selbst, wenn die Code-Kopie verschwindet. |
 | `eval/*.py` | `data/state.json` und `labels.csv` über `AGENT_ROOT` statt über den Skriptordner. |
 | `pyproject.toml` | `py-modules = ["agent", "fetch_descriptions", "server"]`. Installation **editierbar**, weil `db._ensure_schema` `alembic.ini` und `migrations/` neben dem Paket erwartet. |
-| `tests/conftest.py` | `BEWERBUNGSAGENT_HOME` im Testlauf entfernen, sonst läse die Suite die echten Daten. Dazu eine Sperre wie `_guard_production_db`. |
-| Tests | Mit gesetzter Variable zeigen `Config`, Dashboard und Server auf den Datenordner; ein Starter ohne Variable verhält sich wie zuvor. |
+| `tests/conftest.py` | `BEWERBUNGSAGENT_HOME` vor jedem Import entfernen, sonst läse die Suite die echten Daten. |
+| `search/glassdoor.py` | Aus dem Live-Ordner übernommen und als Provider `glassdoor` angebunden (nicht in der Standardliste; `glassdoor_radius`, `_min_salary`, `_max_salary` gehen an die Suche). |
+| Tests | `tests/test_datenordner.py`, `tests/test_search_glassdoor.py`. |
 
 Außerhalb des Repos sind danach drei Dateien anzupassen: die beiden Hermes-Wrapper
 und `00_Dashboard/dashboard-oeffnen.ps1`.
 
 ## Ablauf des Umzugs (nur nach Freigabe)
 
-1. Offene Arbeit aus dem Live-Ordner sichern: `glassdoor.py`,
-   `build_agent_map.py` und `eval/run_dimensions_eval.py` ins Repo holen oder
-   ausdrücklich verwerfen.
+1. Erledigt: `glassdoor.py` und `build_agent_map.py` sind im Repo;
+   `eval/run_dimensions_eval.py` wich nur in der Importreihenfolge ab.
 2. Code-Änderungen nach `main` bringen. Release-Checkout anlegen:
    `git worktree add ~/git/bewerbungsagent-live main`.
 3. In das venv installieren: `pip install -e "<checkout>[graph,jobspy]"`.
@@ -99,6 +102,17 @@ und `00_Dashboard/dashboard-oeffnen.ps1`.
    im Dashboard öffnen, „Ordner öffnen", `agent.py fetch --limit 1`.
 8. Code-Kopien aus `04_Agent` entfernen und Schritt 7 wiederholen.
 9. Hermes-Jobs wieder freigeben und den nächsten 07:00-Lauf im Protokoll prüfen.
+
+**Linux (systemd):** Die Unit startet schon heute `~/git/bewerbungsagent/scripts/tageslauf.sh`
+mit dem synchronisierten `04_Agent` als Argument. Vor Schritt 8 dort `git pull` und
+`pip install -e` im venv `~/.venvs/bewerbungsagent`. Sobald bisync die Code-Kopien
+entfernt, startet `lauf.sh` von selbst den Checkout. Danach `data/tageslauf.log`
+prüfen: Die Startzeile nennt den Code-Ort.
+
+**Raspberry Pi:** Von hier aus nicht einsehbar. Vor Schritt 8 klären, womit er
+`agent.py` und `jobwatch.py` startet. Danach dort Checkout und venv anlegen und den
+Starter auf `<checkout>/scripts/jobwatch.py` mit `BEWERBUNGSAGENT_HOME` umstellen.
+Ohne diesen Schritt bricht der Pi ab, sobald die Code-Kopien weg sind.
 
 **Rückweg:** Variable entfernen, Starter zurückstellen, Code-Kopien aus dem Backup
 zurücklegen. Die Datenbank und die Daten ändern sich beim Umzug nicht.
@@ -115,15 +129,13 @@ gestrichen.
   Umgebungsvariablen erst nach einem Neustart.
 - **Laufender Server mit altem Code:** Er bleibt bis zum Neustart im Speicher. Darum
   Schritt 4.
-- **Weitere Rechner:** Der systemd-Weg und ein Raspberry Pi (README) laufen laut
-  Doku aus dem synchronisierten Ordner. Fällt der Code dort weg, müssen sie mit
-  umziehen. Vor Schritt 8 klären, ob sie noch in Betrieb sind.
+- **Weitere Rechner:** Linux und der Raspberry Pi sind in Betrieb und laufen aus dem
+  synchronisierten Ordner. Ihr Starter muss vor Schritt 8 umgestellt sein, siehe oben.
 - **Drive-Sync:** Beim Entfernen der Code-Kopien einen Sync-Lauf abwarten und prüfen,
   dass sie nicht wiederkommen.
 
-## Zu entscheiden
+## Entschieden (08.11.2026)
 
-1. **Variante A, B oder C?** Empfehlung: A.
-2. **`glassdoor.py`:** ins Repo holen und anbinden oder verwerfen? Die Datei ist
-   heute von keinem Laufweg erreichbar.
-3. **Weitere Rechner:** Läuft der Agent noch unter Linux oder auf dem Raspberry Pi?
+1. Variante A.
+2. `glassdoor.py` kommt ins Repo und ist als Provider angebunden.
+3. Linux und der Raspberry Pi laufen weiter und ziehen mit um.

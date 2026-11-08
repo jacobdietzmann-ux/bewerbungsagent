@@ -6,6 +6,10 @@
 #
 #   scripts/lauf.sh tageslauf|wochenlauf [AGENT_DIR]
 #
+# AGENT_DIR ist der Datenordner (config.json, data/). Liegt dort noch eine
+# Code-Kopie (agent.py), läuft wie bisher diese. Sonst läuft der Code aus diesem
+# Checkout mit BEWERBUNGSAGENT_HOME=AGENT_DIR (ADR-057).
+#
 # Besonderheiten:
 #  * ``flock`` verhindert, dass zwei Läufe gleichzeitig schreiben (z. B. wenn der
 #    Rechner nach einer verpassten Ausführung aufholt und der Timer feuert).
@@ -19,7 +23,11 @@ set -euo pipefail
 
 LAUF="${1:?Aufruf: lauf.sh tageslauf|wochenlauf [AGENT_DIR]}"
 TITEL="${LAUF^}"
-AGENT_DIR="${2:-$HOME/git/bewerbungsagent}"
+CODE_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+AGENT_DIR="${2:-$CODE_DIR}"
+if [ -f "$AGENT_DIR/agent.py" ]; then
+  CODE_DIR="$AGENT_DIR"
+fi
 # WICHTIG: AGENT_DIR darf NICHT auf einem Google Drive / rclone / bisync
 # synchronisierten Mount liegen. SQLite-WAL-Dateien (data/jobs.db) werden
 # durch gleichzeitigen Sync korrumpiert. Siehe AGENTS.md / docs/BACKUP.md.
@@ -41,7 +49,7 @@ write_status() {
 
 # Interpreter bestimmen: erst die venv des Agenten, sonst ein passendes python3.
 PY=""
-for kandidat in "$AGENT_DIR/.venv/bin/python" "$HOME/.venvs/bewerbungsagent/bin/python"; do
+for kandidat in "$CODE_DIR/.venv/bin/python" "$HOME/.venvs/bewerbungsagent/bin/python"; do
   [ -x "$kandidat" ] && PY="$kandidat" && break
 done
 if [ -z "$PY" ]; then
@@ -58,7 +66,7 @@ fi
 
 START="$(date +%s)"
 write_status "LAUFEND" "$TITEL gestartet" 0
-log "$TITEL gestartet (Interpreter: $PY)"
+log "$TITEL gestartet (Interpreter: $PY, Code: $CODE_DIR)"
 
 cd "$AGENT_DIR"
 
@@ -69,7 +77,8 @@ cd "$AGENT_DIR"
 # hinge der Lauf, obwohl Chromium bereits Anzeigen lädt. Die Fortschrittszeilen
 # sind der einzige Hinweis, dass gearbeitet wird.
 set +e
-PYTHONPATH="$AGENT_DIR" PYTHONUNBUFFERED=1 "$PY" -u agent.py ablauf \
+BEWERBUNGSAGENT_HOME="$AGENT_DIR" PYTHONPATH="$CODE_DIR" PYTHONUNBUFFERED=1 \
+  "$PY" -u "$CODE_DIR/agent.py" ablauf \
   --beschreibung alle --ohne-review >>"$LOG" 2>&1
 CODE=$?
 set -e

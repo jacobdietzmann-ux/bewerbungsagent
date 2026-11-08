@@ -26,12 +26,16 @@ from datetime import datetime
 from pathlib import Path
 from urllib import parse, request
 
-AGENT_DIR = Path(__file__).resolve().parent.parent
-# Das Paket liegt neben ``scripts/``; ohne diesen Eintrag findet es nur ``PYTHONPATH``.
-sys.path.insert(0, str(AGENT_DIR))
+# Code-Ort: Das Paket liegt neben ``scripts/``; ohne diesen Eintrag fände es nur
+# ``PYTHONPATH``.
+CODE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(CODE_DIR))
 
+from bewerbungsagent.config import AGENT_ROOT  # noqa: E402
 from bewerbungsagent.schritte import SCHRITT_NAMEN, SCHRITTE  # noqa: E402
 
+# Datenordner (``BEWERBUNGSAGENT_HOME``, sonst der Code-Ort, ADR-057).
+AGENT_DIR = AGENT_ROOT
 DATA = AGENT_DIR / "data"
 SNAPSHOT = DATA / "watch_snapshot.json"
 RUN_LOG = DATA / "watch_runs.json"
@@ -66,7 +70,7 @@ def run_pipeline(timeout: int = 3600) -> bool:
     scheitern, ein Pflichtschritt beendet die Folge.
     """
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(AGENT_DIR)
+    env["PYTHONPATH"] = str(CODE_DIR)
     python = env.get("JOBWATCH_PYTHON") or str(Path.home() / ".venvs" / "bewerbungsagent" / "Scripts" / "python.exe")
     ok = True
     with RUN_OUTPUT.open("w", encoding="utf-8", errors="replace") as log:
@@ -76,7 +80,7 @@ def run_pipeline(timeout: int = 3600) -> bool:
             log.flush()
             try:
                 code = subprocess.run(
-                    [python, "agent.py", step, *schritt.argumente],
+                    [python, str(CODE_DIR / "agent.py"), step, *schritt.argumente],
                     cwd=str(AGENT_DIR), env=env, timeout=timeout,
                     stdout=log, stderr=subprocess.STDOUT,
                 ).returncode

@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from bewerbungsagent.config import AGENT_ROOT
+
 # Verwurfsgrund, der ein *inhaltliches* Eignungsurteil darstellt.
 EXPLICIT_NEGATIVE_REASON = "Nicht passende Rolle (kein technisches Profil)"
 
@@ -41,7 +43,9 @@ EXPLICIT_NEGATIVE_REASON = "Nicht passende Rolle (kein technisches Profil)"
 CIRCULAR_DELETE_HINTS = ("fit unter", "fit <", "fit <=", "neubewertung",
                          "pendelzeit", "duplikat")
 
-DEFAULT_LABELS_CSV = Path(__file__).parent / "labels.csv"
+# Persönliche Labels liegen im Datenordner, nicht im Code (ADR-057). Ohne
+# ``BEWERBUNGSAGENT_HOME`` ist das wie bisher ``eval/labels.csv`` im Checkout.
+DEFAULT_LABELS_CSV = AGENT_ROOT / "eval" / "labels.csv"
 
 
 @dataclass(frozen=True)

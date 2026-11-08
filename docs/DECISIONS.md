@@ -1791,3 +1791,37 @@ auswertet. Ein laufender Dashboard-Server braucht nach dem Einspielen einen Neus
 bis dahin erhält eine Löschung dort ihren Code erst beim nächsten Schreiben. Ohne
 LangGraph scheitert `agent.py ablauf` und damit `lauf.sh` weiterhin mit klarer
 Meldung, `agent.py pipeline` läuft auch ohne.
+
+
+## ADR-057 – Live-Ordner wird Datenordner, Code kommt aus dem Repo
+
+**Ausgangslage.** Code lag doppelt vor: im Repo und im Drive-Ordner `04_Agent`, aus
+dem alle Läufe starten. Ein Fix in `fetch_descriptions.py` gab es nur dort,
+`search/glassdoor.py` lag nur dort, und der Drive-Sync kann Änderungen zurückdrehen.
+Der Vorschlag in `docs/PLAN-LIVE-ORDNER.md` stellte drei Varianten zur Wahl.
+
+**Entscheidungen** (Nutzer, 08.11.2026).
+
+1. **Variante A:** `04_Agent` behält Name und Ort und hält nur noch Daten
+   (`config.json`, `data/`, `output/`, `eval/labels.csv`). Der Code läuft aus einem
+   eigenen Release-Checkout, editierbar ins venv installiert.
+2. **`AGENT_ROOT` heißt Datenordner** und kommt aus `BEWERBUNGSAGENT_HOME`, sonst wie
+   bisher aus dem Ordner über dem Paket. Weil `04_Agent` bleibt, gelten die relativen
+   Pfade der `config.json` und die 1.560 Dokumentpfade im Bestand weiter. Der Code-Ort
+   heißt `CODE_ROOT`.
+3. **Server, `jobwatch`, `lauf.sh` und `eval/` trennen Code und Daten.** Der Server
+   sperrt den Datenordner auch unter seinem tatsächlichen Namen. `lauf.sh` nimmt die
+   Code-Kopie im Datenordner, solange es sie gibt; der Wechsel geschieht beim Umzug
+   von selbst.
+4. **`pyproject.toml` nennt `agent`, `server` und `fetch_descriptions` als
+   `py-modules`.** Eine editierbare Installation fand sie vorher nicht.
+5. **`glassdoor.py` ist im Repo** und als Provider `glassdoor` angebunden. In der
+   Standardliste steht er nicht; aktiv wird er erst über `search.providers`.
+6. **Linux und der Raspberry Pi ziehen mit um.** Ihre Starter werden vor dem
+   Entfernen der Code-Kopien umgestellt.
+
+**Folgen.** Ohne `BEWERBUNGSAGENT_HOME` ändert sich nichts; die Änderungen lassen sich
+vor dem Umzug einspielen. `tests/conftest.py` entfernt die Variable, damit die Suite
+nie den echten Datenordner liest. Der Umzug selbst ist nicht ausgeführt; seine
+Schritte und der Rückweg stehen in `docs/PLAN-LIVE-ORDNER.md`. Regel 6 aus
+`AGENTS.md` (zwei Code-Orte) entfällt erst nach dem Umzug.

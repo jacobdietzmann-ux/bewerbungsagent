@@ -8,9 +8,14 @@ Testartefakte oder Repo-Historien gelangen.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+# Vor jedem Import des Pakets: Mit gesetzter Variable läse die Suite den echten
+# Datenordner (config.json, data/, labels.csv), siehe ADR-057.
+os.environ.pop("BEWERBUNGSAGENT_HOME", None)
 
 from bewerbungsagent.profile import Profile
 

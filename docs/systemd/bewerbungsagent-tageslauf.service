@@ -7,7 +7,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Arbeitsverzeichnis = Agent-Ordner; darin liegt config.json und das Paket.
+# Arbeitsverzeichnis = Datenordner (config.json, data/). Den Code nimmt
+# lauf.sh aus diesem Ordner, solange dort agent.py liegt, sonst aus dem
+# Checkout unter ~/git/bewerbungsagent (ADR-057).
 WorkingDirectory=%h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
 ExecStart=%h/git/bewerbungsagent/scripts/tageslauf.sh %h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
 # Der Lauf dauert (Browser-Fetches) — großzügig bemessen, damit systemd nicht

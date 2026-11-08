@@ -25,15 +25,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from bewerbungsagent.config import AGENT_ROOT as _AGENT_ROOT
 from eval import labels as L
 from eval import metrics as M
 
-# Standardpfad: über ``BEWERBUNGSAGENT_STATE`` überschreibbar. Der Rückfall
-# liegt neben dem Repo (typische Google-Drive-Ablage), damit das Skript
-# nicht an einen bestimmten Benutzernamen gebunden ist.
+# Standardpfad: über ``BEWERBUNGSAGENT_STATE`` überschreibbar, sonst
+# ``data/state.json`` im Datenordner (ADR-057).
 DEFAULT_STATE = Path(os.environ.get(
     "BEWERBUNGSAGENT_STATE",
-    Path(__file__).resolve().parent.parent / "data" / "state.json",
+    _AGENT_ROOT / "data" / "state.json",
 ))
 FIXED_THRESHOLDS = [50.0, 60.0, 65.0, 70.0, 80.0]
 # Unter dieser Zahl wird das Ergebnis als *vorläufig* gekennzeichnet.

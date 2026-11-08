@@ -49,8 +49,6 @@ _PROVIDER_JE_QUELLE = {
     "Arbeitnow": ("arbeitnow",),
     "JobLeads": ("jobleads",),
     "Labo": ("labo",),
-    "Bing": ("bing",),
-    "DuckDuckGo": ("duckduckgo",),
 }
 
 

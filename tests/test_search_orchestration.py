@@ -11,7 +11,6 @@ from __future__ import annotations
 from bewerbungsagent.search import (
     _DIRECT_SOURCES,
     _is_non_job_host,
-    build_queries,
     build_stepstone_queries,
 )
 
@@ -38,17 +37,9 @@ class TestDirectSourceGate:
 
 
 class TestQueryBuilding:
-    def test_build_queries_uses_provided_search_dict(self):
-        s = {"location": "München", "query_terms": ["Testingenieur", "ADAS Test"]}
-        assert build_queries(s) == ["Testingenieur Jobs München", "ADAS Test Jobs München"]
-
     def test_build_stepstone_queries_has_no_suffix(self):
         s = {"query_terms": ["Testingenieur", "ADAS Test"]}
         assert build_stepstone_queries(s) == ["Testingenieur", "ADAS Test"]
-
-    def test_build_queries_empty_terms(self):
-        assert build_queries({"location": "München", "query_terms": []}) == []
-
 
 class TestTriageFilterInSearch:
     """Die Triage greift in ``run_search`` — domänenfremde Treffer fliegen raus.

@@ -9,7 +9,7 @@
     "providers": [
       "manual",
       "stepstone_browser",
-      "stepstone",
+      "stepstone_browser",
       "jobspy",
       "ats",
       "arbeitnow",

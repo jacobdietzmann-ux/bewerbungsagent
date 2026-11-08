@@ -5,8 +5,6 @@ from __future__ import annotations
 import html
 import re
 
-import requests
-
 COMPANY_SUFFIX = (
     "gmbh", "ag", "se", "kg", "group", "technologies", "engineering", "robotics",
     "systems", "inc", "ltd", "llc", "space", "mobility", "aerospace", "defence",
@@ -16,72 +14,6 @@ COMPANY_SUFFIX = (
 
 # Ganzwort-Treffer, damit z. B. „se" nicht in „Sensorik" oder „space" nicht in „dSPACE" matcht.
 _SUFFIX_RE = re.compile(r"\b(" + "|".join(COMPANY_SUFFIX) + r")\b")
-
-
-def fetch(url: str, params: dict | None = None, headers: dict | None = None,
-          timeout: int = 15) -> requests.Response:
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
-        resp.raise_for_status()
-        return resp
-    except requests.exceptions.RequestException as exc:
-        # StepStone beantwortet curl zuverlässig (200 in <1 s), während
-        # ``requests`` in einen ReadTimeout läuft — vermutlich TLS/HTTP2-
-        # Fingerprint. Ohne Fallback lieferte der Provider nur noch 13 statt
-        # 120 Treffer pro Lauf und gar keine Anzeigentexte.
-        ersatz = _fetch_curl(url, params, headers, timeout)
-        if ersatz is None:
-            raise exc
-        return ersatz
-
-
-class _CurlResponse:
-    """Minimaler Response-Ersatz für den curl-Fallback (nur was Provider nutzen)."""
-
-    def __init__(self, status_code: int, inhalt: bytes):
-        self.status_code = status_code
-        self.content = inhalt
-        self.encoding = "utf-8"
-
-    @property
-    def text(self) -> str:
-        return self.content.decode(self.encoding, errors="replace")
-
-    def json(self):
-        import json
-
-        return json.loads(self.text)
-
-    def raise_for_status(self) -> None:
-        if self.status_code >= 400:
-            raise requests.HTTPError(f"HTTP {self.status_code}")
-
-
-def _fetch_curl(url: str, params: dict | None, headers: dict | None,
-                timeout: int) -> _CurlResponse | None:
-    import shutil
-    import subprocess
-    from urllib.parse import urlencode
-
-    if not shutil.which("curl"):
-        return None
-    ziel = f"{url}?{urlencode(params)}" if params else url
-    befehl = ["curl", "-sS", "--compressed", "--max-time", str(max(5, timeout)),
-              "-o", "-", "-w", "\\n%{http_code}"]
-    for name, wert in (headers or {}).items():
-        befehl += ["-H", f"{name}: {wert}"]
-    befehl.append(ziel)
-    try:
-        lauf = subprocess.run(befehl, capture_output=True, timeout=timeout + 10)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if lauf.returncode != 0:
-        return None
-    roh = lauf.stdout
-    kopf, _, status = roh.rpartition(b"\n")
-    if not status.strip().isdigit():
-        return None
-    return _CurlResponse(int(status.strip()), kopf)
 
 
 def clean_html(fragment: str) -> str:

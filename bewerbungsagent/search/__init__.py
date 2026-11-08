@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse
 
 from .. import triage as _triage
 from ..config import Config
@@ -12,35 +12,14 @@ from ..provider_health import is_disabled
 from . import (
     arbeitnow,
     ats,
-    bing,
-    duckduckgo,
     glassdoor,
     indeed,
     jobspy,
     labo,
     manual,
-    stepstone,
     stepstone_browser,
     xing,
 )
-
-
-def _clean_url(url: str) -> str:
-    """Entfernt Tracking-Parameter, um Duplikate zu erkennen."""
-    try:
-        parts = urlparse(url)
-        keep = {k: v for k, v in parse_qs(parts.query).items()
-                if k.lower() not in {"utm_source", "utm_medium", "utm_campaign",
-                                     "utm_term", "utm_content", "trk", "ref", "src"}}
-        query = urlencode(keep, doseq=True)
-        return urlunparse((parts.scheme, parts.netloc, parts.path, parts.params, query, ""))
-    except Exception:
-        return url
-
-
-def build_queries(s: dict) -> list[str]:
-    location = s.get("location", "München")
-    return [f"{term} Jobs {location}" for term in s.get("query_terms", [])]
 
 
 def build_stepstone_queries(s: dict) -> list[str]:
@@ -276,8 +255,7 @@ def run_search(config: Config, profile: Profile,
                 stats[name] = {"gefunden": 0, "fehler": [], "uebersprungen": "deaktiviert"}
                 current = None
                 continue
-            provider = {"duckduckgo": duckduckgo, "bing": bing,
-                        "stepstone": stepstone, "stepstone_browser": stepstone_browser,
+            provider = {"stepstone_browser": stepstone_browser,
                         "jobspy": jobspy,
                         "ats": ats, "arbeitnow": arbeitnow,
                         "jobleads": ats, "xing": xing, "indeed": indeed,
@@ -403,20 +381,6 @@ def run_search(config: Config, profile: Profile,
                         add(job)
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
-            elif name == "stepstone":
-                # StepStone: Suchbegriff + Ort getrennt.
-                for term in build_stepstone_queries(s):
-                    try:
-                        for raw in provider.search(
-                            term,
-                            location=s.get("location", "München"),
-                            max_results=s.get("max_results_per_provider", 8),
-                            timeout=s.get("timeout_seconds", 15),
-                            user_agent=s.get("user_agent", "Mozilla/5.0"),
-                        ):
-                            add(_to_job(raw))
-                    except Exception as exc:
-                        errors.append(f"{name} ({term[:40]}...): {exc}")
             elif name == "jobspy":
                 # JobSpy (LinkedIn/Indeed/Google) ist langsam und liefert für
                 # nahe verwandte Suchbegriffe stark überlappende Treffer; daher nur
@@ -434,19 +398,6 @@ def run_search(config: Config, profile: Profile,
                             add(job)
                     except Exception as exc:
                         errors.append(f"{name} ({term[:40]}...): {exc}")
-            else:
-                for query in build_queries(s):
-                    try:
-                        for raw in provider.search(
-                            query,
-                            max_results=s.get("max_results_per_provider", 8),
-                            timeout=s.get("timeout_seconds", 15),
-                            user_agent=s.get("user_agent", "Mozilla/5.0"),
-                        ):
-                            add(_to_job(raw))
-                    except Exception as exc:
-                        errors.append(f"{name} ({query[:40]}...): {exc}")
-
         if current is not None:
             _collect(stats, current, len(jobs) - before_jobs, errors[before_errors:])
 
@@ -533,28 +484,6 @@ def resolve_mail_leads(config: Config, health: dict | None = None) -> dict:
         ergebnis["gesucht"] = len(offen)
         ergebnis["gefunden"] = manual.leads_verknuepfen(pfad, anzeigen)
     return ergebnis
-
-
-def _to_job(raw: dict) -> dict:
-    titel, firma = _split(raw["titel"])
-    industry = raw.get("branche") or raw.get("industry") or raw.get("company_industry")
-    return {
-        "titel": titel,
-        "firma": raw.get("firma") or firma,
-        "ort": raw.get("ort") or "",
-        "url": _clean_url(raw.get("url", "")),
-        "quelle": raw.get("quelle", ""),
-        "snippet": raw.get("snippet", ""),
-        "branche": industry if isinstance(industry, str) else "",
-        "branche_quelle": (
-            "Quelle" if isinstance(industry, str) and industry.strip() else "Heuristik"
-        ),
-    }
-
-
-def _split(title: str) -> tuple[str, str]:
-    from .base import split_title_firma
-    return split_title_firma(title)
 
 
 def _guess_firma(job: dict) -> str:

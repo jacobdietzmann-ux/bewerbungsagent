@@ -163,7 +163,6 @@ Abhängigkeiten (pandas/pydantic bzw. torch). Mit `pip` nachinstallieren:
 
 ```bash
 pip install -e ".[jobspy]"       # JobSpy-Provider
-pip install -e ".[semantic]"     # experimentelles semantisches Matching
 ```
 
 ## Nutzung
@@ -444,9 +443,9 @@ Die freie Websuche ist bewusst **pluggable**:
   - Die Treffer überlappen stark mit StepStone/JobSpy — deshalb ist der Provider nicht
     voreingestellt.
 
-- **DuckDuckGo** und **Bing** sind seit 10/2026 **nicht mehr voreingestellt**: live geprüft
+- **DuckDuckGo** und **Bing** gibt es nicht mehr: live geprüft
   lieferte DuckDuckGo 0 Treffer, Bing ausschließlich `bing.com/ck/a`-Redirects zu
-  branchenfremden Firmen. Die Module bleiben für den Fall, dass sich das ändert; für
+  branchenfremden Firmen. Die Module wurden deshalb entfernt (ADR-058); für
   Stellensuche braucht es stattdessen eine bezahlte Such-API (Brave/Adzuna) mit Schlüssel.
 - **JobSpy** aggregiert LinkedIn/Indeed/Google Jobs inklusive Beschreibung; läuft auf den ersten
   `jobspy_max_terms` (Standard 4) Suchbegriffen, weil es langsam ist und verwandte Begriffe
@@ -466,13 +465,13 @@ und einzeln starten. Lege dazu `data/saved_searches.json` an:
     "name": "Test & Verification",
     "query_terms": ["Testingenieur", "ADAS Test", "HiL Test Engineer"],
     "location": "München",
-    "providers": ["stepstone", "jobspy"]
+    "providers": ["stepstone_browser", "jobspy"]
   },
   {
     "name": "Embedded",
     "query_terms": ["Embedded Test", "E/E Integration", "Systemingenieur"],
     "location": "München",
-    "providers": ["stepstone"]
+    "providers": ["stepstone_browser"]
   }
 ]
 ```
@@ -588,8 +587,8 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   Quelle: `agent.py profile-export` schreibt sie neu, `--check` meldet Abweichungen (Exit 1),
   `agent.py enrich` zieht sie automatisch nach.
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
-  (verfügbar: `manual`, `stepstone`, `jobspy`, `ats`, `arbeitnow`, `jobleads`, `xing`,
-  `indeed`, `labo`, `duckduckgo`, `bing`).
+  (verfügbar: `manual`, `stepstone_browser`, `jobspy`, `ats`, `arbeitnow`, `jobleads`, `xing`,
+  `indeed`, `labo`, `glassdoor`).
 - `search.xing_terms` / `search.indeed_terms` – eigene Begriffslisten für die beiden
   Browser-Provider (Standard: `search.query_terms`). Sinnvoll, weil jeder Begriff dort einen
   Seitenaufruf plus bis zu 25 Detailseiten kostet.
@@ -714,18 +713,7 @@ Ohne manuelle Labels gibt das Skript **kein** Ergebnis aus, sondern weist auf
 die fehlende Ground Truth hin. Das ist Absicht: eine plausible Zahl ohne
 belastbare Labels wäre irreführend.
 
-**Vergleich mit semantischem Matching** (Embeddings, optionales Extra
-`[semantic]`):
-
-```bash
-python -m eval.run_semantic_eval --model intfloat/multilingual-e5-base
-```
-
-**Vergleich mit Cross-Encoder-Reranking:**
-
-```bash
-python -m eval.run_rerank_eval --model BAAI/bge-reranker-base
-```
+Semantisches Matching und Cross-Encoder-Reranking wurden gemessen und danach aus dem Code entfernt (ADR-058).
 
 **Ergebnis: Beide neuronalen Verfahren verlieren** (ADR-015, ADR-016).
 Auf den harten Fällen (technische, aber unpassende Stellen):

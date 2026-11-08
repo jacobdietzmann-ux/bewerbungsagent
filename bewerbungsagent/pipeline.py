@@ -866,7 +866,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     dim_blockiert = 0
     if profile is not None:
         for a in apps:
-            a["dimensionen"] = score_dimensions(profile, a, config=config.data)
+            # Ausgeblendete Stellen behalten ihre Bewertung; das spart rund 90 %.
+            if not a.get("deleted") or not a.get("dimensionen"):
+                a["dimensionen"] = score_dimensions(profile, a, config=config.data)
         dim_blockiert = sum(1 for a in apps
                             if (a.get("dimensionen") or {}).get("blockiert"))
 

@@ -525,6 +525,9 @@ def build_dashboard(state: dict, output_path: Path,
                      abgelaufen_tage=abgelaufen_tage) for a in apps]
     firmen = _firmen_gruppen([r["company"] for r in data if not r["deleted"]])
     for row in data:
+        # Gelöschte Zeilen zeigt die Seite nicht an: ihr Text machte 80 % der Datei aus.
+        if row["deleted"]:
+            row["beschreibung"] = ""
         row["companyGroup"] = firmen.get(row["company"]) or row["company"]
         # Neu gefundene Stellen sind noch unbewertet und haben keine Unterlagen —
         # ohne diese Ausnahme wäre das „neu gefunden"-Label nie zu sehen. Sie

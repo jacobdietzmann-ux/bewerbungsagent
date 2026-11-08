@@ -22,10 +22,6 @@ import json
 import re
 import sys
 import time
-from contextlib import contextmanager
-from pathlib import Path
-
-from playwright.sync_api import sync_playwright
 
 from bewerbungsagent.config import Config
 from bewerbungsagent.matching import (
@@ -35,6 +31,7 @@ from bewerbungsagent.matching import (
     is_student_role,
     is_technician_role,
 )
+from bewerbungsagent.search.browser import browser_page
 from bewerbungsagent.storage import save_json
 
 # Substrings, die den Beginn des Beschreibungsteils markieren (Aufgaben/Anforderungen/Benefits).
@@ -139,40 +136,6 @@ def _extract_description(text: str) -> str:
 
     body = [ln for ln in lines[start_idx:end_idx] if ln.lower() not in _NOISE_BLOCKS]
     return "\n".join(body).strip()
-
-
-_USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-
-
-def _chromium_executable_path() -> Path | None:
-    system_chromium = Path("/usr/bin/chromium")
-    if sys.platform.startswith("linux") and system_chromium.is_file():
-        return system_chromium
-    return None
-
-
-@contextmanager
-def browser_page(*, headed: bool = False):
-    """Headless-Chromium mit deutschem Kontext als Kontextmanager.
-
-    StepStone und Xing blockieren einfache HTTP-Clients; die Seiten brauchen
-    einen echten Browser. Wird auch von ``scripts/recheck_expired.py`` genutzt,
-    damit beide Stellen identisch laden und nicht auseinanderlaufen.
-    """
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            executable_path=_chromium_executable_path(),
-            headless=not headed,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-        )
-        ctx = browser.new_context(user_agent=_USER_AGENT, locale="de-DE")
-        page = ctx.new_page()
-        try:
-            yield page
-        finally:
-            ctx.close()
-            browser.close()
 
 
 def load_page_text(page, url: str) -> str:

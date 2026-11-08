@@ -49,14 +49,6 @@ def _split_key(key: str) -> tuple[str, str]:
     return firma.strip(), titel.strip()
 
 
-def _fit_from_percent(pct: int) -> str:
-    if pct >= 65:
-        return "hoch"
-    if pct >= 40:
-        return "mittel"
-    return "niedrig"
-
-
 def _parse_md_table(path: Path) -> list[dict]:
     if not path.exists():
         return []

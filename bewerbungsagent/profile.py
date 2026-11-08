@@ -142,6 +142,17 @@ def normalize(text: str) -> str:
     return _normalize(text)
 
 
+@lru_cache(maxsize=4096)
+def _textwoerter(n: str) -> tuple[frozenset[str], frozenset[str]]:
+    """Wörter eines normalisierten Textes: mit ``\\w`` und nur aus ``a-z0-9``."""
+    return frozenset(re.findall(r"\w+", n)), frozenset(re.findall(r"[a-z0-9]+", n))
+
+
+@lru_cache(maxsize=4096)
+def _inhaltswoerter(n: str) -> frozenset[str]:
+    return frozenset(t for t in re.findall(r"[a-z0-9]{3,}", n) if t not in _NOT_KEYWORD)
+
+
 def _split_top_level(value: str) -> list[str]:
     """Teilt an ``,;&|``, Zeilenumbrüchen und `` - `` aus, **ignoriert Klammern**.
 
@@ -459,28 +470,26 @@ class Profile:
     def _prepare_keyword_search(self) -> None:
         """Bereitet die Phrasen einmalig für ``keywords_in`` auf.
 
-        Kurze Schlüssel laufen als ein gemeinsamer Ausdruck, längere als
+        Kurze Schlüssel werden mit den Wörtern des Textes geschnitten, längere als
         Substring plus vorberechnete Wortmenge. Pro Anzeige entfällt damit das
         Zerlegen und Kompilieren jeder einzelnen Phrase.
         """
-        kurz: list[str] = []
+        kurz: set[str] = set()
         lang: list[tuple[str, frozenset[str]]] = []
         for p in self.keyword_phrases:
             if not p:
                 continue
             if re.fullmatch(r"[a-z0-9]{2,4}", p):
-                kurz.append(p)
+                kurz.add(p)
                 continue
             woerter = frozenset(w for w in re.findall(r"[a-z0-9]+", p)
                                 if len(w) >= 3) if " " in p else frozenset()
             lang.append((p, woerter))
-        self._kurz_re = (re.compile(r"\b(?:" + "|".join(map(re.escape, kurz)) + r")\b")
-                         if kurz else None)
+        self._kurze_phrasen = frozenset(kurz)
         self._lange_phrasen = lang
 
     def _words_of(self, text: str) -> set[str]:
-        return {t for t in re.findall(r"[a-z0-9]{3,}", normalize(text))
-                if t not in _NOT_KEYWORD}
+        return set(_inhaltswoerter(normalize(text)))
 
     def keywords_in(self, text: str) -> list[str]:
         """Normalisierte Profil-Phrasen, die im Text vorkommen.
@@ -496,8 +505,9 @@ class Profile:
         Instrumentation Engineer“, obwohl beide exakt die gesuchte Rolle sind.
         """
         n = normalize(text)
-        tokens = set(re.findall(r"[a-z0-9]+", n)) if " " in n else set()
-        hits: set[str] = set(self._kurz_re.findall(n)) if self._kurz_re else set()
+        woerter, alnum = _textwoerter(n)
+        tokens = alnum if " " in n else frozenset()
+        hits: set[str] = set(self._kurze_phrasen & woerter)
         for p, woerter in self._lange_phrasen:
             if p in n or (tokens and woerter and woerter <= tokens):
                 hits.add(p)

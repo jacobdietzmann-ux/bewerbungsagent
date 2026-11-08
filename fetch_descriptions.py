@@ -227,6 +227,8 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
         targets = targets[:limit]
 
     print(f"Zu laden: {len(targets)} von {len(jobs)} Stellen (ohne Beschreibung).")
+    if not targets:
+        return {"fetched": 0, "skipped": 0, "errors": 0}
 
     fetched = skipped = errors = 0
 

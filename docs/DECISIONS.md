@@ -1884,3 +1884,92 @@ dieser Mail-Leads waren reine Titel-Fits.
   nicht der volle Text.
 - Nach dem Merge mit `claude/musing-wing-5e7366` prüft `_vom_nutzer_geloescht`
   `deleted_code == DELETE_NUTZER` statt des Textvergleichs.
+
+
+## ADR-056 – Eine Schrittliste für alle Laufwege, Löschgrund als Feld
+
+**Ausgangslage.** Vier Laufwege führten eigene Schrittfolgen. `run_full` ließ `fetch`
+aus und bewertete neue Stellen nur nach dem Titel (ADR-050), `jobwatch` kannte weder
+`generate` noch `quality`, und der Graph brach bei einem Fehler im Nachladen ab. Die
+Review vom 07.11.2026 führte mehrere Fehler auf diese Abweichungen zurück (ADR-053).
+Unabhängig davon entschied `run_enrich` über Textanfänge von `deleted_reason`. Eine
+umformulierte Begründung hätte die Neubewertung still geändert, und
+„Fit <= 60 Prozent (Nutzerkriterium)" beginnt mit demselben Wort wie die
+automatische Fit-Ausblendung.
+
+**Entscheidungen.**
+
+1. **`bewerbungsagent/schritte.py` hält die Folge:** `search`, `fetch`, `match`,
+   `enrich`, `generate`, `quality`, `dashboard`. Der Name ist zugleich Unterbefehl
+   von `agent.py`, Knoten im Graphen und Schlüssel im Ergebnis. Die Graphknoten
+   heißen deshalb nicht mehr `suche`, `beschreibung` und `qualitaet`.
+2. **`fetch` gehört in `run_full`,** ebenso `quality`. Auch `agent.py pipeline`
+   braucht Anzeigentexte, sonst bleibt der Fit beim Titel hängen. Das Limit von
+   300 Anzeigen gilt jetzt in jedem Laufweg. Der Graph lädt in bis zu zwei
+   Durchgängen, der Rest folgt im nächsten Lauf.
+3. **`fetch` und `quality` dürfen scheitern.** `schritte.fuehre_aus` sammelt den
+   Fehler, Pflichtschritte reichen ihn weiter. `jobwatch` wertet dasselbe Feld aus.
+4. **Der Graph wird aus der Liste gebaut.** Eigene Knoten sind nur `triage` und
+   `review`; beide tun keine Arbeit.
+5. **`jobwatch` führt jetzt auch `generate` und `quality` aus.** Je Schritt bleibt es
+   ein eigener Prozess, damit ein Browser-Absturz nicht den Digest trifft.
+6. **Die Shell-Skripte haben keine eigene Liste.** `tageslauf.sh` und `wochenlauf.sh`
+   waren bis auf den Namen gleich und rufen nun `scripts/lauf.sh`, das
+   `agent.py ablauf` startet.
+7. **`deleted_code` steuert die Logik, `deleted_reason` bleibt Anzeigetext.** Werte:
+   `nutzer`, `kriterium`, `fit`, `pendel`, `research`, `student`, `techniker`,
+   `sonstig`. Neu bewertet werden nur `fit`, `pendel` und `research`. Das Feld liegt
+   in der `user`-Spalte. Den Text legt nur noch `db.delete_code_aus_text` aus, und
+   zwar an den Rändern: beim Schreiben ohne Code und bei Dashboard-Eingaben, damit
+   das Dashboard unverändert bleibt.
+8. **Der Bestand zieht über `db.Store` um,** einmalig beim ersten Öffnen,
+   festgehalten im Meta-Eintrag `migration_delete_code`. Alembic läuft nur beim
+   Anlegen des Schemas, und das Feld liegt in einer JSON-Spalte. Bei jedem Öffnen
+   Alembic zu laden wäre teuer, denn `Store` entsteht je Schritt neu.
+9. **Der Umzug des Live-Ordners ist nicht entschieden.** Der Vorschlag steht in
+   `docs/PLAN-LIVE-ORDNER.md`.
+
+**Folgen.** Scoring und Fit-Bänder bleiben unverändert. Alte und neue Fassung von
+`run_enrich` entschieden auf einer Kopie des Bestands gleich: 2.262 Einträge, zwei
+Läufe nacheinander, 0 Abweichungen bei `deleted`, Grund, Status und allen Zählern.
+Pendelweg und Dokumenterzeugung waren dabei ersetzt. Die Codes verteilten sich auf
+1.468 `fit`, 331 `research`, 98 `pendel`, 56 `techniker`, 23 `student`, 20 `nutzer`,
+16 `kriterium` und 4 `sonstig`. `eval/` liest weiter den Text, weil es Altdaten
+auswertet. Ein laufender Dashboard-Server braucht nach dem Einspielen einen Neustart;
+bis dahin erhält eine Löschung dort ihren Code erst beim nächsten Schreiben. Ohne
+LangGraph scheitert `agent.py ablauf` und damit `lauf.sh` weiterhin mit klarer
+Meldung, `agent.py pipeline` läuft auch ohne.
+
+
+## ADR-057 – Live-Ordner wird Datenordner, Code kommt aus dem Repo
+
+**Ausgangslage.** Code lag doppelt vor: im Repo und im Drive-Ordner `04_Agent`, aus
+dem alle Läufe starten. Ein Fix in `fetch_descriptions.py` gab es nur dort,
+`search/glassdoor.py` lag nur dort, und der Drive-Sync kann Änderungen zurückdrehen.
+Der Vorschlag in `docs/PLAN-LIVE-ORDNER.md` stellte drei Varianten zur Wahl.
+
+**Entscheidungen** (Nutzer, 08.11.2026).
+
+1. **Variante A:** `04_Agent` behält Name und Ort und hält nur noch Daten
+   (`config.json`, `data/`, `output/`, `eval/labels.csv`). Der Code läuft aus einem
+   eigenen Release-Checkout, editierbar ins venv installiert.
+2. **`AGENT_ROOT` heißt Datenordner** und kommt aus `BEWERBUNGSAGENT_HOME`, sonst wie
+   bisher aus dem Ordner über dem Paket. Weil `04_Agent` bleibt, gelten die relativen
+   Pfade der `config.json` und die 1.560 Dokumentpfade im Bestand weiter. Der Code-Ort
+   heißt `CODE_ROOT`.
+3. **Server, `jobwatch`, `lauf.sh` und `eval/` trennen Code und Daten.** Der Server
+   sperrt den Datenordner auch unter seinem tatsächlichen Namen. `lauf.sh` nimmt die
+   Code-Kopie im Datenordner, solange es sie gibt; der Wechsel geschieht beim Umzug
+   von selbst.
+4. **`pyproject.toml` nennt `agent`, `server` und `fetch_descriptions` als
+   `py-modules`.** Eine editierbare Installation fand sie vorher nicht.
+5. **`glassdoor.py` ist im Repo** und als Provider `glassdoor` angebunden. In der
+   Standardliste steht er nicht; aktiv wird er erst über `search.providers`.
+6. **Linux und der Raspberry Pi ziehen mit um.** Ihre Starter werden vor dem
+   Entfernen der Code-Kopien umgestellt.
+
+**Folgen.** Ohne `BEWERBUNGSAGENT_HOME` ändert sich nichts; die Änderungen lassen sich
+vor dem Umzug einspielen. `tests/conftest.py` entfernt die Variable, damit die Suite
+nie den echten Datenordner liest. Der Umzug selbst ist nicht ausgeführt; seine
+Schritte und der Rückweg stehen in `docs/PLAN-LIVE-ORDNER.md`. Regel 6 aus
+`AGENTS.md` (zwei Code-Orte) entfällt erst nach dem Umzug.

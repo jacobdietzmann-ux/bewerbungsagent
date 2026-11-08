@@ -26,15 +26,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from bewerbungsagent.config import AGENT_ROOT as _AGENT_ROOT
 from bewerbungsagent.dimensions import score_dimensions
 from bewerbungsagent.matching import score_job
 from bewerbungsagent.profile import Profile
 from eval import labels as L
 from eval import metrics as M
 
+# Standardpfad: über ``BEWERBUNGSAGENT_STATE`` überschreibbar, sonst
+# ``data/state.json`` im Datenordner (ADR-057).
 DEFAULT_STATE = Path(os.environ.get(
     "BEWERBUNGSAGENT_STATE",
-    Path(__file__).resolve().parent.parent / "data" / "state.json",
+    _AGENT_ROOT / "data" / "state.json",
 ))
 MIN_LABELS_WARN = 30
 

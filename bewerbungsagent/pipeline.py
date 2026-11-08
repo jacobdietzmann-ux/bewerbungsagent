@@ -1,4 +1,4 @@
-"""Pipeline-Orchestrierung: Suche → Matching → Dokumente → Dashboard."""
+"""Pipeline-Orchestrierung: die Schritte aus ``schritte.py`` als Funktionen."""
 
 from __future__ import annotations
 
@@ -30,7 +30,20 @@ from .commute import (
 )
 from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard, dashboard_applications, documented_applications
-from .db import USER_DELETE_REASON, Store
+from .db import (
+    DELETE_FIT,
+    DELETE_NUTZER,
+    DELETE_PENDEL,
+    DELETE_RESEARCH,
+    DELETE_SONSTIG,
+    DELETE_STUDENT,
+    DELETE_TECHNIKER,
+    RESEARCH_REASON_PREFIX,
+    Store,
+    delete_code_aus_text,
+    hebe_loeschung_auf,
+    markiere_geloescht,
+)
 from .dimensions import score_dimensions
 from .documents import (
     DEFAULT_CV_TEMPLATE,
@@ -44,8 +57,9 @@ from .industry import classify_industry
 from .matching import fit_value, has_role_signal, is_student_role, is_technician_role, match_jobs
 from .profile import Profile, normalize
 from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
-from .quality import check_application
+from .quality import check_application, run_quality
 from .salary import enrich_salary
+from .schritte import FETCH_LIMIT, SCHRITT_NAMEN, fuehre_aus
 from .search import resolve_mail_leads
 from .search import run_search as _search
 from .search.manual import MAIL_LEAD, lead_passt
@@ -410,7 +424,8 @@ def _textluecken(state: dict, jobs: list[dict]) -> list[dict]:
 
 def _vom_nutzer_geloescht(app: dict) -> bool:
     """Im Dashboard gelöscht: eine Entscheidung, die kein Lauf zurücknimmt."""
-    return str(app.get("deleted_reason") or "").lower().startswith(USER_DELETE_REASON)
+    code = app.get("deleted_code") or delete_code_aus_text(app.get("deleted_reason"))
+    return code == DELETE_NUTZER
 
 
 def _grund_unter_ausblendgrenze(app: dict) -> str:
@@ -420,10 +435,6 @@ def _grund_unter_ausblendgrenze(app: dict) -> str:
     if rollentreffer_ohne_text(app):
         return f"Text fehlt seit über {TEXT_FEHLT_TAGE} Tagen"
     return f"FIT < {FIT_BAND_AUSBLENDEN} %"
-
-
-# Ausblendgründe, die ein Lauf neu bewertet, sobald sich Fit oder Text ändern.
-_NEU_BEWERTBAR = ("fit", "text fehlt", "anzeige abgelaufen")
 
 
 def _lead_dubletten(apps: list[dict]) -> int:
@@ -443,9 +454,9 @@ def _lead_dubletten(apps: list[dict]) -> int:
             continue
         treffer = next((a for a in mit_text if lead_passt(lead, a)), None)
         if treffer:
-            lead["deleted"] = True
-            lead["deleted_reason"] = (f"Dublette: dieselbe Stelle wie {treffer.get('firma')} "
-                                      f"({treffer.get('quelle') or 'Bestand'})")
+            markiere_geloescht(lead, DELETE_SONSTIG,
+                               f"Dublette: dieselbe Stelle wie {treffer.get('firma')} "
+                               f"({treffer.get('quelle') or 'Bestand'})")
             lead.pop("text_fehlt", None)
             n += 1
     return n
@@ -485,6 +496,17 @@ def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
     if restored:
         print(f"Anzeigentexte aus dem Bestand übernommen: {restored} Stelle(n).")
     return jobs
+
+
+def run_fetch(config: Config, *, nur_unsure: bool = False) -> dict:
+    """Lädt fehlende Anzeigentexte per Browser nach (höchstens ``FETCH_LIMIT``).
+
+    Der Import steht hier, weil ``fetch_descriptions`` Playwright braucht: Fehlt
+    es, scheitert nur dieser optionale Schritt.
+    """
+    from fetch_descriptions import fetch_descriptions
+
+    return fetch_descriptions(config, limit=FETCH_LIMIT, only_unsure=nur_unsure)
 
 
 def letzter_fund_meta(config: Config) -> dict:
@@ -592,10 +614,6 @@ def _company_key_fn(config: Config):
     return lambda name: _company_key(name, aliases)
 
 
-# Kennung am ``deleted_reason``: erkennbar und bei jedem Lauf neu bewertbar.
-RESEARCH_REASON_PREFIX = "research-kriterium"
-
-
 def _research_filter_settings(config: Config) -> dict | None:
     """Einstellungen des Research-Filters oder ``None`` bei ``enabled: false``.
 
@@ -658,8 +676,7 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
     for a in apps:
         if normalize_status(a.get("status")) != "research" or a.get("text_fehlt"):
             continue
-        reason = (a.get("deleted_reason") or "")
-        is_filtered = reason.lower().startswith(RESEARCH_REASON_PREFIX)
+        is_filtered = a.get("deleted_code") == DELETE_RESEARCH
 
         # Oberhalb des Research-Fensters ist ein Fund kein Research-Fall mehr,
         # sondern ein Dokumenten-Kandidat. Der Filter löscht ihn also nicht,
@@ -669,8 +686,7 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
             if _commute_blocked(config, a):
                 continue  # Pendelweg bleibt harte Grenze
             if a.get("deleted") and is_filtered:
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored += 1
             continue
 
@@ -679,15 +695,13 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
             kept += 1
             if a.get("deleted") and is_filtered:
                 # Grund gilt nicht mehr (Fit/Pendelweg haben sich geändert).
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored += 1
         elif not a.get("deleted"):
-            a["deleted"] = True
-            a["deleted_reason"] = (
+            markiere_geloescht(a, DELETE_RESEARCH, (
                 f"{RESEARCH_REASON_PREFIX}: Fit {settings['fit_min']}–{settings['fit_max']} % "
                 f"oder Pendelweg ≤ {limit + settings['commute_grace_min']} min nötig"
-            )
+            ))
             removed += 1
     return {"enabled": True, "kept": kept, "removed": removed, "restored": restored}
 
@@ -892,7 +906,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         a.pop("text_fehlt", None)
         # Im Dashboard gelöscht: das ist eine Entscheidung des Nutzers, keine
         # ableitbare Bewertung. Der Lauf darf sie nicht wieder einblenden.
-        if str(a.get("deleted_reason") or "").lower().startswith(USER_DELETE_REASON):
+        if a.get("deleted_code") == DELETE_NUTZER:
             continue
         # Harte Ausschlussregel (oberste Priorität): Studenten-/Praktikums-/
         # Ausbildungsstellen sind für einen Vollzeit-Ingenieur kategorisch
@@ -900,8 +914,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         # Unterlagen. Auch ein abgeschlossener „rejected“-Eintrag ist hier
         # kein wertvoller Verlauf, sondern fehladressiertes Rauschen.
         if is_student_role(a.get("titel")):
-            a["deleted"] = True
-            a["deleted_reason"] = "Studenten-/Praktikumsstelle (keine Vollzeit-Ingenieurrolle)"
+            markiere_geloescht(a, DELETE_STUDENT,
+                               "Studenten-/Praktikumsstelle (keine Vollzeit-Ingenieurrolle)")
             deleted_student += 1
             continue
         if a.get("status") in _ACTIVE_STATUSES:
@@ -911,8 +925,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             # 3 verschickte Bewerbungen (u. a. AIRBUS mit 78 %) waren dadurch
             # im Dashboard unsichtbar.
             if a.get("deleted"):
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored_active += 1
             continue
         # Techniker-/Facharbeiterrollen sind keine Ingenieursstellen. Der Check
@@ -920,9 +933,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         # Bewerbung auf eine Technikerstelle ist echter Verlauf und bleibt
         # sichtbar (z. B. „Test System Technician", rejected).
         if is_technician_role(a.get("titel")):
-            if not a.get("deleted") or not str(a.get("deleted_reason") or "").startswith("Technikerrolle"):
-                a["deleted"] = True
-                a["deleted_reason"] = "Technikerrolle (keine Ingenieursstelle)"
+            if not a.get("deleted") or a.get("deleted_code") != DELETE_TECHNIKER:
+                markiere_geloescht(a, DELETE_TECHNIKER, "Technikerrolle (keine Ingenieursstelle)")
                 deleted_technician += 1
             continue
         if a.get("deleted"):
@@ -953,26 +965,20 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                 and normalize_status(a.get("status")) == "research"
                 and _fit_value(a) < research["fit_min"]
             ):
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored_documented += 1
                 continue
-            reason = (a.get("deleted_reason") or "").strip()
-            low = reason.lower()
-            # Vom Nutzer gesetzte Kriterien bleiben unangetastet — sie sind eine
-            # bewusste Entscheidung, kein ableitbarer Zustand.
-            if not reason or "nutzerkriterium" in low or "neubewertung" in low:
-                continue
-            if low.startswith(_NEU_BEWERTBAR):
+            # Neu bewertet werden nur Fit und Pendelweg. Alles andere ist eine
+            # bewusste Entscheidung, kein ableitbarer Zustand; den Research-Filter
+            # bewertet ``_apply_research_filter`` selbst.
+            code = a.get("deleted_code")
+            if code == DELETE_FIT:
                 if _fit_value(a) < FIT_BAND_AUSBLENDEN and not text_fehlt_titel_passt(a):
                     a["deleted_reason"] = _grund_unter_ausblendgrenze(a)
                     continue                 # Grund gilt weiter
-            elif low.startswith("pendel"):
-                pass                         # Pendelweg ist oben schon geprüft
-            else:
-                continue                     # z. B. Rollen-Ausschluss — bewusst
-            a.pop("deleted", None)
-            a.pop("deleted_reason", None)
+            elif code != DELETE_PENDEL:      # Pendelweg ist oben schon geprüft
+                continue
+            hebe_loeschung_auf(a)
             restored_reason += 1
             if _fit_value(a) < FIT_BAND_AUSBLENDEN:
                 a["text_fehlt"] = True       # Prüffall „Text fehlt, Titel passt"
@@ -985,8 +991,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         else:
             a.pop("pendel_knapp", None)
             if _commute_blocked(config, a):
-                a["deleted"] = True
-                a["deleted_reason"] = f"Pendelweg > {_commute_limit_minutes(config)} min"
+                markiere_geloescht(a, DELETE_PENDEL,
+                                   f"Pendelweg > {_commute_limit_minutes(config)} min")
                 deleted_commute += 1
                 continue
         if _fit_value(a) < FIT_BAND_AUSBLENDEN and not a.get("dokumente"):
@@ -996,8 +1002,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                 a["text_fehlt"] = True
                 text_fehlt += 1
                 continue
-            a["deleted"] = True
-            a["deleted_reason"] = _grund_unter_ausblendgrenze(a)
+            markiere_geloescht(a, DELETE_FIT, _grund_unter_ausblendgrenze(a))
             deleted_count += 1
 
     # 4b) Research-Pool begrenzen: nur Funde im Fit-Fenster, mit sehr hohem Fit
@@ -1031,9 +1036,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         # als „Research“ im Dashboard (ADR-036).
         research = _research_filter_settings(config)
         if research and _fit_value(a) < research["fit_min"]:
-            a["deleted"] = True
-            a["deleted_reason"] = (f"{RESEARCH_REASON_PREFIX}: FIT {int(_fit_value(a))} "
-                                   f"< {research['fit_min']} %")
+            markiere_geloescht(a, DELETE_RESEARCH,
+                               f"{RESEARCH_REASON_PREFIX}: FIT {int(_fit_value(a))} "
+                               f"< {research['fit_min']} %")
         zurueckgenommen.append({"firma": a.get("firma"), "titel": a.get("titel"),
                                 "fit": _fit_value(a)})
 
@@ -1190,15 +1195,27 @@ def run_dashboard(config: Config) -> dict:
 
 
 def run_full(config: Config, profile: Profile) -> dict:
-    s = run_searches(config, profile)
-    m = run_match(config, profile)
-    # Wie im Graphen: Erst ``run_enrich`` setzt Fit-, Research- und K.O.-Regeln um.
-    e = run_enrich(config, profile)
-    g = run_generate(config, profile)
-    d = run_dashboard(config)
-    return {"search": s, "match": m["matched"], "enrich": e,
-            "generated": [*e["generated"], *g["generated"]],
-            "failed": [*e["failed"], *g["failed"]], "dashboard": d}
+    """Führt alle Schritte aus ``schritte.SCHRITTE`` nacheinander aus.
+
+    Dieselbe Folge wie der Graph, nur ohne dessen Verzweigung. ``fetch`` lädt hier
+    alle fehlenden Texte: ohne sie bewertet ``match`` nur den Titel (ADR-050).
+    """
+    aufrufe = {
+        "search": lambda: run_search(config, profile),
+        "fetch": lambda: run_fetch(config),
+        "match": lambda: run_match(config, profile),
+        "enrich": lambda: run_enrich(config, profile),
+        "generate": lambda: run_generate(config, profile),
+        "quality": lambda: run_quality(config),
+        "dashboard": lambda: run_dashboard(config),
+    }
+    fehler: dict[str, str] = {}
+    r = {name: fuehre_aus(name, aufrufe[name], fehler) for name in SCHRITT_NAMEN}
+    return {"search": r["search"], "fetch": r["fetch"], "match": r["match"]["matched"],
+            "enrich": r["enrich"],
+            "generated": [*r["enrich"]["generated"], *r["generate"]["generated"]],
+            "failed": [*r["enrich"]["failed"], *r["generate"]["failed"]],
+            "quality": r["quality"], "dashboard": r["dashboard"], "fehler": fehler}
 
 
 # --------------------------------------------------------------------------
@@ -1345,8 +1362,7 @@ def _flag_far_commute(app: dict, limit: int) -> bool:
         return False
     if not exceeds_commute_limit(app, limit=limit):
         return False
-    app["deleted"] = True
-    app["deleted_reason"] = f"Pendelweg > {limit} min"
+    markiere_geloescht(app, DELETE_PENDEL, f"Pendelweg > {limit} min")
     return True
 
 

@@ -7,7 +7,7 @@ Beispiele:
     python agent.py generate --all
     python agent.py generate --ids 1,2,3
     python agent.py dashboard
-    python agent.py pipeline     # Suche → Match → Dokumente → Dashboard
+    python agent.py pipeline     # alle Schritte aus bewerbungsagent/schritte.py
     python agent.py status
 """
 
@@ -101,6 +101,12 @@ def _print_failed(failed: list[dict]) -> None:
         print(f"Unterlagen fehlgeschlagen: {len(failed)} Stelle(n).")
     for f in failed:
         print(f"  ! {f['firma']} — {f['titel']}: {f['fehler']}")
+
+
+def _print_schritt_fehler(fehler: dict) -> None:
+    """Meldet optionale Schritte, die gescheitert sind."""
+    for name, text in (fehler or {}).items():
+        print(f"  ! Schritt {name} fehlgeschlagen: {text}")
 
 
 def main(argv=None) -> int:
@@ -501,10 +507,16 @@ def main(argv=None) -> int:
         _print_job_context(result["search"]["context"])
         for err in result["search"]["errors"]:
             print(f"  ! {err}")
+        f = result.get("fetch") or {}
+        print(f"Anzeigentexte: {f.get('fetched', 0)} geladen, {f.get('skipped', 0)} leer, "
+              f"{f.get('errors', 0)} Fehler")
         print(f"Matching: {result['match']} Stelle(n)")
         print(f"Dokumente: {len(result['generated'])} Datei(en)")
         _print_failed(result.get("failed") or [])
+        q = result.get("quality") or {}
+        print(f"Qualität: {q.get('geprueft', 0)} geprüft, {q.get('mit_befunden', 0)} mit Befunden")
         print(f"Dashboard: {result['dashboard']['path']}")
+        _print_schritt_fehler(result.get("fehler"))
 
     elif args.command == "ablauf":
         from bewerbungsagent.orchestrator import run_abo
@@ -534,6 +546,7 @@ def main(argv=None) -> int:
         d = result.get("dashboard") or {}
         if d.get("path"):
             print(f"  Dashboard       : {d['path']} ({d.get('applications', 0)} relevant)")
+        _print_schritt_fehler(result.get("fehler"))
 
     return 0
 

@@ -14,6 +14,7 @@ from . import (
     ats,
     bing,
     duckduckgo,
+    glassdoor,
     indeed,
     jobspy,
     labo,
@@ -128,7 +129,8 @@ def _existing_jobs(config: Config) -> list[dict]:
 # roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
 # von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
-                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo", manual.MAIL_LEAD}
+                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo", "Glassdoor",
+                   manual.MAIL_LEAD}
 
 # Provider für die Anzeigensuche zu Mail-Leads (``search.lead_url_provider``).
 # Gemessen am 07.11.2026 auf 27 Leads (ADR-055): XING fand 5 von 5 geprüft richtig,
@@ -139,7 +141,12 @@ _LEAD_TREFFER_JE_BEGRIFF = 20
 
 # Provider, die einen echten Browser brauchen. Sie liegen in eigenen Modulen und
 # erwarten eine **Liste** von Begriffen statt einem einzelnen.
-_BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser"}
+_BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser", "glassdoor"}
+
+# Glassdoor filtert serverseitig nach Umkreis und Gehalt (``glassdoor_*`` in der
+# ``search``-Konfiguration).
+_GLASSDOOR_FILTER = {"radius": "glassdoor_radius", "min_salary": "glassdoor_min_salary",
+                     "max_salary": "glassdoor_max_salary"}
 
 
 def _terms_for_provider(s: dict, name: str) -> list[str]:
@@ -274,7 +281,7 @@ def run_search(config: Config, profile: Profile,
                         "jobspy": jobspy,
                         "ats": ats, "arbeitnow": arbeitnow,
                         "jobleads": ats, "xing": xing, "indeed": indeed,
-                        "labo": labo}.get(name)
+                        "labo": labo, "glassdoor": glassdoor}.get(name)
             if provider is None:
                 errors.append(f"Unbekannter Provider: {name}")
                 continue
@@ -298,6 +305,8 @@ def run_search(config: Config, profile: Profile,
                                           s.get("max_results_per_provider", 25)),
                         with_description=s.get(f"{name}_with_description", True),
                         **(bekannt if name in ("xing", "indeed") else {}),
+                        **({k: s[v] for k, v in _GLASSDOOR_FILTER.items() if s.get(v)}
+                           if name == "glassdoor" else {}),
                     ):
                         add(job)
                 except Exception as exc:

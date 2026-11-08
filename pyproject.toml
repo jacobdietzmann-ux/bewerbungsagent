@@ -32,6 +32,8 @@ jobspy = ["python-jobspy>=1.3"]
 # Ablaufsteuerung als Graph (bewerbungsagent/orchestrator.py, siehe ADR-023).
 # Optional: die lineare Pipeline läuft ohne diese Abhängigkeit unverändert.
 graph = ["langgraph>=0.2"]
+# Lesender MCP-Server auf den Bewerbungsbestand (bewerbungsagent/mcp_server.py).
+mcp = ["mcp>=2.0"]
 
 [tool.pytest.ini_options]
 # Package liegt im Repo-Root → Root auf den Importpfad legen.

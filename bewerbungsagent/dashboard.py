@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
 from .followup import DEFAULT_AFTER_DAYS, days_waiting, is_due
 from .matching import fit_value
+from .profile import normalize
 from .statuses import ORDER, STATUS, normalize_status
 from .storage import now_iso
 
@@ -263,6 +265,42 @@ def dashboard_applications(applications: list[dict],
 
 
 
+_RECHTSFORM_RE = re.compile(
+    r"\b(?:gmbh|mbh|ag|se|kg|co|ug|inc|ltd|llc|group|holding|deutschland|germany)\b")
+
+
+def _firmen_schluessel(name: str | None) -> str:
+    """Vergleichsform eines Firmennamens: ohne Zusatz, Rechtsform und Satzzeichen."""
+    text = re.split(r"\s[-–—|]\s", normalize(name or ""))[0]
+    text = _RECHTSFORM_RE.sub(" ", re.sub(r"[^a-z0-9]+", " ", text))
+    return " ".join(text.split())
+
+
+def _firmen_gruppen(namen: list[str]) -> dict[str, str]:
+    """Ordnet jeder Schreibweise einen gemeinsamen Anzeigenamen zu.
+
+    „Quantum-Systems" und „Quantum- Systems GmbH" oder „ALTEN" und „ALTEN
+    Consulting Services" sind eine Firma. Getrennt gezählt, stimmten Rangfolge
+    und Anzahl der Unternehmen in der Statistik nicht. Ein kürzerer Name fasst
+    längere nur zusammen, wenn er am Wortanfang steht und mindestens vier Zeichen
+    hat, damit etwa „E.ON Drive" und „E.ON Energie" getrennt bleiben.
+    """
+    schluessel = {n: _firmen_schluessel(n) for n in namen if (n or "").strip()}
+    basis = sorted(set(schluessel.values()), key=len)
+    wurzel: dict[str, str] = {}
+    for key in basis:
+        worte = key.split()
+        wurzel[key] = next((b for b in basis if len(b) >= 4 and len(b) < len(key)
+                            and worte[:len(b.split())] == b.split()), key)
+    wurzel = {k: wurzel.get(v, v) for k, v in wurzel.items()}
+    haeufig = Counter(namen)
+    gruppen: dict[str, list[str]] = {}
+    for name, key in schluessel.items():
+        gruppen.setdefault(wurzel[key], []).append(name)
+    label = {k: max(v, key=lambda n: (haeufig[n], -len(n))) for k, v in gruppen.items()}
+    return {name: label[wurzel[key]] for name, key in schluessel.items()}
+
+
 def _app_id(app: dict) -> str:
     return app.get("key") or f"{app.get('firma', '')}|{app.get('titel', '')}"
 
@@ -477,12 +515,17 @@ def build_dashboard(state: dict, output_path: Path,
     if min_fit is not None:
         # Zusätzliche Sichtbarkeitsschwelle aus ``dashboard.min_fit_visible``:
         # blendet nur aus, löscht nichts. Server und CLI übergeben denselben
-        # Wert, damit beide denselben Stand erzeugen.
+        # Wert, damit beide denselben Stand erzeugen. Rausgegangene Bewerbungen
+        # sind ein Faktum und zählen unabhängig vom Fit: Sonst fehlten sie in
+        # Tabelle und Zählern, während die Kennzahlen sie mitrechneten.
         visible_keys = {_app_id(a) for a in dashboard_applications(apps, commute_limit)
-                        if fit_value(a) >= min_fit}
+                        if fit_value(a) >= min_fit
+                        or normalize_status(a.get("status")) in _PROGRESSED_STATUSES}
     data = [_to_data(a, letzter_fund, followup_days=followup_days, quellen=quellen,
                      abgelaufen_tage=abgelaufen_tage) for a in apps]
+    firmen = _firmen_gruppen([r["company"] for r in data if not r["deleted"]])
     for row in data:
+        row["companyGroup"] = firmen.get(row["company"]) or row["company"]
         # Neu gefundene Stellen sind noch unbewertet und haben keine Unterlagen —
         # ohne diese Ausnahme wäre das „neu gefunden"-Label nie zu sehen. Sie
         # fallen automatisch wieder aus der Tabelle, sobald ein späterer Lauf
@@ -906,7 +949,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       <section class="card pad">
         <div class="card-title">Bewerbungsaktivität im Wochenverlauf</div>
-        <div class="card-sub">Stellen pro Kalenderwoche, nach aktuellem Status</div>
+        <div class="card-sub">Pro Kalenderwoche nach Versanddatum, ohne Versanddatum nach Funddatum; Farbe = aktueller Status</div>
         <div class="week-chart" id="timeChart"></div>
         <div class="week-legend" id="timeChartLegend"></div>
       </section>
@@ -1296,33 +1339,33 @@ function refreshAllViews() {
 }
 
 function renderKpis() {
-  // Research-Einträge sind reine Funde ohne Dokumente und werden im Dashboard
-  // nicht angezeigt; sie zählen daher auch in den Kennzahlen nicht mit.
-  const rows = state.filter(r => !r.deleted && r.status !== "research");
-  const total = rows.length;
-  const rejectedCount = rows.filter(r => r.status === "rejected").length;
-  const sentPlus = rows.filter(r => ["sent","followup","interview"].includes(r.status)).length;
-  const interviews = rows.filter(r => r.status === "interview").length;
+  // Dieselbe Grundmenge wie Tabelle und Zähler, nur ohne reine Research-Funde.
+  const rows = visibleRows().filter(r => r.status !== "research");
+  const hadInterview = r => r.status === "interview" || !!r.interviewDate;
+  const versendet = rows.filter(r => APPLIED_STATUSES.includes(r.status));
+  const ivRows = versendet.filter(hadInterview);
+  const rejectedCount = versendet.filter(r => r.status === "rejected" && !hadInterview(r)).length;
+  const sentPlus = rows.filter(r => ACTIVE_STATUSES.includes(r.status)).length;
+  const interviews = ivRows.length;
 
-  // Versand-Quote: versendete Stellen gegen alle, die noch nicht abgelehnt sind.
-  const versandBasis = total - rejectedCount;
-  const versandQuote = pct(sentPlus, versandBasis);
+  // Versand-Quote: Anteil der fertigen Bewerbungen, die rausgegangen sind. Eine
+  // Absage setzt einen Versand voraus und zählt deshalb als versendet.
+  const versandQuote = pct(versendet.length, rows.length);
 
   // Interview-Quote: nur *entschiedene* Bewerbungen zählen (Absage oder
-  // Interview). Noch offene (sent/followup) sind kein Ergebnis und würden die
-  // Quote künstlich drücken — 8 von 120 entschiedenen, nicht 8 von 159.
+  // Interview). Noch offene sind kein Ergebnis. Eine Absage nach dem Gespräch
+  // oder ein Termin bei noch offenem Status zählt als Interview.
   const decided = rejectedCount + interviews;
   const interviewQuote = pct(interviews, decided);
 
-  const ivRows = rows.filter(r => r.status === "interview");
   const fitAvg = ivRows.length ? (ivRows.reduce((a,r)=>a+(+r.fit||0),0)/ivRows.length) : 0;
   const dueCount = rows.filter(r => r.followupDue).length;
 
   const cards = [
     { label:"Versand-Quote", value:versandQuote+"%", target:"Ziel ≥ 90%", c:cls(versandQuote,90,60) },
     { label:"Interview-Quote", value:interviewQuote+"%", target:`${interviews} von ${decided} entschieden`, c:cls(interviewQuote,15,8) },
-    { label:"Ø Profil-Fit (Interviews)", value:(fitAvg?Math.round(fitAvg):"–")+" <small>%</small>", target:"Ziel ≥ 70%", c:fitAvg>=80?"good":(fitAvg>=65?"warn":(fitAvg?"bad":"")) },
-    { label:"Aktiv im Prozess", value:sentPlus+" <small>/ "+total+"</small>", target:"Versendet o. weiter", c:"" },
+    { label:"Ø Profil-Fit (Interviews)", value:(fitAvg?Math.round(fitAvg):"–")+" <small>%</small>", target:"Ziel ≥ 70%", c:fitAvg>=70?"good":(fitAvg>=60?"warn":(fitAvg?"bad":"")) },
+    { label:"Aktiv im Prozess", value:sentPlus+" <small>/ "+versendet.length+"</small>", target:"offen von allen versendeten", c:"" },
     { label:"Nachfassen fällig", value:dueCount, target:`≥ __FOLLOWUP_DAYS__ Tage ohne Reaktion`, c:dueCount?"warn":"good" },
   ];
   document.getElementById("kpis").innerHTML = cards.map(k => `
@@ -1363,6 +1406,7 @@ const HOME_COLORS = {
 const ext = { status:null, homeoffice:null, commute:null, fit:null, company:null };
 const EXT_LABEL = { status:"Status", homeoffice:"Homeoffice", commute:"Fahrzeit", fit:"Fit", company:"Firma" };
 const ACTIVE_STATUSES = ["sent", "followup", "interview"];
+const APPLIED_STATUSES = [...ACTIVE_STATUSES, "rejected"];
 
 function visibleRows() {
   return state.filter(r => !r.deleted && r.visible !== false);
@@ -1382,7 +1426,7 @@ function fitBin(r) {
   return f >= 80 ? 0 : (f >= 65 ? 1 : (f >= 50 ? 2 : 3));
 }
 function companyKey(r) {
-  return (r.company || "").trim() || "(ohne Firma)";
+  return (r.companyGroup || r.company || "").trim() || "(ohne Firma)";
 }
 function rowPasses(r) {
   if (r.deleted || r.visible === false) return false;
@@ -1561,7 +1605,7 @@ function renderDistributions() {
   if (restN) top.push({ label: `weitere (${sorted.length - 10})`, n: restN, color: "#475569" });
   renderDistBars("distCompany", top, "company", total);
   const sub = document.getElementById("distCompanySub");
-  if (sub) sub.textContent = `${sorted.length} Unternehmen im Bestand, Top 10 gezeigt`;
+  if (sub) sub.textContent = `${sorted.length} Unternehmen in der Grundmenge, Top 10 gezeigt`;
 }
 
 function renderStatusChart() {
@@ -1600,21 +1644,29 @@ function nextMonday(ts) {
   d.setHours(0,0,0,0);
   return d.getTime();
 }
+// Woche einer Bewerbung: der Versand, wenn er bekannt ist; sonst der Fund.
+function activityTs(r) {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.sentAt || "");
+  if (iso && APPLIED_STATUSES.includes(r.status)) return new Date(+iso[1], +iso[2]-1, +iso[3]).getTime();
+  return parseDate(r.date);
+}
 function renderTimeChart() {
   const el = document.getElementById("timeChart");
   const legendEl = document.getElementById("timeChartLegend");
   if (!el) return;
-  const rows = state.filter(r => !r.deleted && r.status !== "research" && parseDate(r.date));
+  const basis = visibleRows().filter(r => r.status !== "research");
+  const rows = basis.filter(activityTs);
+  const ohneDatum = basis.length - rows.length;
   if (!rows.length) { el.innerHTML = ""; if (legendEl) legendEl.innerHTML = ""; return; }
 
-  const mondays = rows.map(r => mondayOf(parseDate(r.date)));
+  const mondays = rows.map(r => mondayOf(activityTs(r)));
   const minM = Math.min(...mondays), maxM = Math.max(...mondays);
   const buckets = [];
   for (let t = minM; t <= maxM; t = nextMonday(t)) {
     buckets.push({ monday:t, counts:Object.fromEntries(SHOWN_STATUSES.map(s => [s, 0])) });
   }
   rows.forEach(r => {
-    const b = buckets.find(x => x.monday === mondayOf(parseDate(r.date)));
+    const b = buckets.find(x => x.monday === mondayOf(activityTs(r)));
     if (b) b.counts[r.status]++;
   });
   const maxTotal = Math.max(1, ...buckets.map(b => SHOWN_STATUSES.reduce((a,s) => a + b.counts[s], 0)));
@@ -1641,7 +1693,7 @@ function renderTimeChart() {
     legendEl.innerHTML = SHOWN_STATUSES.map(s => `
       <span style="display:inline-flex;align-items:center;gap:5px">
         <span style="width:9px;height:9px;border-radius:2px;background:${STATUS[s].color};display:inline-block"></span>${STATUS[s].label}
-      </span>`).join("");
+      </span>`).join("") + (ohneDatum ? `<span>${ohneDatum} ohne Datum nicht dargestellt</span>` : "");
   }
 }
 

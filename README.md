@@ -186,7 +186,7 @@ python agent.py dashboard       # HTML-Dashboard (neu) erzeugen
 python agent.py status          # aktuelle Stellen anzeigen
 
 # Alles in einem Durchlauf
-python agent.py pipeline        # Suche → Match → Dokumente → Dashboard
+python agent.py pipeline        # Suche → Texte → Match → Enrich → Dokumente → Prüfung → Dashboard
 ```
 
 Das Ergebnis ist [`dashboard.html`](dashboard.html) (nach dem ersten Lauf) sowie pro Stelle ein

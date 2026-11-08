@@ -2,7 +2,7 @@
 """Job-Watch: führt die Bewerbungs-Pipeline aus und meldet neue Stellen per Telegram.
 
 Ablauf pro Lauf:
-  1. optional: agent.py search -> match -> enrich -> dashboard (venv-Python)
+  1. optional: alle Schritte aus bewerbungsagent/schritte.py über agent.py (venv-Python)
   2. Vergleich der aktuellen Stellen mit dem Snapshot des letzten Laufs
   3. Digest der neuen Stellen (Fit-Band 60-70 % = Research, > 70 % = Unterlagen bauen)
   4. Versand an Telegram (config.json in ~/telegram-bot) + Protokoll in data/watch_runs.json
@@ -27,18 +27,17 @@ from pathlib import Path
 from urllib import parse, request
 
 AGENT_DIR = Path(__file__).resolve().parent.parent
+# Das Paket liegt neben ``scripts/``; ohne diesen Eintrag findet es nur ``PYTHONPATH``.
+sys.path.insert(0, str(AGENT_DIR))
+
+from bewerbungsagent.schritte import SCHRITT_NAMEN, SCHRITTE  # noqa: E402
+
 DATA = AGENT_DIR / "data"
 SNAPSHOT = DATA / "watch_snapshot.json"
 RUN_LOG = DATA / "watch_runs.json"
 RUN_OUTPUT = DATA / "watch_last_run.log"
 NOTIFY_CONFIG = Path(os.environ.get("NOTIFY_CONFIG", Path.home() / "telegram-bot" / "config.json"))
 MAX_TG_LEN = 3800
-# Ohne Text bewertet ``match`` nur den Titel, der nächste Lauf holt das nach.
-# Ein Fehler hier darf die übrigen Schritte deshalb nicht verhindern.
-OPTIONAL_STEPS = {"fetch"}
-# Anzeigen pro Tageslauf nachladen (Browser). 300 × ~2,5 s ≈ 12 Minuten; reicht
-# für einen Suchlauf, ohne den 07:00-Job endlos werden zu lassen.
-FETCH_LIMIT = 300
 
 
 def _log(msg: str) -> None:
@@ -60,26 +59,24 @@ def _pendelgrenze(default: int = 30) -> int:
 
 
 def run_pipeline(timeout: int = 3600) -> bool:
-    """search -> fetch -> match -> enrich -> dashboard.
+    """Führt jeden Schritt aus ``schritte.SCHRITTE`` als eigenen Prozess aus.
 
-    ``fetch`` gehört in den Tageslauf: StepStone und Arbeitnow liefern keine
-    Anzeigentexte mehr, und ohne Text zählt nur der Titel — der Fit fällt auf
-    0–34 % und keine Stelle erreicht mehr die 65-Prozent-Schwelle. Der Lauf ist
-    auf ``FETCH_LIMIT`` Anzeigen begrenzt (Browser, ~2–3 s pro Anzeige).
+    So hat jeder Schritt sein Zeitlimit und seine Zeilen im Protokoll, und ein
+    Absturz des Browsers trifft nicht den Digest. Ein optionaler Schritt darf
+    scheitern, ein Pflichtschritt beendet die Folge.
     """
     env = dict(os.environ)
     env["PYTHONPATH"] = str(AGENT_DIR)
     python = env.get("JOBWATCH_PYTHON") or str(Path.home() / ".venvs" / "bewerbungsagent" / "Scripts" / "python.exe")
-    steps = [("search", []), ("fetch", ["--limit", str(FETCH_LIMIT)]),
-             ("match", []), ("enrich", []), ("dashboard", [])]
     ok = True
     with RUN_OUTPUT.open("w", encoding="utf-8", errors="replace") as log:
-        for step, extra in steps:
+        for schritt in SCHRITTE:
+            step = schritt.name
             log.write(f"\n##### {step} ({datetime.now().isoformat(timespec='seconds')})\n")
             log.flush()
             try:
                 code = subprocess.run(
-                    [python, "agent.py", step, *extra],
+                    [python, "agent.py", step, *schritt.argumente],
                     cwd=str(AGENT_DIR), env=env, timeout=timeout,
                     stdout=log, stderr=subprocess.STDOUT,
                 ).returncode
@@ -89,7 +86,7 @@ def run_pipeline(timeout: int = 3600) -> bool:
             if code != 0:
                 _log(f"Schritt '{step}' fehlgeschlagen (exit {code}) — siehe {RUN_OUTPUT}")
                 ok = False
-                if step not in OPTIONAL_STEPS:
+                if not schritt.optional:
                     break
     return ok
 
@@ -284,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     if not args.no_search:
-        _log("Pipeline startet (search -> match -> enrich -> dashboard) …")
+        _log(f"Pipeline startet ({' -> '.join(SCHRITT_NAMEN)}) …")
         if not run_pipeline():
             _log("Pipeline unvollständig — Digest wird aus dem vorhandenen Stand gebaut.")
 

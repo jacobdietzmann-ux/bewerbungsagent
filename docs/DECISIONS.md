@@ -1736,3 +1736,58 @@ Texten: 0 Abweichungen). Mehr Begriffe bedeuten mehr Browserzeit; nach dem erste
 Lauf entfällt der Textabruf für bekannte Anzeigen. Die Board-Einstellungen in der
 `config.json` brauchen keine Änderung. Gespeicherte Suchen mit dem Provider
 `stepstone` sollten auf `stepstone_browser` wechseln.
+
+
+## ADR-056 – Eine Schrittliste für alle Laufwege, Löschgrund als Feld
+
+**Ausgangslage.** Vier Laufwege führten eigene Schrittfolgen. `run_full` ließ `fetch`
+aus und bewertete neue Stellen nur nach dem Titel (ADR-050), `jobwatch` kannte weder
+`generate` noch `quality`, und der Graph brach bei einem Fehler im Nachladen ab. Die
+Review vom 07.11.2026 führte mehrere Fehler auf diese Abweichungen zurück (ADR-053).
+Unabhängig davon entschied `run_enrich` über Textanfänge von `deleted_reason`. Eine
+umformulierte Begründung hätte die Neubewertung still geändert, und
+„Fit <= 60 Prozent (Nutzerkriterium)" beginnt mit demselben Wort wie die
+automatische Fit-Ausblendung.
+
+**Entscheidungen.**
+
+1. **`bewerbungsagent/schritte.py` hält die Folge:** `search`, `fetch`, `match`,
+   `enrich`, `generate`, `quality`, `dashboard`. Der Name ist zugleich Unterbefehl
+   von `agent.py`, Knoten im Graphen und Schlüssel im Ergebnis. Die Graphknoten
+   heißen deshalb nicht mehr `suche`, `beschreibung` und `qualitaet`.
+2. **`fetch` gehört in `run_full`,** ebenso `quality`. Auch `agent.py pipeline`
+   braucht Anzeigentexte, sonst bleibt der Fit beim Titel hängen. Das Limit von
+   300 Anzeigen gilt jetzt in jedem Laufweg. Der Graph lädt in bis zu zwei
+   Durchgängen, der Rest folgt im nächsten Lauf.
+3. **`fetch` und `quality` dürfen scheitern.** `schritte.fuehre_aus` sammelt den
+   Fehler, Pflichtschritte reichen ihn weiter. `jobwatch` wertet dasselbe Feld aus.
+4. **Der Graph wird aus der Liste gebaut.** Eigene Knoten sind nur `triage` und
+   `review`; beide tun keine Arbeit.
+5. **`jobwatch` führt jetzt auch `generate` und `quality` aus.** Je Schritt bleibt es
+   ein eigener Prozess, damit ein Browser-Absturz nicht den Digest trifft.
+6. **Die Shell-Skripte haben keine eigene Liste.** `tageslauf.sh` und `wochenlauf.sh`
+   waren bis auf den Namen gleich und rufen nun `scripts/lauf.sh`, das
+   `agent.py ablauf` startet.
+7. **`deleted_code` steuert die Logik, `deleted_reason` bleibt Anzeigetext.** Werte:
+   `nutzer`, `kriterium`, `fit`, `pendel`, `research`, `student`, `techniker`,
+   `sonstig`. Neu bewertet werden nur `fit`, `pendel` und `research`. Das Feld liegt
+   in der `user`-Spalte. Den Text legt nur noch `db.delete_code_aus_text` aus, und
+   zwar an den Rändern: beim Schreiben ohne Code und bei Dashboard-Eingaben, damit
+   das Dashboard unverändert bleibt.
+8. **Der Bestand zieht über `db.Store` um,** einmalig beim ersten Öffnen,
+   festgehalten im Meta-Eintrag `migration_delete_code`. Alembic läuft nur beim
+   Anlegen des Schemas, und das Feld liegt in einer JSON-Spalte. Bei jedem Öffnen
+   Alembic zu laden wäre teuer, denn `Store` entsteht je Schritt neu.
+9. **Der Umzug des Live-Ordners ist nicht entschieden.** Der Vorschlag steht in
+   `docs/PLAN-LIVE-ORDNER.md`.
+
+**Folgen.** Scoring und Fit-Bänder bleiben unverändert. Alte und neue Fassung von
+`run_enrich` entschieden auf einer Kopie des Bestands gleich: 2.262 Einträge, zwei
+Läufe nacheinander, 0 Abweichungen bei `deleted`, Grund, Status und allen Zählern.
+Pendelweg und Dokumenterzeugung waren dabei ersetzt. Die Codes verteilten sich auf
+1.468 `fit`, 331 `research`, 98 `pendel`, 56 `techniker`, 23 `student`, 20 `nutzer`,
+16 `kriterium` und 4 `sonstig`. `eval/` liest weiter den Text, weil es Altdaten
+auswertet. Ein laufender Dashboard-Server braucht nach dem Einspielen einen Neustart;
+bis dahin erhält eine Löschung dort ihren Code erst beim nächsten Schreiben. Ohne
+LangGraph scheitert `agent.py ablauf` und damit `lauf.sh` weiterhin mit klarer
+Meldung, `agent.py pipeline` läuft auch ohne.

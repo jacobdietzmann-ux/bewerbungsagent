@@ -361,16 +361,21 @@ class TestAblauf:
         reihenfolge: list[str] = []
         monkeypatch.setattr(pipeline, "run_searches",
                             lambda *_a: reihenfolge.append("suche") or {})
+        monkeypatch.setattr(pipeline, "run_fetch",
+                            lambda *_a: reihenfolge.append("fetch") or {})
         monkeypatch.setattr(pipeline, "run_match",
                             lambda *_a: reihenfolge.append("match") or {"matched": 0})
         monkeypatch.setattr(pipeline, "run_enrich", lambda *_a: reihenfolge.append("enrich") or {
             "generated": [{"id": 1}], "failed": []})
         monkeypatch.setattr(pipeline, "run_generate", lambda *_a: reihenfolge.append("generate") or {
             "generated": [{"id": 2}], "failed": []})
+        monkeypatch.setattr(pipeline, "run_quality",
+                            lambda *_a: reihenfolge.append("quality") or {})
         monkeypatch.setattr(pipeline, "run_dashboard",
                             lambda *_a: reihenfolge.append("dashboard") or {})
         ergebnis = pipeline.run_full(config, None)
-        assert reihenfolge == ["suche", "match", "enrich", "generate", "dashboard"]
+        assert reihenfolge == ["suche", "fetch", "match", "enrich", "generate", "quality",
+                               "dashboard"]
         assert [g["id"] for g in ergebnis["generated"]] == [1, 2]
 
 
@@ -481,7 +486,8 @@ class TestJobwatch:
     def test_fehlendes_nachladen_stoppt_das_matching_nicht(self, monkeypatch, tmp_path):
         ok, schritte = self._lauf(monkeypatch, tmp_path, "fetch", 1)
         assert ok is False
-        assert schritte == ["search", "fetch", "match", "enrich", "dashboard"]
+        assert schritte == ["search", "fetch", "match", "enrich", "generate", "quality",
+                            "dashboard"]
 
     def test_zeitlimit_beendet_den_lauf_geordnet(self, monkeypatch, tmp_path):
         ok, schritte = self._lauf(monkeypatch, tmp_path, "search",

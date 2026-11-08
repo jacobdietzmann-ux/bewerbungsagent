@@ -1,8 +1,8 @@
 """Ablaufsteuerung als Graph (LangGraph) — sichtbare Zustände statt Code-Sequenz.
 
-Die bisherige Pipeline (``pipeline.run_full``) ist ein **Fließband**: jeder
-Schritt läuft immer, in derselben Reihenfolge, ohne Zurück. Für deterministische
-Arbeit ist das richtig. Es hat aber drei Grenzen, die dieser Graph schließt:
+Die Pipeline (``pipeline.run_full``) ist ein **Fließband**: jeder Schritt läuft
+immer, in derselben Reihenfolge, ohne Zurück. Für deterministische Arbeit ist das
+richtig. Es hat aber drei Grenzen, die dieser Graph schließt:
 
 1. **Verzweigung.** Die Relevanz-Triage liefert ``unsure``, wenn der Titel allein
    nicht reicht. Das Fließband kann darauf nicht reagieren — es lädt entweder für
@@ -16,13 +16,16 @@ Arbeit ist das richtig. Es hat aber drei Grenzen, die dieser Graph schließt:
 Das Modul ist **optional**: LangGraph gehört zur Gruppe ``graph``
 (``pip install -e ".[graph]"``). Ohne die Abhängigkeit bleibt
 ``pipeline.run_full`` der Weg — dieser Graph ruft dieselben Funktionen auf,
-nur mit Verzweigungen dazwischen.
+nur mit Verzweigungen dazwischen. Die Arbeitsschritte und ihre Reihenfolge kommen
+aus ``schritte.SCHRITTE``; hier stehen nur die beiden Knoten ohne eigene Arbeit,
+``triage`` und ``review``.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Literal, TypedDict
+from itertools import pairwise
+from typing import TypedDict
 
 from . import triage
 from .config import Config
@@ -30,12 +33,14 @@ from .matching import fit_value, is_student_role  # noqa: F401
 from .pipeline import (
     run_dashboard,
     run_enrich,
+    run_fetch,
     run_generate,
     run_match,
     run_search,
 )
 from .profile import Profile
 from .quality import run_quality
+from .schritte import SCHRITT_NAMEN, fuehre_aus, naechster_schritt
 
 # Höchstens so viele Nachladeversuche, bevor der Graph aufgibt. Eine Obergrenze
 # ist Pflicht: ohne sie kann eine Schleife im Graph nicht terminieren, und ein
@@ -56,11 +61,13 @@ class Ablauf(TypedDict, total=False):
 
     # Ergebnisse je Stufe
     search: dict
+    fetch: dict
     match: dict
     enrich: dict
     generate: dict
     qualitaet: dict
     dashboard: dict
+    fehler: dict[str, str]        # gescheiterte optionale Schritte
 
     # Zähler und Entscheidungen
     triage_rejected: int
@@ -87,7 +94,7 @@ def knoten_suche(state: Ablauf) -> Ablauf:
     return {
         "search": result,
         "triage_rejected": result.get("triage_rejected", 0),
-        "weg": _notiere(state, "suche"),
+        "weg": _notiere(state, "search"),
     }
 
 
@@ -126,21 +133,17 @@ def knoten_beschreibung(state: Ablauf) -> Ablauf:
 
     Nur hier wird der teure Browser-Fetch ausgelöst — und nur für die Stellen,
     die ``beschreibung_umfang`` vorgibt. Das ist der Kern der Verzweigung: das
-    Fließband lädt entweder alles oder nichts.
+    Fließband lädt alles, was fehlt.
     """
-    from fetch_descriptions import fetch_descriptions
-
     nur_unsure = state.get("beschreibung_umfang", "nur_unsure") != "alle"
-    for kwargs in ({"only_unsure": nur_unsure}, {}):
-        try:
-            fetch_descriptions(state["config"], **kwargs)
-            break
-        except TypeError:
-            # Ältere Signatur ohne ``only_unsure``: dann ohne den Parameter.
-            continue
+    fehler = dict(state.get("fehler") or {})
+    result = fuehre_aus("fetch", lambda: run_fetch(state["config"], nur_unsure=nur_unsure),
+                        fehler)
     return {
+        "fetch": result or {},
+        "fehler": fehler,
         "beschreibung_versuche": state.get("beschreibung_versuche", 0) + 1,
-        "weg": _notiere(state, "beschreibung"),
+        "weg": _notiere(state, "fetch"),
     }
 
 
@@ -158,10 +161,8 @@ def knoten_enrich(state: Ablauf) -> Ablauf:
     ``match → enrich → generate``, aber ``run_enrich`` wurde nie aufgerufen.
     Damit fehlten im Tagesablauf genau die Schritte, die den Bestand
     entscheidbar halten — die Ausblendung unter der Fit-Grenze, das
-    Research-Fenster und die Gehaltsschätzung. Der lineare Weg
-    (``agent.py pipeline`` → ``run_full``) ruft ``run_enrich`` ebenfalls nicht
-    auf; dort erzeugt ``run_generate`` die Unterlagen, hier tut es der Knoten
-    selbst und ``run_generate`` überspringt danach bereits dokumentierte Stellen.
+    Research-Fenster und die Gehaltsschätzung. Die Unterlagen entstehen hier;
+    ``run_generate`` überspringt danach bereits dokumentierte Stellen.
     """
     result = run_enrich(state["config"], state["profile"])
     return {"enrich": result, "weg": _notiere(state, "enrich")}
@@ -202,8 +203,9 @@ def knoten_qualitaet(state: Ablauf) -> Ablauf:
     dieser Knoten frischt die Datei-Prüfungen auf, damit ein abgebrochener
     Lauf oder ein manuell gelöschtes PDF sichtbar wird.
     """
-    result = run_quality(state["config"])
-    return {"qualitaet": result, "weg": _notiere(state, "qualitaet")}
+    fehler = dict(state.get("fehler") or {})
+    result = fuehre_aus("quality", lambda: run_quality(state["config"]), fehler)
+    return {"qualitaet": result or {}, "fehler": fehler, "weg": _notiere(state, "quality")}
 
 
 def knoten_dashboard(state: Ablauf) -> Ablauf:
@@ -212,11 +214,23 @@ def knoten_dashboard(state: Ablauf) -> Ablauf:
     return {"dashboard": result, "weg": _notiere(state, "dashboard")}
 
 
+# Je Schritt aus ``SCHRITTE`` der Knoten, der ihn ausführt.
+KNOTEN = {
+    "search": knoten_suche,
+    "fetch": knoten_beschreibung,
+    "match": knoten_match,
+    "enrich": knoten_enrich,
+    "generate": knoten_generate,
+    "quality": knoten_qualitaet,
+    "dashboard": knoten_dashboard,
+}
+
+
 # --------------------------------------------------------------------------
 # Kanten-Entscheidungen
 # --------------------------------------------------------------------------
 
-def _braucht_beschreibung(state: Ablauf) -> Literal["beschreibung", "match"]:
+def _braucht_beschreibung(state: Ablauf) -> str:
     """Schleife: nachladen, solange Kandidaten offen sind und Versuche bleiben.
 
     Die Obergrenze ist Pflicht: ohne sie könnte die Schleife nicht terminieren,
@@ -225,8 +239,8 @@ def _braucht_beschreibung(state: Ablauf) -> Literal["beschreibung", "match"]:
     offen = state.get("triage_unsure_verbleibend", 0)
     versuche = state.get("beschreibung_versuche", 0)
     if offen and versuche < MAX_BESCHREIBUNG_VERSUCHE:
-        return "beschreibung"
-    return "match"
+        return "fetch"
+    return naechster_schritt("fetch")
 
 
 # --------------------------------------------------------------------------
@@ -234,7 +248,11 @@ def _braucht_beschreibung(state: Ablauf) -> Literal["beschreibung", "match"]:
 # --------------------------------------------------------------------------
 
 def build_graph(*, review: bool = True):
-    """Baut den Ablauf-Graphen.
+    """Baut den Ablauf-Graphen aus ``schritte.SCHRITTE``.
+
+    Jeder Schritt ist ein Knoten, in der Reihenfolge der Liste. Dazu kommen zwei
+    Knoten ohne eigene Arbeit: ``triage`` entscheidet vor ``fetch``, ob etwas
+    nachzuladen ist, und ``review`` steht vor dem ``dashboard``.
 
     ``review=False`` lässt den Review-Knoten weg — für Läufe, bei denen die
     Bewertung ohnehin später im Dashboard passiert.
@@ -249,33 +267,27 @@ def build_graph(*, review: bool = True):
         ) from exc
 
     g = StateGraph(Ablauf)
-    g.add_node("suche", knoten_suche)
+    for name in SCHRITT_NAMEN:
+        g.add_node(name, KNOTEN[name])
     g.add_node("triage", knoten_triage)
-    g.add_node("beschreibung", knoten_beschreibung)
-    g.add_node("match", knoten_match)
-    g.add_node("enrich", knoten_enrich)
-    g.add_node("generate", knoten_generate)
-    g.add_node("qualitaet", knoten_qualitaet)
-    g.add_node("dashboard", knoten_dashboard)
-
-    g.add_edge(START, "suche")
-    g.add_edge("suche", "triage")
-    g.add_conditional_edges("triage", _braucht_beschreibung,
-                            {"beschreibung": "beschreibung", "match": "match"})
-    # Schleife: nach dem Nachladen erneut die offenen unsure-Fälle zählen.
-    g.add_edge("beschreibung", "triage")
-    g.add_edge("match", "enrich")
-    g.add_edge("enrich", "generate")
-    g.add_edge("generate", "qualitaet")
-
     if review:
         g.add_node("review", knoten_review)
-        g.add_edge("qualitaet", "review")
-        g.add_edge("review", "dashboard")
-    else:
-        g.add_edge("qualitaet", "dashboard")
 
-    g.add_edge("dashboard", END)
+    g.add_edge(START, SCHRITT_NAMEN[0])
+    for name, folgt in pairwise(SCHRITT_NAMEN):
+        if folgt == "fetch":
+            g.add_edge(name, "triage")
+        elif name == "fetch":
+            g.add_conditional_edges("triage", _braucht_beschreibung,
+                                    {"fetch": "fetch", folgt: folgt})
+            # Schleife: nach dem Nachladen erneut die offenen Fälle zählen.
+            g.add_edge("fetch", "triage")
+        elif folgt == "dashboard" and review:
+            g.add_edge(name, "review")
+            g.add_edge("review", "dashboard")
+        else:
+            g.add_edge(name, folgt)
+    g.add_edge(SCHRITT_NAMEN[-1], END)
     return g.compile()
 
 

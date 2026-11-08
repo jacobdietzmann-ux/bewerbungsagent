@@ -87,7 +87,7 @@ class TestAblaufLaeuft:
                             lambda *a, **k: [])
         result = graph_mod.run_abo(config, profile)
         weg = result["weg"]
-        assert weg[0] == "suche"
+        assert weg[0] == "search"
         assert "triage" in weg
         assert "match" in weg
         assert "dashboard" in weg
@@ -124,7 +124,7 @@ class TestKantenEntscheidungen:
     def test_beschreibung_schleife_terminiert(self, graph_mod):
         """Wiederholt sich höchstens MAX_BESCHREIBUNG_VERSUCHE-mal."""
         state = {"triage_unsure_verbleibend": 5, "beschreibung_versuche": 0}
-        assert graph_mod._braucht_beschreibung(state) == "beschreibung"
+        assert graph_mod._braucht_beschreibung(state) == "fetch"
         state["beschreibung_versuche"] = graph_mod.MAX_BESCHREIBUNG_VERSUCHE
         assert graph_mod._braucht_beschreibung(state) == "match"
 
@@ -325,13 +325,15 @@ class TestBeschreibungUmfang:
         """Im Modus ``alle`` wird ``only_unsure=False`` an den Fetch gereicht."""
         import sys
         import types
+
+        from bewerbungsagent.schritte import FETCH_LIMIT
         config = self._config(tmp_path, demo_profile_data, self._jobs())
         gerufen = []
         fake = types.ModuleType("fetch_descriptions")
         fake.fetch_descriptions = lambda cfg, **kw: gerufen.append(kw) or {}
         monkeypatch.setitem(sys.modules, "fetch_descriptions", fake)
         O.knoten_beschreibung({"config": config, "beschreibung_umfang": "alle", "weg": []})
-        assert gerufen == [{"only_unsure": False}]
+        assert gerufen == [{"limit": FETCH_LIMIT, "only_unsure": False}]
         gerufen.clear()
         O.knoten_beschreibung({"config": config, "beschreibung_umfang": "nur_unsure", "weg": []})
-        assert gerufen == [{"only_unsure": True}]
+        assert gerufen == [{"limit": FETCH_LIMIT, "only_unsure": True}]

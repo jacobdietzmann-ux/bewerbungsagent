@@ -36,7 +36,7 @@ Base = declarative_base()
 # erneuter Scrape niemals überschreiben darf.
 USER_FIELDS = (
     "status", "contact", "notes", "deleted", "interviewDate",
-    "statusChangedAt", "sentAt", "deleted_reason", "deletedAt",
+    "statusChangedAt", "sentAt", "deleted_reason", "deleted_code", "deletedAt",
     # Freigabe eines Research-Funds für die Dashboard-Tabelle. Eine bewusste
     # Entscheidung des Nutzers, kein ableitbarer Zustand — deshalb hier und
     # nicht im Provider-Anteil, den ein Suchlauf neu schreiben darf.
@@ -61,6 +61,23 @@ _HANDLED_STATUS = ("sent", "followup", "interview", "rejected")
 # Pendel-, Rollen-Filter) tragen andere Begründungen und bleiben neu bewertbar.
 USER_DELETE_REASON = "nutzerkriterium: im dashboard entfernt"
 
+# Kennung am ``deleted_reason`` des Research-Filters.
+RESEARCH_REASON_PREFIX = "research-kriterium"
+
+# Strukturierter Grund einer Ausblendung (``deleted_code``, ADR-056). Nur dieses
+# Feld steuert die Logik; ``deleted_reason`` bleibt der Anzeigetext.
+DELETE_NUTZER = "nutzer"          # im Dashboard entfernt: kein Lauf blendet wieder ein
+DELETE_KRITERIUM = "kriterium"    # Regel des Nutzers oder kein Grund erfasst: bleibt
+DELETE_FIT = "fit"                # Fit unter der Grenze: gegen den heutigen Fit geprüft
+DELETE_PENDEL = "pendel"          # Pendelweg zu weit: gegen die heutige Grenze geprüft
+DELETE_RESEARCH = "research"      # Research-Filter: bewertet ihn bei jedem Lauf neu
+DELETE_STUDENT = "student"        # Studenten-/Praktikumsstelle
+DELETE_TECHNIKER = "techniker"    # Technikerrolle
+DELETE_SONSTIG = "sonstig"        # z. B. Duplikat, Rollen-Ausschluss: bleibt
+
+# Meta-Eintrag: Die Nachtragung der Codes ist für diesen Bestand erledigt.
+_META_DELETE_CODE = "migration_delete_code"
+
 # Nutzerfelder, die ein CLI-Lauf nicht besitzt. Ein Wochenlauf hält den Zustand
 # minutenlang im Speicher; Änderungen aus dem Dashboard währenddessen dürfen
 # nicht durch den abschließenden Voll-Schreibvorgang verloren gehen. Die DB ist
@@ -68,6 +85,53 @@ USER_DELETE_REASON = "nutzerkriterium: im dashboard entfernt"
 _RUN_FOREIGN_FIELDS = ("sentAt", "notes", "contact", "interviewDate", "statusChangedAt",
                        "deletedAt", "research_sichtbar", "unterlagen_gewuenscht",
                        "absage_grund", "absage_talentpool")
+
+
+def delete_code_aus_text(reason: str | None) -> str:
+    """Leitet ``deleted_code`` aus einem Begründungstext ab.
+
+    Einzige Stelle, die den Text auslegt, und nur für Texte ohne Code gedacht: den
+    Altbestand und Eingaben des Dashboards. Die Reihenfolge zählt, denn
+    „Fit <= 60 Prozent (Nutzerkriterium)" beginnt zwar mit „Fit", ist aber eine
+    Entscheidung des Nutzers.
+    """
+    low = str(reason or "").strip().lower()
+    if low.startswith(USER_DELETE_REASON):
+        return DELETE_NUTZER
+    if not low or "nutzerkriterium" in low or "neubewertung" in low:
+        return DELETE_KRITERIUM
+    if low.startswith(RESEARCH_REASON_PREFIX):
+        return DELETE_RESEARCH
+    if low.startswith("fit"):
+        return DELETE_FIT
+    if low.startswith("pendel"):
+        return DELETE_PENDEL
+    if low.startswith("studenten"):
+        return DELETE_STUDENT
+    if low.startswith("technikerrolle"):
+        return DELETE_TECHNIKER
+    return DELETE_SONSTIG
+
+
+def markiere_geloescht(app: dict, code: str, reason: str) -> None:
+    """Blendet einen Eintrag aus (bleibt in der DB), mit Code und Anzeigetext."""
+    app["deleted"] = True
+    app["deleted_reason"] = reason
+    app["deleted_code"] = code
+
+
+def hebe_loeschung_auf(app: dict) -> None:
+    """Blendet einen Eintrag wieder ein."""
+    for feld in ("deleted", "deleted_reason", "deleted_code"):
+        app.pop(feld, None)
+
+
+def _delete_code_nachtragen(user: dict) -> None:
+    """Hält ``deleted_code`` passend zu ``deleted``: fehlt er, kommt er aus dem Text."""
+    if not user.get("deleted"):
+        user.pop("deleted_code", None)
+    elif not user.get("deleted_code"):
+        user["deleted_code"] = delete_code_aus_text(user.get("deleted_reason"))
 
 
 def _protected_user(db_user: dict | None, incoming: dict) -> dict:
@@ -80,12 +144,10 @@ def _protected_user(db_user: dict | None, incoming: dict) -> dict:
     # Im Dashboard gelöschte Stellen bleiben gelöscht: der Lauf kennt das Flag
     # nicht und hätte es sonst stillschweigend zurückgesetzt — die Zahlen in der
     # Statistik sprangen dadurch nach dem nächsten Lauf zurück. Die Löschung ist
-    # an ``deleted_reason`` erkennbar; Filter-Löschungen der Pipeline (ohne
-    # diesen Marker) bleiben weiterhin neu bewertbar.
-    reason = str(db.get("deleted_reason") or "").lower()
-    if db.get("deleted") is True and reason.startswith(USER_DELETE_REASON):
-        merged["deleted"] = True
-        merged["deleted_reason"] = db["deleted_reason"]
+    # an ``deleted_code`` erkennbar; Filter-Löschungen der Pipeline bleiben
+    # weiterhin neu bewertbar.
+    if db.get("deleted") is True and db.get("deleted_code") == DELETE_NUTZER:
+        markiere_geloescht(merged, DELETE_NUTZER, db.get("deleted_reason") or USER_DELETE_REASON)
     if db.get("status") in _HANDLED_STATUS and merged.get("status") not in _HANDLED_STATUS:
         merged["status"] = db["status"]
     return merged
@@ -120,6 +182,7 @@ def _split(app: dict) -> tuple[dict, dict]:
             user[k] = v
         else:
             provider[k] = v
+    _delete_code_nachtragen(user)
     return provider, user
 
 
@@ -146,6 +209,7 @@ class Store:
         self._configure_sqlite()
         self._ensure_schema(url)
         self._Session = sessionmaker(bind=self.engine, future=True)
+        self._migrate_data()
 
     def _guard_production_db(self) -> None:
         """Verhindert, dass ein Testlauf die produktive Datenbank beschreibt.
@@ -188,6 +252,38 @@ class Store:
         cfg.set_main_option("script_location", str(root / "migrations"))
         cfg.set_main_option("sqlalchemy.url", url)
         command.upgrade(cfg, "head")
+
+    def _migrate_data(self) -> None:
+        """Holt Datenmigrationen einmalig nach.
+
+        Alembic läuft nur beim Anlegen des Schemas (``_ensure_schema``), und die
+        Felder liegen in JSON-Spalten. Der Bestand zieht deshalb hier um, beim
+        ersten Öffnen mit neuem Code; der Meta-Eintrag hält das Öffnen danach billig.
+        """
+        if self.get_meta(_META_DELETE_CODE) is None:
+            self.set_meta(_META_DELETE_CODE, {"zeitpunkt": now_iso(),
+                                              "codes": self.migrate_delete_codes()})
+
+    def migrate_delete_codes(self) -> dict[str, int]:
+        """Trägt ``deleted_code`` im Bestand nach und zählt die neuen Codes.
+
+        Idempotent: Vorhandene Codes bleiben. ``deleted_reason`` bleibt als
+        Anzeigetext stehen, und ``updated_at`` bleibt unverändert, weil sich an
+        der Stelle selbst nichts ändert.
+        """
+        neu: dict[str, int] = {}
+        with self._Session() as session:
+            for row in session.query(Application).all():
+                user = dict(row.user or {})
+                vorher = user.get("deleted_code")
+                _delete_code_nachtragen(user)
+                code = user.get("deleted_code")
+                if code != vorher:
+                    row.user = user
+                    if code:
+                        neu[code] = neu.get(code, 0) + 1
+            session.commit()
+        return neu
 
     # ---- Lesen -----------------------------------------------------------
 
@@ -314,6 +410,10 @@ class Store:
                 for k, v in entry.items():
                     if k in USER_FIELDS and v is not None:
                         user[k] = v
+                # Ein neuer Text ersetzt den Code eines früheren Filters.
+                if "deleted_reason" in entry and "deleted_code" not in entry:
+                    user.pop("deleted_code", None)
+                _delete_code_nachtragen(user)
                 row.user = user
                 row.updated_at = now
                 changed = True

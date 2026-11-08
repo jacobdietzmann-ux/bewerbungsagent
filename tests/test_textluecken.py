@@ -300,3 +300,121 @@ class TestAblaufErkennung:
     @pytest.mark.parametrize("url", ["https://www.linkedin.com/jobs/view/4456943036", "", None])
     def test_normale_adresse_ist_nicht_abgelaufen(self, url):
         assert _is_expired_redirect(url) is None
+
+
+class TestPrueffallTextFehlt:
+    """Regel aus ADR-055, vom Nutzer am 08.11.2026 mit 14 Tagen Frist freigegeben."""
+
+    @pytest.fixture(autouse=True)
+    def _offline(self, monkeypatch):
+        monkeypatch.setattr(pipeline, "enrich_commute", lambda apps, *_a, **_k: {"total": len(apps)})
+        monkeypatch.setattr(pipeline, "enrich_salary", lambda apps: {})
+        monkeypatch.setattr(pipeline, "_generate_one", lambda *_a, **_k: [])
+
+    def _lauf(self, config, *apps):
+        from bewerbungsagent.db import Store
+        Store(config.db_path()).save_state({"applications": list(apps)})
+        ergebnis = pipeline.run_enrich(config, None)
+        stand = {a["key"]: a for a in Store(config.db_path()).load_state()["applications"]}
+        return ergebnis, stand
+
+    def _stelle(self, key="k1", **mehr):
+        return {"key": key, "url": f"https://example.test/{key}", "firma": "Beispiel GmbH",
+                "titel": "Testingenieur HiL (m/w/d)", "quelle": "StepStone", "status": "neu",
+                "score": 12, "created": _vor(3), "pendelzeit_min": 20, **mehr}
+
+    def test_rollentreffer_ohne_text_bleibt_als_prueffall(self, config):
+        ergebnis, stand = self._lauf(config, self._stelle())
+        assert not stand["k1"].get("deleted")
+        assert stand["k1"]["text_fehlt"] is True
+        assert ergebnis["text_fehlt"] == 1
+        assert ergebnis["deleted_fit_under_50"] == 0
+
+    def test_frueher_ausgeblendet_kommt_als_prueffall_zurueck(self, config):
+        _e, stand = self._lauf(config, self._stelle(deleted=True, deleted_reason="FIT < 50 %"))
+        assert not stand["k1"].get("deleted")
+        assert stand["k1"]["text_fehlt"] is True
+
+    def test_nach_der_frist_ausgeblendet_mit_eigenem_grund(self, config):
+        _e, stand = self._lauf(config, self._stelle(created=_vor(auswahl.TEXT_FEHLT_TAGE + 1)))
+        assert stand["k1"]["deleted"] is True
+        assert stand["k1"]["deleted_reason"] == "Text fehlt seit über 14 Tagen"
+        assert "text_fehlt" not in stand["k1"]
+
+    def test_abgelaufene_anzeige_nennt_den_grund(self, config):
+        _e, stand = self._lauf(config, self._stelle(verfuegbar=False))
+        assert stand["k1"]["deleted_reason"] == "Anzeige abgelaufen (ohne Text)"
+
+    @pytest.mark.parametrize("mehr", [
+        {"beschreibung": "Echter Anzeigentext"},     # bewertet, nicht mehr nur der Titel
+        {"titel": "Vertriebsleiter (m/w/d)"},       # kein Rollensignal
+    ])
+    def test_sonst_gilt_die_ausblendgrenze(self, config, mehr):
+        _e, stand = self._lauf(config, self._stelle(**mehr))
+        assert stand["k1"]["deleted_reason"] == "FIT < 50 %"
+
+    def test_pendelweg_bleibt_harte_grenze(self, config):
+        _e, stand = self._lauf(config, self._stelle(pendelzeit_min=120))
+        assert stand["k1"]["deleted"] is True
+        assert stand["k1"]["deleted_reason"].startswith("Pendelweg")
+
+    def test_research_filter_laesst_den_prueffall_stehen(self, config):
+        _e, stand = self._lauf(config, self._stelle(status="research"))
+        assert not stand["k1"].get("deleted")
+
+    def test_mit_text_entscheiden_wieder_die_baender(self, config):
+        _e, stand = self._lauf(config, self._stelle(beschreibung="Text", score=67))
+        assert not stand["k1"].get("deleted")
+        assert "text_fehlt" not in stand["k1"]
+
+    def test_mail_lead_neben_seiner_anzeige_wird_dublette(self, config):
+        lead = {"key": "hensoldt|testingenieur (m/w/d)", "firma": "HENSOLDT",
+                "titel": "Testingenieur (m/w/d)", "quelle": manual.MAIL_LEAD, "status": "neu",
+                "score": 8, "created": _vor(1)}
+        anzeige = self._stelle("k2", firma="Hensoldt Sensors GmbH", titel="Testingenieur (m/w/x)",
+                               beschreibung="Text", score=58)
+        ergebnis, stand = self._lauf(config, lead, anzeige)
+        assert ergebnis["lead_dubletten"] == 1
+        assert stand[lead["key"]]["deleted_reason"] == \
+            "Dublette: dieselbe Stelle wie Hensoldt Sensors GmbH (StepStone)"
+
+    def test_vom_nutzer_geloeschter_lead_bleibt_unberuehrt(self, config):
+        lead = {"key": "x|testingenieur", "firma": "X GmbH", "titel": "Testingenieur",
+                "quelle": manual.MAIL_LEAD, "status": "neu", "created": _vor(1),
+                "deleted": True, "deleted_reason": USER_DELETE_REASON}
+        anzeige = self._stelle("k2", firma="X GmbH", titel="Testingenieur", beschreibung="Text")
+        _e, stand = self._lauf(config, lead, anzeige)
+        assert stand[lead["key"]]["deleted_reason"] == USER_DELETE_REASON
+
+    def test_messgroesse_zaehlt_die_umbenennung_weiter_mit(self):
+        apps = [
+            {"deleted": True, "deleted_reason": "FIT < 50 %", "titel": "Testingenieur"},
+            {"deleted": True, "deleted_reason": "Text fehlt seit über 14 Tagen",
+             "titel": "Testingenieur"},
+            {"deleted": True, "deleted_reason": "FIT < 50 %", "titel": "Testingenieur",
+             "beschreibung": "Text"},                                   # bewertet
+            {"deleted": True, "deleted_reason": "Anzeige abgelaufen (ohne Text)",
+             "titel": "Testingenieur", "verfuegbar": False},
+            {"deleted": True, "deleted_reason": "FIT < 50 %", "titel": "Vertrieb"},
+            {"text_fehlt": True, "titel": "Testingenieur"},             # sichtbar
+        ]
+        assert auswahl.stille_rollentreffer(apps) == 2
+
+
+class TestDashboardPrueffall:
+    def test_prueffall_steht_in_eigener_liste_nicht_in_der_tabelle(self, tmp_path, monkeypatch):
+        import re
+
+        from bewerbungsagent import dashboard
+        monkeypatch.setattr(dashboard, "AGENT_ROOT", tmp_path)
+        ziel = tmp_path / "d.html"
+        app = {"key": "k", "firma": "HENSOLDT", "titel": "Testingenieur", "status": "neu",
+               "score": 8, "quelle": manual.MAIL_LEAD, "text_fehlt": True}
+        dashboard.build_dashboard({"applications": [app]}, ziel)
+        html = ziel.read_text(encoding="utf-8")
+        daten = json.loads(re.search(r"const DATA = (\[.*?\]);", html, re.S).group(1)
+                           .replace("<\\/", "</"))
+        assert daten[0]["textFehlt"] is True
+        assert daten[0]["visible"] is False
+        assert daten[0]["quelle"] == manual.MAIL_LEAD
+        assert 'id="pruefPanel"' in html and "function renderPruef" in html

@@ -269,6 +269,11 @@ def main(argv=None) -> int:
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Ausgeblendet (FIT < {FIT_BAND_AUSBLENDEN} %): "
               f"{result['deleted_fit_under_50']} Stelle(n).")
+        print(f"Prüffälle (Text fehlt, Titel passt): {result.get('text_fehlt', 0)} Stelle(n); "
+              f"Mail-Leads als Dublette: {result.get('lead_dubletten', 0)}.")
+        still = result.get("stille_rollentreffer") or {}
+        print(f"Ausgeblendete Rollentreffer ohne Text: {still.get('vorher', 0)} → "
+              f"{still.get('nachher', 0)}.")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         print(f"Gelöscht (Studenten-/Praktikumsstelle): "

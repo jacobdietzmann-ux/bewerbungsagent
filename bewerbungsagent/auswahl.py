@@ -42,6 +42,9 @@ DEFAULT_COMMUTE_GRACE_MIN = 10
 DEFAULT_NEUFUND_MIN_FIT = 50
 # So lange versucht der Lauf, einen fehlenden Anzeigentext nachzuladen (ADR-055).
 TEXT_NACHLADEN_TAGE = 30
+# So lange bleibt ein Rollentreffer ohne Text als Prüffall „Text fehlt, Titel passt"
+# sichtbar (ADR-055, vom Nutzer am 08.11.2026 freigegeben).
+TEXT_FEHLT_TAGE = 14
 
 # Status, in denen eine Bewerbung bei der Firma „offen" ist. ``docs`` zählt nur
 # mit vorhandenen Unterlagen (sonst ist es noch keine Bewerbung).
@@ -117,6 +120,40 @@ def juenger_als(app: dict, tage: int, now: datetime | None = None) -> bool:
     if erfasst is None:
         return False
     return erfasst >= (now or datetime.now().astimezone()) - timedelta(days=tage)
+
+
+def text_fehlt_titel_passt(app: dict, now: datetime | None = None) -> bool:
+    """Prüffall statt Ausblendung: Rollentreffer ohne Text, jünger als ``TEXT_FEHLT_TAGE``.
+
+    Der Fit bleibt der Titel-Fit, die Bänder gelten unverändert. Der Prüffall
+    erzeugt keine Unterlagen und zählt in keiner Kennzahl. Kommt Text, entscheiden
+    die normalen Bänder; nach der Frist wird die Stelle mit eigenem Grund ausgeblendet.
+    """
+    return rollentreffer_ohne_text(app) and juenger_als(app, TEXT_FEHLT_TAGE, now)
+
+
+def _rollentitel(app: dict) -> bool:
+    titel = app.get("titel")
+    return (has_role_signal(titel) and not is_software_role(titel)
+            and not is_development_role(titel) and not is_student_role(titel)
+            and not is_technician_role(titel))
+
+
+def stille_rollentreffer(apps: Iterable[dict]) -> int:
+    """Messgröße aus ADR-055: ausgeblendete Rollentreffer ohne Text.
+
+    Gezählt wird jede Stelle, die nur wegen des Titel-Fits fehlt. Dazu gehört auch
+    der Grund „Text fehlt seit über … Tagen": Die Umbenennung allein ist keine
+    Verbesserung. Nicht gezählt werden abgelaufene Anzeigen, Dubletten, Nutzer-
+    entscheidungen und andere Gründe (Pendelweg, Rollen-Ausschluss).
+    """
+    n = 0
+    for a in apps:
+        grund = str(a.get("deleted_reason") or "").lower()
+        if (a.get("deleted") and grund.startswith(("fit <", "text fehlt"))
+                and ohne_text(a) and a.get("verfuegbar") is not False and _rollentitel(a)):
+            n += 1
+    return n
 
 
 def auto_docs_last_days(apps: Iterable[dict], now: datetime | None = None,

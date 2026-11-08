@@ -1736,3 +1736,90 @@ Texten: 0 Abweichungen). Mehr Begriffe bedeuten mehr Browserzeit; nach dem erste
 Lauf entfällt der Textabruf für bekannte Anzeigen. Die Board-Einstellungen in der
 `config.json` brauchen keine Änderung. Gespeicherte Suchen mit dem Provider
 `stepstone` sollten auf `stepstone_browser` wechseln.
+
+## ADR-055 – Stellen ohne Anzeigentext verschwinden nicht mehr still
+
+**Problem.** Ohne Anzeigentext bewertet der Score nur den Titel. Ein Rollentreffer
+erreicht so nie 50 %: Auf 341 Stellen mit Text und Rollensignal ergab der reine
+Titel-Fit in allen Fällen weniger als 50 %. Mit Text kamen 24,6 % auf mindestens
+65 % und 19,6 % auf mindestens 71 %. Ohne Rollensignal (n = 996) waren es 3,5 % und
+1,7 %. Am 07.11.2026 lagen 53 ausgeblendete Rollentreffer ohne Text unter
+„FIT < 50 %“: 27 Mail-Leads, 16 Arbeitnow, 8 StepStone, 2 LinkedIn. Gezählt wurde
+nach `auswahl.stille_rollentreffer`: Software- und Entwicklerrollen sind
+ausgenommen, mit ihnen sind es 56.
+
+Es gab drei Ursachen:
+
+1. `fetch` und `match` arbeiten nur auf `jobs.json`, also auf dem letzten Suchlauf.
+   28 der 29 betroffenen Stellen mit URL standen dort nicht mehr. Beim Direktaufruf
+   lieferten 21 noch Text, darunter eine Stelle mit 100 % Fit (Agile Robots).
+   8 Anzeigen waren abgelaufen. ADR-053 hilft dem Altbestand nicht: Keine der
+   18 Arbeitnow-Stellen steht auf API-Seite 1 (`arbeitnow_pages: 1`).
+2. Mail-Leads haben keine URL, also kann `fetch` keinen Text laden.
+3. Abgelaufene LinkedIn-Links leiten auf eine Trefferliste weiter
+   (`trk=expired_jd_redirect`). Deren Text wäre als Anzeigentext gespeichert worden.
+
+**Entscheidungen.**
+
+1. **Textlücken aus dem Bestand** (`pipeline._textluecken`). Rollentreffer ohne Text,
+   mit URL und jünger als 30 Tage (`TEXT_NACHLADEN_TAGE`) laufen im Tageslauf mit
+   `fetch` und `match` mit, bis Text da ist oder die Anzeige als abgelaufen gilt.
+   Nutzerlöschungen und abgeschlossene Vorgänge bleiben außen vor.
+2. **URL-Suche für Mail-Leads** (`search.resolve_mail_leads`, `manual.lead_passt`).
+   Der Lauf sucht Firma + Titel bei XING, alle Begriffe in einer Browsersitzung, jeden
+   Lead höchstens einmal in 7 Tagen. Gemessen auf 27 Leads: XING fand 5, alle richtig.
+   StepStone fand 0, obwohl die Firma in 12 Fällen erschien. LinkedIn antwortete mit
+   429, Google lieferte nichts, Bing nur allgemeine Seiten, DuckDuckGo blieb leer.
+   Indeed ist ausgeschlossen, weil die Suche dort nur mit abgeschalteter
+   Automationserkennung klappt. Der Abgleich ist bewusst streng (Titel-Jaccard ≥ 0,8,
+   gekürzte Mail-Titel über den Anfang). Die gefundene URL füllt den
+   Bestandseintrag des Leads über `bestand_key` und legt keinen zweiten an.
+   `search.lead_url_provider: []` schaltet die Suche ab.
+3. **Prüffall „Text fehlt, Titel passt“** (`auswahl.text_fehlt_titel_passt`). Der
+   Nutzer hat die Regel am 08.11.2026 mit 14 Tagen Frist freigegeben. Eine Stelle
+   wird nicht wegen `FIT < 50 %` ausgeblendet, wenn alle Bedingungen gelten:
+   - kein Anzeigentext,
+   - Rollensignal im Titel,
+   - keine Software-, Entwickler-, Studenten- oder Technikerrolle,
+   - Anzeige nicht abgelaufen,
+   - Pendelweg innerhalb der Grenze,
+   - jünger als 14 Tage (`TEXT_FEHLT_TAGE`).
+
+   Sie trägt dann `text_fehlt` und steht im Dashboard in einer eigenen Liste mit Link
+   oder Websuche und „Verwerfen“. Sie steht nicht in der Tabelle und in keiner
+   Kennzahl und bekommt keine Unterlagen. Score, Fit-Bänder und Research-Fenster
+   bleiben unverändert. Kommt Text, entscheiden die normalen Bänder. Nach der Frist
+   blendet der Lauf die Stelle mit dem Grund „Text fehlt seit über 14 Tagen“ aus.
+4. **Ehrliche Gründe.** Eine abgelaufene Anzeige ohne Text heißt
+   „Anzeige abgelaufen (ohne Text)“. Ein Mail-Lead, dessen Anzeige mit Text schon im
+   Bestand liegt, wird „Dublette: dieselbe Stelle wie …“. Beide Gründe und
+   „Text fehlt …“ bewertet der Lauf neu, sobald sich Fit oder Text ändern.
+
+**Messung** auf einer frischen Kopie des Bestands (08.11.2026, 2.262 Einträge) mit
+dem echten `run_enrich`. Pendelweg und Unterlagenerzeugung waren dabei abgeschaltet:
+
+| Lauf | Stille Rollentreffer | Prüffälle | Geänderte Scores |
+|---|---|---|---|
+| vorher | 53 | – | – |
+| nur Regel | 8 | 45 | 0 |
+| Regel + gemessene Texte (29 Direktaufrufe, 7 XING-Leads) | 0 | 22 | – |
+
+In der Zeile „nur Regel“ sind 4 der 8 Stellen wegen des Pendelwegs ausgeblendet
+(Pendelweg 31 bzw. 72 min, harte Grenze). Ihr Grund lautet weiter „FIT < 50 %“.
+
+Mit Text verteilen sich alle 56 Stellen (53 plus 3 Software-Rollen) so: 6 sichtbar
+mit 70–100 %, 22 mit Text bewertet und begründet ausgeblendet, 7 abgelaufen,
+1 Dublette, 19 Prüffälle, 1 wegen des Pendelwegs ausgeblendet. Fünf
+Stellen erfüllen danach die Bedingungen für automatische Unterlagen: Agile Robots
+100 %, Instaffo 92 %, Hays 78 %, Simovative 74 %, Bertrandt 72 %. Die vorher 0–14 %
+dieser Mail-Leads waren reine Titel-Fits.
+
+**Grenzen.**
+- Die Leads einer Mail sind n = 27. Die XING-Quote (5 von 27) ist eine Tendenz, kein
+  Dauerwert.
+- XING ohne Ortsfilter fand 2 weitere Leads (Velden, Dresden), geprüft wurden aber
+  nur 12 von 22. Die Suche läuft deshalb mit dem Ort aus `search.location`.
+- Für die Messung der Mail-Leads stand ihr Fit aus dem Direktaufruf in der Kopie,
+  nicht der volle Text.
+- Nach dem Merge mit `claude/musing-wing-5e7366` prüft `_vom_nutzer_geloescht`
+  `deleted_code == DELETE_NUTZER` statt des Textvergleichs.

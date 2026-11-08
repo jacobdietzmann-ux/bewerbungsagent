@@ -1973,3 +1973,15 @@ vor dem Umzug einspielen. `tests/conftest.py` entfernt die Variable, damit die S
 nie den echten Datenordner liest. Der Umzug selbst ist nicht ausgeführt; seine
 Schritte und der Rückweg stehen in `docs/PLAN-LIVE-ORDNER.md`. Regel 6 aus
 `AGENTS.md` (zwei Code-Orte) entfällt erst nach dem Umzug.
+
+## ADR-058 – Wirkungslose Provider und widerlegte Experimente entfernt
+
+**Ausgangslage.** Bing und DuckDuckGo lieferten live nichts Brauchbares, der
+HTTP-Provider `stepstone` wird von StepStone mit leeren Antworten bedient und ist
+durch `stepstone_browser` ersetzt (ADR-050). `semantic.py` und `rerank.py` schlugen
+den Keyword-Fit nicht (ADR-015, ADR-016) und liefen nur noch in `eval/`.
+
+**Entscheidung.** Die drei Provider, beide Module, ihre Auswertungen und das Extra
+`semantic` sind entfernt. Die Git-Historie bewahrt sie. Der Name `stepstone` in einer
+Konfiguration meldet jetzt „Unbekannter Provider“. Die Messergebnisse bleiben in den
+ADRs und im README stehen.

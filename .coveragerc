@@ -14,8 +14,6 @@ omit =
     bewerbungsagent/cleanup.py
     bewerbungsagent/config.py
     bewerbungsagent/storage.py
-    bewerbungsagent/rerank.py
-    bewerbungsagent/semantic.py
     bewerbungsagent/search/*
     eval/run_*.py
     eval/label_tool.py

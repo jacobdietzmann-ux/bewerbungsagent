@@ -58,9 +58,6 @@ REPO_URL = "https://github.com/jacobdietzmann-ux/bewerbungsagent"
 _MODULES = [
     ("search/__init__.py", "Provider auswählen und ausführen, Treffer deduplizieren, "
      "Aggregator-/Lexikon-Seiten filtern, URLs bereinigen", "teils", "Suche"),
-    ("search/stepstone.py", "StepStone: Suchbegriff und Ort getrennt, echte Anzeigen", "netz", "Suche"),
-    ("search/duckduckgo.py", "Web-Suche als Lückenfüller (Übersichts-/Lexikonseiten werden verworfen)", "netz", "Suche"),
-    ("search/bing.py", "Web-Suche als Lücke", "netz", "Suche"),
     ("search/ats.py", "Firmen-Karriereseiten (ATS-Boards), Arbeitnow, JobLeads, "
      "Jobbörsen-Sitemaps (u. a. jobs.eon.com)", "netz", "Suche"),
     ("search/arbeitnow.py", "Arbeitnow-API (viele Treffer, Firmenname teils ohne Leerzeichen)", "netz", "Suche"),
@@ -95,8 +92,6 @@ _MODULES = [
     ("statuses.py", "Status-Funnel + Normalisierung alter Werte", "rein", "Steuerung"),
     ("storage.py", "JSON lesen/schreiben, Zeitstempel", "io", "Speicher"),
     ("server.py", "Lokaler HTTP-Server: Dashboard, /state-API, Ordner öffnen", "netz", "Ausgabe"),
-    ("semantic.py", "Embedding-Matching — Experiment, Hypothese widerlegt (ADR-015)", "exp", "Experiment"),
-    ("rerank.py", "Cross-Encoder-Reranking — Experiment zur Alternative", "exp", "Experiment"),
 ]
 
 _SERVICES = [
@@ -115,7 +110,6 @@ _SERVICES = [
     ("python-docx", "DOCX-Vorlage erzeugen und füllen (Lebenslauf)", "lokal", "python-docx 1.2.0"),
     ("SQLAlchemy + Alembic", "Schema und Migrationen der jobs.db", "lokal", "sqlalchemy, alembic 1.20.0"),
     ("LangGraph", "Derselbe Ablauf als Graph (optional, statt linearer Pipeline)", "lokal", "langgraph 1.2.15"),
-    ("sentence-transformers + torch", "Semantisches Matching / Reranking — Experiment, Pakete nicht installiert", "exp", "ADR-015 / ADR-016"),
 ]
 
 # Quellen für die Ablaufkarte (Reihenfolge = Reihenfolge im SVG).
@@ -209,8 +203,6 @@ _TOOLS_EXTRA = [
      "geprueft", "venv: sqlalchemy, alembic 1.20.0"),
     ("LangGraph", "Graph-Ablauf (agent.py ablauf)",
      "geprueft", "venv: langgraph 1.2.15"),
-    ("sentence-transformers + torch", "Semantisches Matching, Reranking",
-     "fehlt", "Import schlägt fehl → semantic.py / rerank.py nur Theorie"),
     ("LibreOffice (soffice)", "DOCX-Vorlage → PDF",
      "fehlt", "nicht im PATH, C:\\Program Files\\LibreOffice fehlt → ReportLab"),
     ("rclone-Bisync", "Spiegelt den Arbeitsordner zu Google Drive",

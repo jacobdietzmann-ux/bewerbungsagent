@@ -58,7 +58,7 @@ DEFAULT_CONFIG: dict = {
         # geprüft liefern sie für Stellensuche nichts Verwertbares (DuckDuckGo
         # 0 Treffer, Bing nur ``bing.com/ck/a``-Redirects zu branchenfremden
         # Firmen). ``ats`` deckt die Karriereseiten der Zielunternehmen direkt ab.
-        "providers": ["manual", "stepstone", "jobspy", "ats", "arbeitnow"],
+        "providers": ["manual", "stepstone_browser", "jobspy", "ats", "arbeitnow"],
         "location": "München",
         "query_terms": [
             "Testingenieur",

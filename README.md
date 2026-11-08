@@ -596,10 +596,14 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `search.xing_max_results` / `search.indeed_max_results` – Obergrenze je Lauf (Standard 25).
 - `search.labo_max_jobs` – Obergrenze für jobs.labo.de (Standard 120).
 - `search.ats_boards` – Karriereseiten für die ATS-Abfrage. Greenhouse/Lever/Ashby nutzen
-  `board`, Workday `tenant`+`site`, Eightfold `host`+`domain`, SuccessFactors „Jobs2Web" nur
+  `board`, Workday `tenant`+`site` (optional `host`: Instanz wie `wd5` oder der ganze Hostname
+  aus der URL der Karriereseite, Standard `wd3`), Eightfold `host`+`domain`, SuccessFactors „Jobs2Web" nur
   `host`, SmartRecruiters `company`, Oracle Cloud `host`+`site`, TYPO3 `list_url`. Für
   `ats: "sitemap"` gilt `sitemap` (Pflicht) plus optional `url_must_contain` und `max_jobs`.
   Leer = Greenhouse/Lever/Ashby automatisch aus den vorhandenen Anzeigen ableiten.
+- `search.abgelaufen_nach_tagen` – offene Stellen, die so viele Tage in erfolgreichen Läufen
+  ihrer Quelle fehlen, gelten im Dashboard und in `agent.py shortlist` als „vermutlich
+  abgelaufen" (Standard 7, `0` = aus). Gelöscht wird dadurch nichts.
 - `search.ats_only_near_munich` – nur Stellen aus der Münchener Metropolregion übernehmen
   (Standard `true`); verhindert teure Geocoding-Aufrufe für weltweite Stellen.
 - `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).

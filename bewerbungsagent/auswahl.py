@@ -16,6 +16,9 @@ Hintergrund (Trichter-Auswertung vom 01.11.2026, 209 Bewerbungen):
   („Director Sustainability Data & AI", „Digital IP Design Engineer"). Ein
   Neufund ist nur noch sichtbar, wenn der Titel eine Test-/Systemrolle belegt
   und der Fit die Ausblendegrenze erreicht.
+* Am 07.11.2026 tauchten 22 von 60 offenen Einträgen im Suchlauf nicht mehr auf,
+  ohne dass der Bestand davon wusste. **Vermutlich abgelaufen** macht das
+  sichtbar, gelöscht wird dadurch nichts (ADR-054).
 
 Das Modul ist bewusst frei von DB-/Dashboard-Importen, damit es ohne
 SQLAlchemy testbar bleibt.
@@ -28,15 +31,21 @@ from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 
 from .matching import fit_value, has_role_signal
+from .provider_health import letzter_abruf
+from .statuses import normalize_status
 
 DEFAULT_MAX_AUTO_PER_WEEK = 8
 DEFAULT_MAX_OFFEN_PRO_FIRMA = 2
 DEFAULT_COMMUTE_GRACE_MIN = 10
 DEFAULT_NEUFUND_MIN_FIT = 50
+DEFAULT_ABGELAUFEN_NACH_TAGEN = 7
 
 # Status, in denen eine Bewerbung bei der Firma „offen" ist. ``docs`` zählt nur
 # mit vorhandenen Unterlagen (sonst ist es noch keine Bewerbung).
 _OFFEN = ("sent", "followup", "interview")
+
+# Vorgänge, die keine offene Stelle mehr sind: Bei ihnen zählt die Anzeige nicht.
+_ABGESCHLOSSEN = (*_OFFEN, "rejected")
 
 
 def _parse(value) -> datetime | None:
@@ -141,11 +150,49 @@ def apply_limits(candidates: list[dict], apps: list[dict], *,
     return ausgewaehlt, ueber_budget, ueber_firma
 
 
-def shortlist(apps: Iterable[dict], top: int = 8) -> list[dict]:
+def stelle_offen(app: dict) -> bool:
+    """True, solange noch keine Bewerbung läuft und die Stelle nicht gelöscht ist."""
+    return (not app.get("deleted")
+            and normalize_status(app.get("status")) not in _ABGESCHLOSSEN)
+
+
+def tage_vermisst(app: dict, quellen: dict | None) -> int | None:
+    """Tage zwischen ``zuletzt_gesehen`` und dem letzten Erfolg der Quelle.
+
+    ``quellen`` ist ``{"provider": …, "boards": …}`` aus der Historie. Gezählt wird
+    in Kalendertagen, damit die Laufzeit des Tageslaufs das Ergebnis nicht kippt.
+    ``None`` heißt: Es fehlt ein Zeitpunkt, also ist keine Aussage möglich.
+    """
+    gesehen = _parse(app.get("zuletzt_gesehen"))
+    quellen = quellen or {}
+    bezug = _parse(letzter_abruf(app, quellen.get("provider"), quellen.get("boards")))
+    if gesehen is None or bezug is None:
+        return None
+    return (bezug.date() - gesehen.date()).days
+
+
+def vermutlich_abgelaufen(app: dict, quellen: dict | None,
+                          tage: int = DEFAULT_ABGELAUFEN_NACH_TAGEN) -> bool:
+    """True, wenn eine offene Stelle seit ``tage`` Tagen in ihrer Quelle fehlt.
+
+    Nur eine Vermutung: Eine Anzeige kann auch aus den ersten Treffern einer Börse
+    gerutscht sein. Deshalb bleibt es eine Anzeige, die nichts löscht und jeder
+    neue Fund wieder aufhebt. ``tage <= 0`` schaltet die Prüfung ab. Eine als
+    abgelaufen geprüfte Anzeige (``verfuegbar`` ist ``False``) braucht sie nicht.
+    """
+    if tage <= 0 or not stelle_offen(app) or app.get("verfuegbar") is False:
+        return False
+    fehlt = tage_vermisst(app, quellen)
+    return fehlt is not None and fehlt >= tage
+
+
+def shortlist(apps: Iterable[dict], top: int = 8, *, quellen: dict | None = None,
+              abgelaufen_tage: int = DEFAULT_ABGELAUFEN_NACH_TAGEN) -> list[dict]:
     """Bewerbungen mit fertigen Unterlagen, die noch nicht versendet sind.
 
     Das ist die Wochenauswahl: die besten ``top`` Stellen nach Fit, jeweils mit
-    Hinweis, ob ein Ansprechpartner fehlt (persönliche Anrede, Anruf vorab).
+    Hinweis, ob ein Ansprechpartner fehlt (persönliche Anrede, Anruf vorab) oder
+    die Anzeige vermutlich abgelaufen ist. Solche Stellen bleiben in der Liste.
     """
     offen = [a for a in apps
              if not a.get("deleted") and a.get("status") == "docs" and a.get("dokumente")]
@@ -155,4 +202,5 @@ def shortlist(apps: Iterable[dict], top: int = 8) -> list[dict]:
         "fit": fit_value(a), "url": a.get("url"), "key": a.get("key"),
         "kontakt_fehlt": not (a.get("contact") or a.get("ansprechpartner")),
         "pendel_knapp": bool(a.get("pendel_knapp")),
+        "vermutlich_abgelaufen": vermutlich_abgelaufen(a, quellen, abgelaufen_tage),
     } for a in offen[:top]]

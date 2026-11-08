@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 
-from bewerbungsagent.profile_export import (export_profile_markdown,
-                                            profile_markdown_stale,
-                                            render_profile_markdown)
+from bewerbungsagent.profile_export import (
+    export_profile_markdown,
+    profile_markdown_stale,
+    render_profile_markdown,
+)
 
 PROFIL = {
     "_meta": {"created": "2026-09-06"},

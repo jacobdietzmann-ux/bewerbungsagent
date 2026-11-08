@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 STOPWORDS = {
@@ -105,16 +106,40 @@ _DASH_FOLD = str.maketrans({
 })
 
 
-def normalize(text: str) -> str:
-    """Kleinbuchstaben, Umlaute/ß auflösen, Diakritika und Strichvarianten."""
-    if not text:
-        return ""
+class _OhneKombinierer(dict):
+    """Tabelle für ``str.translate``: entfernt Kombinationszeichen.
+
+    Die Tabelle füllt sich beim ersten Auftreten eines Zeichens. Danach läuft
+    die Filterung in C statt in einer Python-Schleife über jedes Zeichen.
+    """
+
+    def __missing__(self, codepoint: int) -> int | None:
+        wert = None if unicodedata.combining(chr(codepoint)) else codepoint
+        self[codepoint] = wert
+        return wert
+
+
+_OHNE_KOMBINIERER = _OhneKombinierer()
+
+
+@lru_cache(maxsize=4096)
+def _normalize(text: str) -> str:
     text = text.lower()
     text = text.translate(_DASH_FOLD)
     text = text.replace("ß", "ss")
     text = unicodedata.normalize("NFKD", text)
-    text = "".join(c for c in text if not unicodedata.combining(c))
-    return text
+    return text.translate(_OHNE_KOMBINIERER)
+
+
+def normalize(text: str) -> str:
+    """Kleinbuchstaben, Umlaute/ß auflösen, Diakritika und Strichvarianten.
+
+    Das Ergebnis ist gecacht: Scoring und Dimensionen normalisieren denselben
+    Anzeigentext je Stelle mehrfach, das war der größte Einzelposten im Lauf.
+    """
+    if not text:
+        return ""
+    return _normalize(text)
 
 
 def _split_top_level(value: str) -> list[str]:
@@ -215,6 +240,7 @@ class Profile:
         self.display_map: dict[str, str] = {}
         self.keyword_phrases = self._build_phrases()
         self.content_words = self._build_words()
+        self._prepare_keyword_search()
 
     def display_of(self, normalized_keyword: str) -> str:
         """Schönere Anzeigeform (Original-Schreibweise) für ein normalisiertes Keyword."""
@@ -430,6 +456,28 @@ class Profile:
                     words.add(tok)
         return words
 
+    def _prepare_keyword_search(self) -> None:
+        """Bereitet die Phrasen einmalig für ``keywords_in`` auf.
+
+        Kurze Schlüssel laufen als ein gemeinsamer Ausdruck, längere als
+        Substring plus vorberechnete Wortmenge. Pro Anzeige entfällt damit das
+        Zerlegen und Kompilieren jeder einzelnen Phrase.
+        """
+        kurz: list[str] = []
+        lang: list[tuple[str, frozenset[str]]] = []
+        for p in self.keyword_phrases:
+            if not p:
+                continue
+            if re.fullmatch(r"[a-z0-9]{2,4}", p):
+                kurz.append(p)
+                continue
+            woerter = frozenset(w for w in re.findall(r"[a-z0-9]+", p)
+                                if len(w) >= 3) if " " in p else frozenset()
+            lang.append((p, woerter))
+        self._kurz_re = (re.compile(r"\b(?:" + "|".join(map(re.escape, kurz)) + r")\b")
+                         if kurz else None)
+        self._lange_phrasen = lang
+
     def _words_of(self, text: str) -> set[str]:
         return {t for t in re.findall(r"[a-z0-9]{3,}", normalize(text))
                 if t not in _NOT_KEYWORD}
@@ -449,19 +497,10 @@ class Profile:
         """
         n = normalize(text)
         tokens = set(re.findall(r"[a-z0-9]+", n)) if " " in n else set()
-        hits: set[str] = set()
-        for p in self.keyword_phrases:
-            if not p:
-                continue
-            if re.fullmatch(r"[a-z0-9]{2,4}", p):
-                if re.search(r"\b" + re.escape(p) + r"\b", n):
-                    hits.add(p)
-            elif p in n:
+        hits: set[str] = set(self._kurz_re.findall(n)) if self._kurz_re else set()
+        for p, woerter in self._lange_phrasen:
+            if p in n or (tokens and woerter and woerter <= tokens):
                 hits.add(p)
-            elif tokens and " " in p:
-                words = [w for w in re.findall(r"[a-z0-9]+", p) if len(w) >= 3]
-                if words and set(words) <= tokens:
-                    hits.add(p)
         return sorted(hits)
 
     def words_in(self, text: str) -> set[str]:

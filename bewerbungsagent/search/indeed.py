@@ -108,11 +108,12 @@ def _karten(page) -> list[dict]:
 
 def search(terms: str | list[str], location: str = "München", *,
            max_results: int = 30, with_description: bool = True,
-           headed: bool = False) -> list[dict]:
+           headed: bool = False, known_urls: set[str] | None = None) -> list[dict]:
     """Indeed-Treffer samt Anzeigentext.
 
     ``terms`` darf eine Liste sein — alle Begriffe laufen in **einer**
-    Browsersitzung.
+    Browsersitzung. ``max_results`` gilt je Begriff. Für ``known_urls`` wird der
+    Text nicht erneut geladen, er kommt aus dem Bestand.
 
     Der Text wird über den **Klick auf den Titel** geholt, nicht über
     ``/viewjob?jk=…``: Direkte Aufrufe der Detailseite enden nach wenigen
@@ -127,11 +128,14 @@ def search(terms: str | list[str], location: str = "München", *,
         return []
 
     gesammelt: dict[str, dict] = {}
+    bekannt = known_urls or set()
 
     with browser_page(headed=headed) as page:
         consent_erledigt = False
         for begriff in begriffe:
-            page.goto(search_url(begriff), timeout=45000, wait_until="domcontentloaded")
+            vorher = len(gesammelt)
+            page.goto(search_url(begriff, location), timeout=45000,
+                      wait_until="domcontentloaded")
             page.wait_for_timeout(2500)
             if not consent_erledigt:
                 consent_erledigt = dismiss_consent(page, _CONSENT_LABELS)
@@ -149,15 +153,12 @@ def search(terms: str | list[str], location: str = "München", *,
                     "ort": normalize_location(karte.get("ort") or "") or location,
                     "url": url,
                 }
-                if with_description:
+                if with_description and url not in bekannt:
                     gesammelt[url]["beschreibung"] = _beschreibung_per_klick(page, index)
-                if len(gesammelt) >= max_results:
+                if len(gesammelt) - vorher >= max_results:
                     break
 
-            if len(gesammelt) >= max_results:
-                break
-
-    return [_job(e) for e in list(gesammelt.values())[:max_results]]
+    return [_job(e) for e in gesammelt.values()]
 
 
 def _beschreibung_per_klick(page, index: int) -> str:

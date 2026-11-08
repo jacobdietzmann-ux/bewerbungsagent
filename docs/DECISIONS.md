@@ -1682,3 +1682,294 @@ die Folge — kein Stellenmangel, ein Pipeline-Loch.
 
 **Folgen.** Nach dem Nachladen von 40 Anzeigen: 542 mit Text → 42 ≥ 65 %,
 185 ohne Text → 0. Bestand im Dashboard 219 Zeilen, 6 offene ≥ 65 %.
+
+## ADR-052 – Quellen-Wiederaktivierung und Playwright-Selbstheilung
+
+Ausgangslage (07.11.2026): XING, Indeed und `stepstone_browser` waren
+abgeschaltet, ohne dass die Seiten blockierten. Ursachen: ein kurzer Netzausfall
+(`ERR_INTERNET_DISCONNECTED`) und ein Playwright-Update, dessen Browser-Binärdatei
+fehlte (`Executable doesn't exist`). Nach 3 Fehlläufen blieb eine Quelle für
+immer aus; ohne XING/Indeed fielen rund zwei Drittel der brauchbaren Treffer weg.
+
+**Entscheidungen.**
+
+1. **`provider_health.release_due`**: Eine abgeschaltete Quelle wird nach
+   `search.provider_health.retry_hours` (Standard 24, `0` = aus) einmal probeweise
+   zugelassen. Der Fehlerzähler bleibt, ein weiterer Fehlschlag schaltet sofort
+   wieder ab, ein Erfolg reaktiviert.
+2. **`search/browser._launch`**: Meldet Chromium „Executable doesn't exist“, läuft
+   einmal pro Prozess `python -m playwright install chromium`, danach ein
+   zweiter Startversuch. Abschaltbar mit `BEWERBUNGSAGENT_NO_AUTOINSTALL=1`.
+3. **JobLeads** liegt hinter einer Cloudflare-Abfrage (`Cf-Mitigated: challenge`)
+   und ist aus der Provider-Liste genommen; die Bot-Abwehr wird nicht umgangen.
+   JobLeads-Mails laufen weiter über den Mail-Import.
+
+## ADR-053 – Review 07.11.2026: Mengenlauf nur für offene Einträge, Limits je Begriff
+
+**Ausgangslage.** Ein Mengenlauf überschrieb am 07.11.2026 drei bestehende Ordner,
+darunter den einer versendeten Bewerbung. `run_generate` las `matches.json`; dort
+stehen auch Treffer, die `_merge_state` als Dublette einer anderen Börse verwirft.
+Außerdem endeten die Browser-Suchen meist beim ersten Begriff, weil `max_results`
+alle Begriffe zusammen begrenzte. `agent.py search` und der Tageslauf übergingen
+Suchen mit `"daily": true`, und `agent.py pipeline` ließ `run_enrich` aus.
+
+**Entscheidungen.**
+
+1. **`run_generate` prüft den Bestand.** Der Mengenlauf überspringt Treffer ohne
+   eigenen Eintrag sowie gelöschte und abgeschlossene Stellen. `--ids` bleibt ein
+   ausdrücklicher Wunsch. `run_enrich` schließt abgeschlossene Stellen ebenso aus.
+2. **Ein Fehler betrifft nur seine Stelle.** `_generate_sicher` sammelt Fehler in
+   `failed`. Das Wochenbudget zählt nur erfolgreich erzeugte Unterlagen.
+3. **`max_results` gilt je Begriff** bei `stepstone_browser`, `xing` und `indeed`.
+4. **Bekannte Texte werden nicht neu geladen.** `known_urls` kommt aus dem Bestand
+   und spart Detailabrufe; `_preserve_descriptions` spielt den Text zurück.
+5. **Arbeitnow liefert den Volltext**, begrenzt auf 20.000 Zeichen. Workday filtert
+   über die Facette `locationCountry` (Board-Feld `country`, Standard `Germany`)
+   und lädt Texte über den JSON-Detail-Endpunkt.
+6. **`run_search` ohne Definition führt alle Tagessuchen aus**, `run_full` enthält
+   `run_enrich`.
+7. **Statistikzeilen sind keine Fehler.** `ats.is_info` trennt sie; sie stehen in
+   `hinweise` statt in `fehler`.
+
+**Folgen.** Scores bleiben unverändert (Alt-Neu-Vergleich auf 11.314 echten
+Texten: 0 Abweichungen). Mehr Begriffe bedeuten mehr Browserzeit; nach dem ersten
+Lauf entfällt der Textabruf für bekannte Anzeigen. Die Board-Einstellungen in der
+`config.json` brauchen keine Änderung. Gespeicherte Suchen mit dem Provider
+`stepstone` sollten auf `stepstone_browser` wechseln.
+
+## ADR-054 – Stellen, die fehlen, und Quellen, die ausfallen, werden sichtbar
+
+**Ausgangslage.** Am 07.11.2026 tauchten 22 von 60 offenen Einträgen im Suchlauf
+nicht mehr auf, der Bestand merkte sich das aber nicht. `verfuegbar` wird nur beim
+ersten Nachladen gesetzt. Ausfälle einzelner Boards standen nur im Digest, wenn
+der Bestand schrumpfte, und das kann er seit dem Wechsel auf die Datenbank nicht
+mehr durch einen Ausfall. Das Log-Parsing nannte außerdem `Standard` statt der
+Quelle, weil `run_searches` die Zeilen mit dem Suchnamen beginnt. NXP meldete nur
+`JSONDecodeError`, der Workday-Host `wd3` stand fest im Code.
+
+**Entscheidungen.**
+
+1. **`zuletzt_gesehen` kommt von der Suche.** `run_search` und `run_searches`
+   stempeln `jobs.json`, `_merge_state` übernimmt den Wert. So frischt ein `match`
+   ohne neue Suche nichts auf. Findet eine andere Börse dieselbe Stelle, rückt der
+   Zeitpunkt beim bestehenden Eintrag trotzdem vor. Versendete Stellen bekommen das
+   Feld auch; Status und Bewertung bleiben nach ADR-039 eingefroren.
+2. **Vermisst heißt: Die Quelle lief, die Stelle fehlte.** „Vermutlich abgelaufen"
+   vergleicht `zuletzt_gesehen` mit dem letzten Erfolg der eigenen Quelle
+   (`provider_health.letzter_abruf`), nicht mit dem heutigen Datum. Ein Ausfall,
+   eine abgeschaltete Quelle oder ein pausierter Tageslauf macht keine Stelle
+   verdächtig. Es gilt nur für offene Stellen, wird beim Anzeigen berechnet und
+   löscht nichts. Frist: `search.abgelaufen_nach_tagen`, Standard 7, `0` = aus.
+3. **Altbestand beginnt beim ersten Lauf.** Offene Einträge ohne Feld, die dieser
+   Lauf nicht findet, erhalten den aktuellen Zeitpunkt. Seit wann sie fehlen, ist
+   unbekannt; `created` würde am ersten Tag fast alles markieren. Die 22 Einträge
+   erscheinen deshalb erst nach Ablauf der Frist.
+4. **Boards führen eine eigene Historie (`board_health`)** mit `provider_health.record`,
+   werden aber nie abgeschaltet (`max_failures=None`).
+5. **`ats.search` trennt Fehler und Statistik.** Die Fehlerliste enthält nur noch
+   echte Fehler, die Statistik steht im Ausgabeparameter `status`. Das ersetzt
+   `ats.is_info` aus ADR-053, Nr. 7. Alle Boards laufen über `_abfragen` mit einer
+   einzigen Fehlerbehandlung.
+6. **Der Digest liest die Historie, nicht das Log.** `parse_failed_sources` entfällt.
+   `stoerungen` und `aenderungen_seit` melden neue Ausfälle, Abschaltungen und
+   Erholungen je Änderung einmal, in einem eigenen Block `Quellen:`. Als gemeldet
+   gilt nur, was zugestellt wurde (`gemeldete_quellen` im Snapshot): Ein gescheiterter
+   Versand oder `--dry-run` holt die Meldung nach. Die Probe aus `release_due` bleibt
+   still, die Quelle ist weiter gestört.
+7. **Workday-Host je Board.** Feld `host`: Instanz (`wd5`) oder ganzer Hostname,
+   Standard `wd3`. Antwortet ein JSON-Board mit HTML, nennt `BoardAntwortFehler`
+   Seitentitel und Host statt `JSONDecodeError`; `_fehlertext` nennt bei HTTP-Fehlern
+   den Status.
+
+**Live geprüft (07.11.2026).** Airbus liefert auf `wd3` JSON und auf `wd1`/`wd5`
+HTTP 422, also ist 422 das Zeichen für einen falschen Host. NXP liefert auf `wd3`
+per 303 die Seite „Workday is currently unavailable." von `community.workday.com`,
+auf `wd1`, `wd5`, `wd10`, `wd12`, `wd103` und `wd105` HTTP 422, auf `wd2` und `wd101`
+keine Verbindung. Das spricht gegen einen falschen Host; ein anderer Wert behebt NXP
+also vermutlich nicht. Der Standard `wd3` bleibt.
+
+**Grenzen.** Die Frist von 7 Tagen ist gesetzt, nicht gemessen: Für eine Kalibrierung
+fehlt die Historie (Hard Rule 3). Börsen liefern nur die ersten Treffer je Begriff,
+eine Anzeige kann also herausrutschen und trotzdem online sein. Deshalb „vermutlich".
+Ein Board, das fehlerfrei 0 Stellen liefert, gilt nicht als Ausfall; seine Stellen
+gelten nach der Frist als vermutlich abgelaufen. `quelle` nennt die erste Fundstelle.
+
+**Folgen.** `board_health` ist ein neuer Meta-Schlüssel, ein Schema-Umbau entfällt.
+Beim ersten Digest erscheinen bestehende Störungen einmal als neu, auch solche von
+Quellen, die nicht mehr konfiguriert sind.
+
+## ADR-055 – Stellen ohne Anzeigentext verschwinden nicht mehr still
+
+**Problem.** Ohne Anzeigentext bewertet der Score nur den Titel. Ein Rollentreffer
+erreicht so nie 50 %: Auf 341 Stellen mit Text und Rollensignal ergab der reine
+Titel-Fit in allen Fällen weniger als 50 %. Mit Text kamen 24,6 % auf mindestens
+65 % und 19,6 % auf mindestens 71 %. Ohne Rollensignal (n = 996) waren es 3,5 % und
+1,7 %. Am 07.11.2026 lagen 53 ausgeblendete Rollentreffer ohne Text unter
+„FIT < 50 %“: 27 Mail-Leads, 16 Arbeitnow, 8 StepStone, 2 LinkedIn. Gezählt wurde
+nach `auswahl.stille_rollentreffer`: Software- und Entwicklerrollen sind
+ausgenommen, mit ihnen sind es 56.
+
+Es gab drei Ursachen:
+
+1. `fetch` und `match` arbeiten nur auf `jobs.json`, also auf dem letzten Suchlauf.
+   28 der 29 betroffenen Stellen mit URL standen dort nicht mehr. Beim Direktaufruf
+   lieferten 21 noch Text, darunter eine Stelle mit 100 % Fit (Agile Robots).
+   8 Anzeigen waren abgelaufen. ADR-053 hilft dem Altbestand nicht: Keine der
+   18 Arbeitnow-Stellen steht auf API-Seite 1 (`arbeitnow_pages: 1`).
+2. Mail-Leads haben keine URL, also kann `fetch` keinen Text laden.
+3. Abgelaufene LinkedIn-Links leiten auf eine Trefferliste weiter
+   (`trk=expired_jd_redirect`). Deren Text wäre als Anzeigentext gespeichert worden.
+
+**Entscheidungen.**
+
+1. **Textlücken aus dem Bestand** (`pipeline._textluecken`). Rollentreffer ohne Text,
+   mit URL und jünger als 30 Tage (`TEXT_NACHLADEN_TAGE`) laufen im Tageslauf mit
+   `fetch` und `match` mit, bis Text da ist oder die Anzeige als abgelaufen gilt.
+   Nutzerlöschungen und abgeschlossene Vorgänge bleiben außen vor.
+2. **URL-Suche für Mail-Leads** (`search.resolve_mail_leads`, `manual.lead_passt`).
+   Der Lauf sucht Firma + Titel bei XING, alle Begriffe in einer Browsersitzung, jeden
+   Lead höchstens einmal in 7 Tagen. Gemessen auf 27 Leads: XING fand 5, alle richtig.
+   StepStone fand 0, obwohl die Firma in 12 Fällen erschien. LinkedIn antwortete mit
+   429, Google lieferte nichts, Bing nur allgemeine Seiten, DuckDuckGo blieb leer.
+   Indeed ist ausgeschlossen, weil die Suche dort nur mit abgeschalteter
+   Automationserkennung klappt. Der Abgleich ist bewusst streng (Titel-Jaccard ≥ 0,8,
+   gekürzte Mail-Titel über den Anfang). Die gefundene URL füllt den
+   Bestandseintrag des Leads über `bestand_key` und legt keinen zweiten an.
+   `search.lead_url_provider: []` schaltet die Suche ab.
+3. **Prüffall „Text fehlt, Titel passt“** (`auswahl.text_fehlt_titel_passt`). Der
+   Nutzer hat die Regel am 08.11.2026 mit 14 Tagen Frist freigegeben. Eine Stelle
+   wird nicht wegen `FIT < 50 %` ausgeblendet, wenn alle Bedingungen gelten:
+   - kein Anzeigentext,
+   - Rollensignal im Titel,
+   - keine Software-, Entwickler-, Studenten- oder Technikerrolle,
+   - Anzeige nicht abgelaufen,
+   - Pendelweg innerhalb der Grenze,
+   - jünger als 14 Tage (`TEXT_FEHLT_TAGE`).
+
+   Sie trägt dann `text_fehlt` und steht im Dashboard in einer eigenen Liste mit Link
+   oder Websuche und „Verwerfen“. Sie steht nicht in der Tabelle und in keiner
+   Kennzahl und bekommt keine Unterlagen. Score, Fit-Bänder und Research-Fenster
+   bleiben unverändert. Kommt Text, entscheiden die normalen Bänder. Nach der Frist
+   blendet der Lauf die Stelle mit dem Grund „Text fehlt seit über 14 Tagen“ aus.
+4. **Ehrliche Gründe.** Eine abgelaufene Anzeige ohne Text heißt
+   „Anzeige abgelaufen (ohne Text)“. Ein Mail-Lead, dessen Anzeige mit Text schon im
+   Bestand liegt, wird „Dublette: dieselbe Stelle wie …“. Beide Gründe und
+   „Text fehlt …“ bewertet der Lauf neu, sobald sich Fit oder Text ändern.
+
+**Messung** auf einer frischen Kopie des Bestands (08.11.2026, 2.262 Einträge) mit
+dem echten `run_enrich`. Pendelweg und Unterlagenerzeugung waren dabei abgeschaltet:
+
+| Lauf | Stille Rollentreffer | Prüffälle | Geänderte Scores |
+|---|---|---|---|
+| vorher | 53 | – | – |
+| nur Regel | 8 | 45 | 0 |
+| Regel + gemessene Texte (29 Direktaufrufe, 7 XING-Leads) | 0 | 22 | – |
+
+In der Zeile „nur Regel“ sind 4 der 8 Stellen wegen des Pendelwegs ausgeblendet
+(Pendelweg 31 bzw. 72 min, harte Grenze). Ihr Grund lautet weiter „FIT < 50 %“.
+
+Mit Text verteilen sich alle 56 Stellen (53 plus 3 Software-Rollen) so: 6 sichtbar
+mit 70–100 %, 22 mit Text bewertet und begründet ausgeblendet, 7 abgelaufen,
+1 Dublette, 19 Prüffälle, 1 wegen des Pendelwegs ausgeblendet. Fünf
+Stellen erfüllen danach die Bedingungen für automatische Unterlagen: Agile Robots
+100 %, Instaffo 92 %, Hays 78 %, Simovative 74 %, Bertrandt 72 %. Die vorher 0–14 %
+dieser Mail-Leads waren reine Titel-Fits.
+
+**Grenzen.**
+- Die Leads einer Mail sind n = 27. Die XING-Quote (5 von 27) ist eine Tendenz, kein
+  Dauerwert.
+- XING ohne Ortsfilter fand 2 weitere Leads (Velden, Dresden), geprüft wurden aber
+  nur 12 von 22. Die Suche läuft deshalb mit dem Ort aus `search.location`.
+- Für die Messung der Mail-Leads stand ihr Fit aus dem Direktaufruf in der Kopie,
+  nicht der volle Text.
+- Nach dem Merge mit `claude/musing-wing-5e7366` prüft `_vom_nutzer_geloescht`
+  `deleted_code == DELETE_NUTZER` statt des Textvergleichs.
+
+
+## ADR-056 – Eine Schrittliste für alle Laufwege, Löschgrund als Feld
+
+**Ausgangslage.** Vier Laufwege führten eigene Schrittfolgen. `run_full` ließ `fetch`
+aus und bewertete neue Stellen nur nach dem Titel (ADR-050), `jobwatch` kannte weder
+`generate` noch `quality`, und der Graph brach bei einem Fehler im Nachladen ab. Die
+Review vom 07.11.2026 führte mehrere Fehler auf diese Abweichungen zurück (ADR-053).
+Unabhängig davon entschied `run_enrich` über Textanfänge von `deleted_reason`. Eine
+umformulierte Begründung hätte die Neubewertung still geändert, und
+„Fit <= 60 Prozent (Nutzerkriterium)" beginnt mit demselben Wort wie die
+automatische Fit-Ausblendung.
+
+**Entscheidungen.**
+
+1. **`bewerbungsagent/schritte.py` hält die Folge:** `search`, `fetch`, `match`,
+   `enrich`, `generate`, `quality`, `dashboard`. Der Name ist zugleich Unterbefehl
+   von `agent.py`, Knoten im Graphen und Schlüssel im Ergebnis. Die Graphknoten
+   heißen deshalb nicht mehr `suche`, `beschreibung` und `qualitaet`.
+2. **`fetch` gehört in `run_full`,** ebenso `quality`. Auch `agent.py pipeline`
+   braucht Anzeigentexte, sonst bleibt der Fit beim Titel hängen. Das Limit von
+   300 Anzeigen gilt jetzt in jedem Laufweg. Der Graph lädt in bis zu zwei
+   Durchgängen, der Rest folgt im nächsten Lauf.
+3. **`fetch` und `quality` dürfen scheitern.** `schritte.fuehre_aus` sammelt den
+   Fehler, Pflichtschritte reichen ihn weiter. `jobwatch` wertet dasselbe Feld aus.
+4. **Der Graph wird aus der Liste gebaut.** Eigene Knoten sind nur `triage` und
+   `review`; beide tun keine Arbeit.
+5. **`jobwatch` führt jetzt auch `generate` und `quality` aus.** Je Schritt bleibt es
+   ein eigener Prozess, damit ein Browser-Absturz nicht den Digest trifft.
+6. **Die Shell-Skripte haben keine eigene Liste.** `tageslauf.sh` und `wochenlauf.sh`
+   waren bis auf den Namen gleich und rufen nun `scripts/lauf.sh`, das
+   `agent.py ablauf` startet.
+7. **`deleted_code` steuert die Logik, `deleted_reason` bleibt Anzeigetext.** Werte:
+   `nutzer`, `kriterium`, `fit`, `pendel`, `research`, `student`, `techniker`,
+   `sonstig`. Neu bewertet werden nur `fit`, `pendel` und `research`. Das Feld liegt
+   in der `user`-Spalte. Den Text legt nur noch `db.delete_code_aus_text` aus, und
+   zwar an den Rändern: beim Schreiben ohne Code und bei Dashboard-Eingaben, damit
+   das Dashboard unverändert bleibt.
+8. **Der Bestand zieht über `db.Store` um,** einmalig beim ersten Öffnen,
+   festgehalten im Meta-Eintrag `migration_delete_code`. Alembic läuft nur beim
+   Anlegen des Schemas, und das Feld liegt in einer JSON-Spalte. Bei jedem Öffnen
+   Alembic zu laden wäre teuer, denn `Store` entsteht je Schritt neu.
+9. **Der Umzug des Live-Ordners ist nicht entschieden.** Der Vorschlag steht in
+   `docs/PLAN-LIVE-ORDNER.md`.
+
+**Folgen.** Scoring und Fit-Bänder bleiben unverändert. Alte und neue Fassung von
+`run_enrich` entschieden auf einer Kopie des Bestands gleich: 2.262 Einträge, zwei
+Läufe nacheinander, 0 Abweichungen bei `deleted`, Grund, Status und allen Zählern.
+Pendelweg und Dokumenterzeugung waren dabei ersetzt. Die Codes verteilten sich auf
+1.468 `fit`, 331 `research`, 98 `pendel`, 56 `techniker`, 23 `student`, 20 `nutzer`,
+16 `kriterium` und 4 `sonstig`. `eval/` liest weiter den Text, weil es Altdaten
+auswertet. Ein laufender Dashboard-Server braucht nach dem Einspielen einen Neustart;
+bis dahin erhält eine Löschung dort ihren Code erst beim nächsten Schreiben. Ohne
+LangGraph scheitert `agent.py ablauf` und damit `lauf.sh` weiterhin mit klarer
+Meldung, `agent.py pipeline` läuft auch ohne.
+
+
+## ADR-057 – Live-Ordner wird Datenordner, Code kommt aus dem Repo
+
+**Ausgangslage.** Code lag doppelt vor: im Repo und im Drive-Ordner `04_Agent`, aus
+dem alle Läufe starten. Ein Fix in `fetch_descriptions.py` gab es nur dort,
+`search/glassdoor.py` lag nur dort, und der Drive-Sync kann Änderungen zurückdrehen.
+Der Vorschlag in `docs/PLAN-LIVE-ORDNER.md` stellte drei Varianten zur Wahl.
+
+**Entscheidungen** (Nutzer, 08.11.2026).
+
+1. **Variante A:** `04_Agent` behält Name und Ort und hält nur noch Daten
+   (`config.json`, `data/`, `output/`, `eval/labels.csv`). Der Code läuft aus einem
+   eigenen Release-Checkout, editierbar ins venv installiert.
+2. **`AGENT_ROOT` heißt Datenordner** und kommt aus `BEWERBUNGSAGENT_HOME`, sonst wie
+   bisher aus dem Ordner über dem Paket. Weil `04_Agent` bleibt, gelten die relativen
+   Pfade der `config.json` und die 1.560 Dokumentpfade im Bestand weiter. Der Code-Ort
+   heißt `CODE_ROOT`.
+3. **Server, `jobwatch`, `lauf.sh` und `eval/` trennen Code und Daten.** Der Server
+   sperrt den Datenordner auch unter seinem tatsächlichen Namen. `lauf.sh` nimmt die
+   Code-Kopie im Datenordner, solange es sie gibt; der Wechsel geschieht beim Umzug
+   von selbst.
+4. **`pyproject.toml` nennt `agent`, `server` und `fetch_descriptions` als
+   `py-modules`.** Eine editierbare Installation fand sie vorher nicht.
+5. **`glassdoor.py` ist im Repo** und als Provider `glassdoor` angebunden. In der
+   Standardliste steht er nicht; aktiv wird er erst über `search.providers`.
+6. **Linux und der Raspberry Pi ziehen mit um.** Ihre Starter werden vor dem
+   Entfernen der Code-Kopien umgestellt.
+
+**Folgen.** Ohne `BEWERBUNGSAGENT_HOME` ändert sich nichts; die Änderungen lassen sich
+vor dem Umzug einspielen. `tests/conftest.py` entfernt die Variable, damit die Suite
+nie den echten Datenordner liest. Der Umzug selbst ist nicht ausgeführt; seine
+Schritte und der Rückweg stehen in `docs/PLAN-LIVE-ORDNER.md`. Regel 6 aus
+`AGENTS.md` (zwei Code-Orte) entfällt erst nach dem Umzug.

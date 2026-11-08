@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tests für den JobLeads-Provider (``search.ats.jobleads``).
 
 Die Fixtures sind echte Ausschnitte der JobLeads-Suchergebnisseite: die Karten
@@ -14,7 +13,6 @@ import json
 import pytest
 
 from bewerbungsagent.search import ats
-
 
 _LIST_HTML = """
 <html><body>
@@ -166,7 +164,7 @@ def test_firma_kommt_aus_der_anzeige_nicht_aus_dem_provider(monkeypatch):
 def test_firmenname_wird_nicht_doppelt_in_den_titel_gehaengt(monkeypatch):
     _fake_get(monkeypatch)
     jobs = ats.jobleads("https://www.jobleads.com/de/jobs/l/x/q/y")
-    tracetronic = [j for j in jobs if j["firma"] == "tracetronic GmbH"][0]
+    tracetronic = next(j for j in jobs if j["firma"] == "tracetronic GmbH")
     assert tracetronic["titel"] == "Key Account Manager VOLVO (m/w/d)"
 
 

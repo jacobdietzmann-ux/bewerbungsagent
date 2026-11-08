@@ -12,6 +12,7 @@ from bewerbungsagent.provider_health import (
     empty_entry,
     is_disabled,
     record,
+    release_due,
     reset,
     set_enabled,
 )
@@ -118,7 +119,7 @@ class TestSearchSkipsDisabled:
                "url": "https://example.test/1", "quelle": "Arbeitnow"}
         monkeypatch.setattr(search_pkg.arbeitnow, "search", lambda **kw: [job])
         stats: dict = {}
-        jobs, _errors, _rejected = search_pkg.run_search(
+        _jobs, _errors, _rejected = search_pkg.run_search(
             self._config(tmp_path), self._profile(tmp_path), stats=stats)
         assert stats["arbeitnow"]["gefunden"] == 1
         assert stats["arbeitnow"]["fehler"] == []
@@ -132,3 +133,35 @@ class TestSearchSkipsDisabled:
             self._config(tmp_path), self._profile(tmp_path), stats=stats)
         assert stats["arbeitnow"]["fehler"]
         assert any("arbeitnow" in str(e) for e in errors)
+
+
+class TestReleaseDue:
+    def _off(self, since):
+        h = {"xing": empty_entry()}
+        h["xing"].update(deaktiviert=True, deaktiviert_am=since, serie_fehler=3)
+        return h
+
+    def test_nach_wartezeit_probeweise_zugelassen(self):
+        h = release_due(self._off("2026-10-24T09:00:00"), now=NOW, retry_hours=24)
+        assert not is_disabled(h, "xing")
+        assert h["xing"]["serie_fehler"] == 3
+
+    def test_vor_wartezeit_bleibt_aus(self):
+        h = release_due(self._off("2026-10-25T09:00:00"), now=NOW, retry_hours=24)
+        assert is_disabled(h, "xing")
+
+    def test_null_stunden_schaltet_wiederholung_ab(self):
+        h = release_due(self._off("2026-01-01T00:00:00"), now=NOW, retry_hours=0)
+        assert is_disabled(h, "xing")
+
+    def test_fehlgeschlagene_probe_schaltet_sofort_wieder_ab(self):
+        h = release_due(self._off("2026-10-24T09:00:00"), now=NOW)
+        h = record(h, {"xing": {"gefunden": 0, "fehler": ["403"]}}, now=NOW)
+        assert is_disabled(h, "xing")
+        assert h["xing"]["deaktiviert_am"] == NOW
+
+    def test_erfolgreiche_probe_reaktiviert(self):
+        h = release_due(self._off("2026-10-24T09:00:00"), now=NOW)
+        h = record(h, {"xing": {"gefunden": 4, "fehler": []}}, now=NOW)
+        assert not is_disabled(h, "xing")
+        assert h["xing"]["serie_fehler"] == 0

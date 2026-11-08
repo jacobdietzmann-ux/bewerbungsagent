@@ -113,9 +113,9 @@ def _split_sections(lines: list[str]) -> tuple[list[str], list[str]]:
             gap_idx = i
             break
     if gap_idx is None:
-        return [l for l in lines if l.startswith("•")], []
-    return ([l for l in lines[:gap_idx] if l.startswith("•")],
-            [l for l in lines[gap_idx:] if l.startswith("•")])
+        return [z for z in lines if z.startswith("•")], []
+    return ([z for z in lines[:gap_idx] if z.startswith("•")],
+            [z for z in lines[gap_idx:] if z.startswith("•")])
 
 
 def _claim_parts(line: str) -> tuple[str, str] | None:

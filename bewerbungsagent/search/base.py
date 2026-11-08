@@ -58,7 +58,7 @@ class _CurlResponse:
 
 
 def _fetch_curl(url: str, params: dict | None, headers: dict | None,
-                timeout: int) -> "_CurlResponse | None":
+                timeout: int) -> _CurlResponse | None:
     import shutil
     import subprocess
     from urllib.parse import urlencode

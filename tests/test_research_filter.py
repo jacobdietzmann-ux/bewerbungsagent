@@ -111,16 +111,17 @@ class TestApplyFilter:
 
     def test_oberhalb_des_fensters_wird_fuer_dokumente_wiederhergestellt(self, tmp_path):
         """Ein > 70-%-Fund mit veraltetem ``research-kriterium`` kommt zurück."""
-        app = _app(key="high", fit_pct=88, deleted=True,
+        app = _app(key="high", fit_pct=88, deleted=True, deleted_code="research",
                    deleted_reason="research-kriterium: Fit 60–70 % nötig")
         stats = _apply_research_filter(_config(tmp_path), [app])
         assert not app.get("deleted")
         assert not app.get("deleted_reason")
+        assert not app.get("deleted_code")
         assert stats["restored"] == 1
 
     def test_oberhalb_des_fensters_bleibt_trotz_pendelweg_ausgeblendet(self, tmp_path):
         """Pendelweg bleibt auch für > 70-%-Funde die harte Grenze."""
-        app = _app(key="weit", fit_pct=88, deleted=True,
+        app = _app(key="weit", fit_pct=88, deleted=True, deleted_code="research",
                    deleted_reason="research-kriterium: Fit 60–70 % nötig",
                    pendelzeit_min=200)
         stats = _apply_research_filter(_config(tmp_path), [app])

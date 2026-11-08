@@ -19,6 +19,12 @@ Dashboard als Lese-/Schreib-Oberfläche:
                    data/state.json  — abgeleiteter Snapshot (Backup)
 ```
 
+Das Bild zeigt die Stufen. Die vollständige Schrittfolge steht an genau einer Stelle,
+in `bewerbungsagent/schritte.py`: `search`, `fetch`, `match`, `enrich`, `generate`,
+`quality`, `dashboard`. `run_full`, der Graph in `orchestrator.py` und
+`scripts/jobwatch.py` leiten sich daraus ab, `scripts/lauf.sh` ruft `agent.py ablauf`
+auf (ADR-056).
+
 Die JSON-Dateien `jobs.json`/`matches.json` sind nur der Zwischenstand der
 jeweiligen Stufe; gelesen und geschrieben wird der Bestand über
 `db.Store` (SQLite). `state.json` ist ein Export für Backup und Sync.
@@ -47,7 +53,8 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | `followup.py` | Fällige Nachfassen erkennen und Texte erzeugen | ✅ deterministisch |
 | `dashboard.py` | HTML-Dashboard rendern (Template + Daten) | ✅ deterministisch |
 | `scripts/build_agent_map.py` | Agenten-Map erzeugen (Ablauf- + Geografie-Karte) | ✅ deterministisch |
-| `pipeline.py` | Orchestrierung der Stufen, State-Merge | teils |
+| `schritte.py` | Schrittfolge aller Laufwege (ADR-056) | ✅ deterministisch |
+| `pipeline.py` | Die Schritte als Funktionen, State-Merge | teils |
 | `search/*` | Provider (StepStone, DuckDuckGo, Bing, manuell) | ⚠️ Netzwerk |
 | `provider_health.py` | Erfolg/Fehler je Such-Quelle, automatische Abschaltung | ✅ deterministisch |
 | `storage.py` | JSON lesen/schreiben | ✅ |
@@ -197,12 +204,12 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   Pendelweg-Grenze gilt weiterhin für alle.
 - **Ausblende-Flags müssen neu bewertet werden**: Ein `deleted`-Flag friert den
   Zustand seines Entstehungszeitpunkts ein. Ändert sich die Grundlage, bleibt
-  die Stelle sonst für immer versteckt. `run_enrich` prüft die Begründung
-  deshalb gegen den aktuellen Zustand:
-  `FIT < 50 %` → gegen den heutigen Score, `Pendel…` → gegen
+  die Stelle sonst für immer versteckt. `run_enrich` prüft den Grund
+  (`deleted_code`, ADR-056) deshalb gegen den aktuellen Zustand:
+  `fit` → gegen den heutigen Score, `pendel` → gegen
   `_commute_blocked()`, aktive Status (`sent`/`interview`/`rejected`) → Flag
-  entfernen. **Nicht** neu bewertet werden vom Nutzer gesetzte Kriterien
-  (`Nutzerkriterium`, `Neubewertung …`) und Rollen-Ausschlüsse — das sind
+  entfernen. **Nicht** neu bewertet werden `nutzer`, `kriterium` und `sonstig`,
+  also vom Nutzer gesetzte Kriterien und Rollen-Ausschlüsse — das sind
   Entscheidungen, keine ableitbaren Zustände. Konkreter Anlass: Nach dem
   Nachladen der Anzeigentexte lagen 14 zuvor gelöschte Stellen bei 50–68 %,
   2 bei einer überholten Pendelgrenze und 3 verschickte Bewerbungen waren
@@ -321,6 +328,17 @@ zeigt die Historie; `--enable NAME` schaltet zurück (setzt den Zähler),
 JobSpy loggt HTTP-Fehler nur („JobSpy:Indeed - 403“), statt sie zu werfen.
 `search/jobspy.py` fängt diese Log-Meldungen ab und wirft, wenn kein einziger
 Treffer ankam — sonst wäre eine tote Quelle für die Statistik unsichtbar.
+
+ATS-Boards führen dieselbe Historie unter `board_health`, werden aber nie
+abgeschaltet. Der Digest (`scripts/jobwatch.py`) leitet daraus über `stoerungen`
+und `aenderungen_seit` seine Meldungen ab und merkt sich in
+`data/watch_snapshot.json` (`gemeldete_quellen`), was zugestellt wurde. Jede
+Änderung erscheint einmal, unabhängig davon, ob der Bestand schrumpft (ADR-054).
+
+`zuletzt_gesehen` hält pro Stelle fest, wann die Suche sie zuletzt lieferte.
+„Vermutlich abgelaufen" vergleicht das mit dem letzten Erfolg der Quelle, nicht
+mit dem heutigen Datum: Ein Ausfall oder ein pausierter Tageslauf macht keine
+Stelle verdächtig. Die Markierung wird beim Anzeigen berechnet und löscht nichts.
 
 ## Evaluation (`eval/`)
 

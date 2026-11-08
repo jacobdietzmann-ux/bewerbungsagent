@@ -14,8 +14,6 @@ Daten führen:
 
 from __future__ import annotations
 
-import pytest
-
 from bewerbungsagent.search import labo
 
 _KARTE = """

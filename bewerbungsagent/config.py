@@ -1,7 +1,8 @@
 """Konfiguration und Pfadauflösung für den Bewerbungsagenten.
 
 Alle relativen Pfade werden relativ zum Agent-Root (dem Ordner, in dem
-``config.json`` liegt) aufgelöst.
+``config.json`` liegt) aufgelöst. Der Agent-Root ist der **Datenordner**; er
+kann vom Code getrennt liegen (``BEWERBUNGSAGENT_HOME``, ADR-057).
 """
 
 from __future__ import annotations
@@ -10,9 +11,14 @@ import json
 import os
 from pathlib import Path
 
-# Agent-Root = Ordner, der dieses Package (bewerbungsagent/) enthält.
 PACKAGE_DIR = Path(__file__).resolve().parent
-AGENT_ROOT = PACKAGE_DIR.parent
+# Code-Ort: der Checkout mit Paket, ``agent.py``, ``migrations/`` und ``scripts/``.
+CODE_ROOT = PACKAGE_DIR.parent
+# Datenordner (``04_Agent``): ``config.json``, ``data/``, ``output/`` und alle
+# relativen Pfade aus Konfiguration und Bestand. Ohne Variable liegt er beim Code,
+# wie vor ADR-057.
+AGENT_ROOT = Path(os.environ.get("BEWERBUNGSAGENT_HOME", "").strip() or CODE_ROOT)
+AGENT_ROOT = AGENT_ROOT.expanduser().resolve()
 
 # Fallback-Werte für persönliche Dokumentendaten (wenn config.json keine Werte liefert).
 # Diese Konstanten vermeiden einen Import von documents.py (welches reportlab benötigt).
@@ -81,6 +87,8 @@ DEFAULT_CONFIG: dict = {
         "ats_only_near_munich": True,
         # Arbeitnow liefert 300 Stellen pro Seite ohne serverseitigen Filter.
         "arbeitnow_pages": 3,
+        # Provider für die Anzeigensuche zu Mail-Leads; [] schaltet sie ab (ADR-055).
+        "lead_url_provider": ["xing"],
         # JobLeads liefert die Trefferliste samt Volltext (JSON-LD) ohne Login.
         # Einträge sind Suchbegriffe (URL wird gebaut) oder Dicts mit fertiger
         # ``list_url``, z. B.:

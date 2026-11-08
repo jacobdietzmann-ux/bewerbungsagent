@@ -41,6 +41,16 @@ _JOBLEADS_WORKERS = 3
 _JOBLEADS_RETRIES = 4
 _JOBLEADS_BACKOFF = 1.5
 
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+
+class BoardAntwortFehler(requests.RequestException):
+    """Ein Board antwortet, aber nicht mit den erwarteten Daten."""
+
+
+class _BoardKonfigFehler(Exception):
+    """Ein Board-Eintrag ist unvollständig; der Text ist die fertige Fehlerzeile."""
+
 
 def _ua(user_agent: str | None) -> dict[str, str]:
     return {"User-Agent": user_agent or "Bewerbungsagent/1.0 "
@@ -68,6 +78,34 @@ def _job(firma: str, titel: str, ort: str, url: str, beschreibung: str) -> dict:
     }
 
 
+def _json(r: requests.Response, hinweis: str = ""):
+    """JSON einer Board-Antwort, sonst ein Fehler mit lesbarem Text.
+
+    Wartungsseiten kommen mit Status 200, ``raise_for_status`` greift dort nicht.
+    NXP leitete am 07.11.2026 per 303 auf eine HTML-Seite von
+    ``community.workday.com`` um, im Log stand nur ``JSONDecodeError``.
+    """
+    try:
+        return r.json()
+    except ValueError as exc:
+        text = str(getattr(r, "text", "") or "")
+        titel = _TITLE_RE.search(text)
+        herkunft = [_texts(titel.group(1)) if titel else "",
+                    urlparse(str(getattr(r, "url", "") or "")).netloc]
+        zusatz = ", ".join(h for h in herkunft if h)
+        art = "HTML-Seite statt JSON" if "<" in text[:200] else "Antwort ist kein JSON"
+        meldung = f"{art} ({zusatz})" if zusatz else art
+        raise BoardAntwortFehler(f"{meldung}: {hinweis}" if hinweis else meldung) from exc
+
+
+def _fehlertext(exc: requests.RequestException) -> str:
+    """Lesbarer Grund eines Board-Fehlers für Konsole und Digest."""
+    if isinstance(exc, BoardAntwortFehler):
+        return str(exc)
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return f"HTTP {status}" if status else type(exc).__name__
+
+
 # --------------------------------------------------------------------------
 # Systeme
 # --------------------------------------------------------------------------
@@ -80,7 +118,7 @@ def greenhouse(board: str, firma: str, user_agent: str | None = None) -> list[di
     )
     r.raise_for_status()
     jobs = []
-    for raw in (r.json() or {}).get("jobs") or []:
+    for raw in (_json(r) or {}).get("jobs") or []:
         jobs.append(_job(
             firma=firma,
             titel=raw.get("title") or "",
@@ -99,7 +137,7 @@ def lever(board: str, firma: str, user_agent: str | None = None) -> list[dict]:
     )
     r.raise_for_status()
     jobs = []
-    for raw in r.json() or []:
+    for raw in _json(r) or []:
         categories = raw.get("categories") or {}
         jobs.append(_job(
             firma=firma,
@@ -119,7 +157,7 @@ def ashby(board: str, firma: str, user_agent: str | None = None) -> list[dict]:
     )
     r.raise_for_status()
     jobs = []
-    for raw in (r.json() or {}).get("jobs") or []:
+    for raw in (_json(r) or {}).get("jobs") or []:
         if raw.get("isListed") is False:
             continue
         jobs.append(_job(
@@ -132,37 +170,96 @@ def ashby(board: str, firma: str, user_agent: str | None = None) -> list[dict]:
     return jobs
 
 
-def _workday_page(list_url: str, headers: dict, offset: int) -> dict:
+_WORKDAY_INSTANZ = "wd3"
+_WORKDAY_WARTUNG = "Wartung oder Tenant umgezogen, Karriereseite und Feld host am Board prüfen"
+_WORKDAY_FALSCHER_HOST = "Workday kennt Tenant/Site unter diesem Host nicht, Feld host prüfen"
+
+
+def _workday_host(tenant: str, host: str | None) -> str:
+    """Hostname eines Boards aus ``host``: Instanz (``wd5``) oder ganzer Name.
+
+    Workday verteilt Mandanten auf Instanzen, die Karriereseite zeigt sie in der
+    URL (``nxp.wd3.myworkdayjobs.com``). Beide Schreibweisen sind erlaubt, ohne
+    Angabe gilt ``wd3``.
+    """
+    wert = str(host or _WORKDAY_INSTANZ).strip()
+    wert = wert.removeprefix("https://").removeprefix("http://").split("/")[0]
+    return wert if "." in wert else f"{tenant}.{wert}.myworkdayjobs.com"
+
+
+def _workday_page(list_url: str, headers: dict, offset: int,
+                  facets: dict | None = None) -> dict:
     """Eine Seite des Workday-Job-Index (``limit`` ist auf 20 begrenzt)."""
     r = requests.post(
         list_url, headers=headers, timeout=_TIMEOUT,
-        json={"appliedFacets": {}, "limit": 20,
+        json={"appliedFacets": facets or {}, "limit": 20,
               "offset": offset, "searchText": ""},
     )
+    # Falscher Host: Airbus liefert am 07.11.2026 auf wd1 und wd5 genau das.
+    if r.status_code == 422:
+        raise BoardAntwortFehler(f"HTTP 422: {_WORKDAY_FALSCHER_HOST}")
     r.raise_for_status()
-    return r.json()
+    return _json(r, _WORKDAY_WARTUNG)
+
+
+def _workday_country_facet(groups: list[dict] | None, country: str) -> dict | None:
+    """``appliedFacets`` für ein Land aus den Facetten der ersten Antwort."""
+    gesucht = normalize(country)
+    for group in groups or []:
+        parameter = group.get("facetParameter")
+        for value in group.get("values") or []:
+            if "values" in value:
+                treffer = _workday_country_facet([value], country)
+                if treffer:
+                    return treffer
+            elif (parameter == "locationCountry" and value.get("id")
+                  and normalize(value.get("descriptor") or "") == gesucht):
+                return {parameter: [value["id"]]}
+    return None
+
+
+def _workday_description(detail_url: str, headers: dict) -> str:
+    """Anzeigentext aus dem öffentlichen Workday-Detail-Endpunkt."""
+    try:
+        r = requests.get(detail_url, headers=headers, timeout=_TIMEOUT)
+        r.raise_for_status()
+        return (r.json().get("jobPostingInfo") or {}).get("jobDescription") or ""
+    except (requests.RequestException, ValueError):
+        return ""
 
 
 def workday(tenant: str, site: str, firma: str,
-            user_agent: str | None = None, max_jobs: int = 2000) -> list[dict]:
+            user_agent: str | None = None, max_jobs: int = 2000, *,
+            host: str | None = None,
+            country: str | None = None, with_description: bool = False,
+            only_near_munich: bool = True,
+            known_urls: set[str] | None = None) -> list[dict]:
     """Workday: externe Karriereseite ohne Authentifizierung.
 
     Die Stellenliste kommt über ``POST /wday/cxs/{tenant}/{site}/jobs`` — die
     JSON-Antwort ist öffentlich, aber ``limit`` ist auf 20 begrenzt, daher wird
     paginiert (parallel, weil einzelne Konzerne mehrere tausend Stellen führen).
-    Jede Stelle trägt Titel, Ort und den Pfad zur Detailseite, aber **keinen**
-    Beschreibungstext: der liegt nur als ``application/ld+json`` auf der
-    Detailseite und wird über den Browser-Fetch nachgeladen.
+    Die Liste trägt Titel, Ort und den Pfad zur Detailseite.
 
-    ``max_jobs`` begrenzt die Zahl der abzurufenden Einträge; der München-Filter
-    greift erst danach.
+    ``host`` nennt die Workday-Instanz des Boards (siehe ``_workday_host``).
+
+    ``country`` filtert serverseitig über die Facette ``locationCountry``. Der
+    Index liefert ungefiltert höchstens 2.000 von über 3.000 Stellen (Airbus,
+    live geprüft am 07.11.2026), der Rest war für den München-Filter unsichtbar.
+
+    ``with_description`` lädt den Text über den JSON-Detail-Endpunkt, nur für
+    Stellen im Umkreis und nicht für ``known_urls``. ``max_jobs`` begrenzt die
+    Zahl der abzurufenden Einträge; der München-Filter greift erst danach.
     """
     headers = {**(_ua(user_agent)), "Accept": "application/json",
                "Content-Type": "application/json"}
-    list_url = f"https://{tenant}.wd3.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
-    base = f"https://{tenant}.wd3.myworkdayjobs.com"
+    base = f"https://{_workday_host(tenant, host)}"
+    list_url = f"{base}/wday/cxs/{tenant}/{site}/jobs"
 
     first = _workday_page(list_url, headers, 0)
+    facets = _workday_country_facet(first.get("facets"), country) if country else None
+    if facets:
+        first = _workday_page(list_url, headers, 0, facets)
     postings = first.get("jobPostings") or []
     total = first.get("total") or len(postings)
     limit = min(total, max_jobs)
@@ -170,7 +267,7 @@ def workday(tenant: str, site: str, firma: str,
     if limit > len(postings):
         offsets = list(range(len(postings), limit, 20))
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            for page in pool.map(lambda o: _workday_page(list_url, headers, o),
+            for page in pool.map(lambda o: _workday_page(list_url, headers, o, facets),
                                  offsets):
                 postings.extend(page.get("jobPostings") or [])
 
@@ -186,6 +283,20 @@ def workday(tenant: str, site: str, firma: str,
             url=f"{base}/en-US/{site}{path}",
             beschreibung="",
         ))
+    if with_description:
+        bekannt = known_urls or set()
+        offen = [j for j in jobs if j["url"] not in bekannt
+                 and (not only_near_munich or is_near_munich(j["ort"]))]
+        api = f"{base}/wday/cxs/{tenant}/{site}"
+        prefix = f"{base}/en-US/{site}"
+
+        def laden(job: dict) -> str:
+            return _workday_description(f"{api}{job['url'].removeprefix(prefix)}", headers)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            for job, text in zip(offen, pool.map(laden, offen), strict=True):
+                job.update(_job(firma=firma, titel=job["titel"], ort=job["ort"],
+                                url=job["url"], beschreibung=text))
     return jobs
 
 
@@ -213,7 +324,7 @@ def eightfold(host: str, domain: str, firma: str, *, location: str = "munich",
         r = requests.get(base, params=params, headers=_ua(user_agent),
                          timeout=_TIMEOUT)
         r.raise_for_status()
-        data = (r.json() or {}).get("data") or {}
+        data = (_json(r) or {}).get("data") or {}
         page = data.get("positions") or []
         if not page:
             break
@@ -243,7 +354,8 @@ def eightfold(host: str, domain: str, firma: str, *, location: str = "munich",
 def smartrecruiters(company: str, firma: str, *, city: str | None = None,
                     country: str | None = None,
                     user_agent: str | None = None,
-                    max_jobs: int = 500) -> list[dict]:
+                    max_jobs: int = 500,
+                    known_urls: set[str] | None = None) -> list[dict]:
     """SmartRecruiters: ``/v1/companies/{company}/postings`` (Renesas u. a.).
 
     Die Liste liefert 100 Stellen pro Seite inklusive Ort; ``city``/``country``
@@ -264,7 +376,7 @@ def smartrecruiters(company: str, firma: str, *, city: str | None = None,
             params["country"] = country
         r = requests.get(base, params=params, headers=headers, timeout=_TIMEOUT)
         r.raise_for_status()
-        data = r.json()
+        data = _json(r)
         page = data.get("content") or []
         if not page:
             break
@@ -274,7 +386,12 @@ def smartrecruiters(company: str, firma: str, *, city: str | None = None,
         if offset >= total:
             break
 
+    bekannt = known_urls or set()
+
     def _detail(posting: dict) -> str:
+        url = (posting.get("postingUrl") or posting.get("ref") or "").strip()
+        if url in bekannt:
+            return ""
         try:
             d = requests.get(
                 f"{base}/{posting.get('id')}", headers=headers, timeout=_TIMEOUT
@@ -331,7 +448,7 @@ def oracle_cloud(host: str, site: str, firma: str, *,                 location: 
                                       "finder": finder},
                          headers=_ua(user_agent), timeout=_TIMEOUT)
         r.raise_for_status()
-        items = (r.json() or {}).get("items") or []
+        items = (_json(r) or {}).get("items") or []
         page = (items[0].get("requisitionList") or []) if items else []
         if not page:
             break
@@ -437,8 +554,16 @@ def _diehl_items(html: str) -> list[tuple[str, str, str, str]]:
 
 
 def _diehl_detail(url: str, user_agent: str | None) -> str:
-    r = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
-    r.raise_for_status()
+    """Abschnitte der Detailseite; eine defekte Seite kostet nur diesen Text.
+
+    Der Fehler lief vorher durch ``pool.map`` bis ``search`` durch und verwarf
+    alle Diehl-Stellen des Laufs.
+    """
+    try:
+        r = requests.get(url, headers=_ua(user_agent), timeout=_TIMEOUT)
+        r.raise_for_status()
+    except requests.RequestException:
+        return ""
     teile = []
     for heading, block in _DIEHL_SECTION_RE.findall(r.text):
         teile.append(clean_html(html_unescape(heading)).strip())
@@ -448,7 +573,8 @@ def _diehl_detail(url: str, user_agent: str | None) -> str:
 
 def diehl(list_url: str, firma: str, *, division: str | None = None,
           only_near_munich: bool = True, max_pages: int = 12,
-          max_jobs: int = 400, user_agent: str | None = None) -> list[dict]:
+          max_jobs: int = 400, user_agent: str | None = None,
+          known_urls: set[str] | None = None) -> list[dict]:
     """Diehl-Karriereseite (``new.diehl.com/career/…/job-offers``).
 
     Die Liste ist serverseitig gerendert und paginiert über ``?p=N`` (12 je
@@ -480,8 +606,10 @@ def diehl(list_url: str, firma: str, *, division: str | None = None,
     treffer = treffer[:max_jobs]
     if not treffer:
         return []
+    bekannt = known_urls or set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-        beschreibungen = list(pool.map(lambda t: _diehl_detail(t[2], user_agent), treffer))
+        beschreibungen = list(pool.map(
+            lambda t: "" if t[2] in bekannt else _diehl_detail(t[2], user_agent), treffer))
     return [_job(firma=firma, titel=titel, ort=ort, url=url, beschreibung=desc)
             for (titel, ort, url), desc in zip(treffer, beschreibungen, strict=True)]
 
@@ -489,7 +617,8 @@ def diehl(list_url: str, firma: str, *, division: str | None = None,
 def typo3_jobboard(list_url: str, firma: str, *,
                    user_agent: str | None = None,
                    only_near_munich: bool = True,
-                   max_jobs: int = 500) -> list[dict]:
+                   max_jobs: int = 500,
+                   known_urls: set[str] | None = None) -> list[dict]:
     """TYPO3-Jobbörse mit Solr-Suche (MTU Aero Engines).
 
     Die Übersichtsseite enthält **alle** Stellen (keine Paginierung) und trägt
@@ -518,9 +647,11 @@ def typo3_jobboard(list_url: str, firma: str, *,
     if not parsed:
         return []
 
+    bekannt = known_urls or set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         descriptions = list(pool.map(
-            lambda entry: _mtu_description(entry[2], user_agent), parsed))
+            lambda entry: "" if entry[2] in bekannt else _mtu_description(entry[2], user_agent),
+            parsed))
 
     jobs: list[dict] = []
     for (title, place, url), desc in zip(parsed, descriptions, strict=True):
@@ -676,7 +807,8 @@ def jobleads(list_url: str, firma: str = "JobLeads", *,
              user_agent: str | None = None,
              only_near_munich: bool = True,
              with_description: bool = True,
-             max_jobs: int = 100) -> list[dict]:
+             max_jobs: int = 100,
+             known_urls: set[str] | None = None) -> list[dict]:
     """JobLeads-Suchergebnisseite (serverseitig gerendert, ohne Login).
 
     Die Trefferliste steht vollständig im HTML: jede Stelle ist eine
@@ -729,10 +861,12 @@ def jobleads(list_url: str, firma: str = "JobLeads", *,
 
     descriptions: list[str] = [""] * len(entries)
     if with_description:
+        bekannt = known_urls or set()
         with concurrent.futures.ThreadPoolExecutor(
                 max_workers=_JOBLEADS_WORKERS) as pool:
             descriptions = list(pool.map(
-                lambda e: _jobleads_description(e["url"], user_agent), entries))
+                lambda e: "" if e["url"] in bekannt
+                else _jobleads_description(e["url"], user_agent), entries))
 
     jobs: list[dict] = []
     for entry, desc in zip(entries, descriptions, strict=True):
@@ -901,7 +1035,7 @@ def vbjoblist(api_url: str, firma: str, *,
                 params["workLocation"] = ort_filter
             r = requests.get(api_url, params=params, headers=headers, timeout=_TIMEOUT)
             r.raise_for_status()
-            data = r.json() or {}
+            data = _json(r) or {}
             rows = data.get("xmldata") or []
             if not rows:
                 break
@@ -1093,8 +1227,133 @@ def boards_from_jobs(jobs: list[dict]) -> list[dict]:
 # Abfrage
 # --------------------------------------------------------------------------
 
+def _board_name(entry: dict) -> str:
+    """Name eines Boards für Meldungen und Historie."""
+    for feld in ("firma", "site", "board", "company", "host", "ats"):
+        wert = str(entry.get(feld) or "").strip()
+        if wert:
+            return wert
+    return "?"
+
+
+def _abfragen(entry: dict, firma: str, *, user_agent: str | None,
+              only_near_munich: bool, known_urls: set[str] | None) -> list[dict]:
+    """Fragt ein Board ab; ein unvollständiger Eintrag ist ``_BoardKonfigFehler``."""
+    ats = str(entry.get("ats") or "").strip().lower()
+    # Workday braucht Tenant und Site statt eines einzelnen Board-Namens.
+    if ats == "workday":
+        tenant = str(entry.get("tenant") or "").strip()
+        site = str(entry.get("site") or "").strip()
+        if not tenant or not site:
+            raise _BoardKonfigFehler(
+                f"ats (workday:{tenant or '?'}/{site or '?'}): tenant/site fehlt")
+        return workday(tenant, site, firma,
+                       user_agent=user_agent,
+                       max_jobs=entry.get("max_jobs", 2000),
+                       host=entry.get("host"),
+                       country=entry.get("country", "Germany"),
+                       with_description=entry.get("with_description", True),
+                       only_near_munich=only_near_munich,
+                       known_urls=known_urls)
+    if ats == "eightfold":
+        host = str(entry.get("host") or "").strip()
+        domain = str(entry.get("domain") or "").strip()
+        if not host or not domain:
+            raise _BoardKonfigFehler(
+                f"ats (eightfold:{host or '?'}/{domain or '?'}): host/domain fehlt")
+        return eightfold(host, domain, firma,
+                         location=str(entry.get("location") or "munich"),
+                         user_agent=user_agent,
+                         max_jobs=entry.get("max_jobs", 500))
+    if ats == "successfactors":
+        host = str(entry.get("host") or "").strip()
+        if not host:
+            raise _BoardKonfigFehler("ats (successfactors: host fehlt)")
+        return successfactors_j2w(host, firma,
+                                  user_agent=user_agent,
+                                  max_jobs=entry.get("max_jobs", 2000))
+    if ats == "smartrecruiters":
+        company = str(entry.get("company") or "").strip()
+        if not company:
+            raise _BoardKonfigFehler("ats (smartrecruiters: company fehlt)")
+        return smartrecruiters(company, firma,
+                               city=entry.get("city"),
+                               country=entry.get("country"),
+                               user_agent=user_agent,
+                               max_jobs=entry.get("max_jobs", 500),
+                               known_urls=known_urls)
+    if ats == "oracle":
+        host = str(entry.get("host") or "").strip()
+        site = str(entry.get("site") or "").strip()
+        if not host or not site:
+            raise _BoardKonfigFehler("ats (oracle: host/site fehlt)")
+        return oracle_cloud(host, site, firma,
+                            location=entry.get("location"),
+                            user_agent=user_agent,
+                            max_jobs=entry.get("max_jobs", 500))
+    if ats == "typo3":
+        list_url = str(entry.get("list_url") or "").strip()
+        if not list_url:
+            raise _BoardKonfigFehler("ats (typo3: list_url fehlt)")
+        # Der Ortsfilter wird hier schon angewendet, weil er auch
+        # entscheidet, für welche Stellen die Detailseite geladen wird.
+        return typo3_jobboard(list_url, firma,
+                              user_agent=user_agent,
+                              only_near_munich=only_near_munich,
+                              max_jobs=entry.get("max_jobs", 500),
+                              known_urls=known_urls)
+    if ats == "diehl":
+        list_url = str(entry.get("list_url") or "").strip()
+        if not list_url:
+            raise _BoardKonfigFehler("ats (diehl: list_url fehlt)")
+        return diehl(list_url, firma,
+                     division=entry.get("division"),
+                     user_agent=user_agent,
+                     only_near_munich=only_near_munich,
+                     max_pages=int(entry.get("max_pages", 12)),
+                     max_jobs=int(entry.get("max_jobs", 400)),
+                     known_urls=known_urls)
+    if ats == "jobleads":
+        list_url = str(entry.get("list_url") or "").strip()
+        if not list_url:
+            raise _BoardKonfigFehler("ats (jobleads: list_url fehlt)")
+        return jobleads(list_url, firma,
+                        user_agent=user_agent,
+                        only_near_munich=only_near_munich,
+                        with_description=entry.get("with_description", True),
+                        max_jobs=entry.get("max_jobs", 100),
+                        known_urls=known_urls)
+    if ats == "vbjoblist":
+        api_url = str(entry.get("api_url") or "").strip()
+        if not api_url:
+            raise _BoardKonfigFehler("ats (vbjoblist: api_url fehlt)")
+        return vbjoblist(api_url, firma,
+                         work_locations=entry.get("work_locations") or [],
+                         user_agent=user_agent,
+                         only_near_munich=only_near_munich,
+                         max_pages=int(entry.get("max_pages", 15)),
+                         max_jobs=int(entry.get("max_jobs", 150)))
+    if ats == "sitemap":
+        sitemap_url = str(entry.get("sitemap") or entry.get("sitemap_url") or "").strip()
+        if not sitemap_url:
+            raise _BoardKonfigFehler("ats (sitemap: sitemap fehlt)")
+        return sitemap_jobboard(sitemap_url, firma,
+                                url_must_contain=entry.get("url_must_contain") or (),
+                                user_agent=user_agent,
+                                only_near_munich=only_near_munich,
+                                with_description=entry.get("with_description", True),
+                                max_jobs=entry.get("max_jobs", 200))
+    board = str(entry.get("board") or "").strip()
+    fetch = BOARDS.get(ats)
+    if not fetch or not board:
+        raise _BoardKonfigFehler(f"ats ({ats or '?'}:{board or '?'}): unbekanntes System")
+    return fetch(board, firma, user_agent=user_agent)
+
+
 def search(boards: list[dict], *, user_agent: str | None = None,
-           only_near_munich: bool = True) -> tuple[list[dict], list[str]]:
+           only_near_munich: bool = True,
+           known_urls: set[str] | None = None,
+           status: dict | None = None) -> tuple[list[dict], list[str]]:
     """Fragt alle konfigurierten Boards ab.
 
     ``only_near_munich`` filtert direkt nach der Abfrage: eine Firma mit 141
@@ -1102,178 +1361,29 @@ def search(boards: list[dict], *, user_agent: str | None = None,
     festzustellen, dass 130 zu weit entfernt sind.
 
     Rückgabe: ``(jobs, fehler)`` — ein defektes Board stoppt die anderen nicht.
+    ``fehler`` enthält nur echte Fehler. ``status`` (optional, Ausgabe) sammelt je
+    Board ``gefunden``, ``im_umkreis`` und ``fehler``; nur dort steht die Statistik.
+    Für ``known_urls`` wird keine Detailseite geladen; der Text liegt im Bestand.
     """
     jobs: list[dict] = []
     errors: list[str] = []
     seen: set[tuple[str, str]] = set()
+    status = {} if status is None else status
     for entry in boards or []:
-        ats = str(entry.get("ats") or "").strip().lower()
-        firma = str(entry.get("firma") or "").strip()
-        # Workday braucht Tenant und Site statt eines einzelnen Board-Namens.
-        if ats == "workday":
-            tenant = str(entry.get("tenant") or "").strip()
-            site = str(entry.get("site") or "").strip()
-            firma = firma or site
-            if not tenant or not site:
-                errors.append(f"ats (workday:{tenant or '?'}/{site or '?'}): tenant/site fehlt")
-                continue
-            try:
-                found = workday(tenant, site, firma,
-                                user_agent=user_agent,
-                                max_jobs=entry.get("max_jobs", 2000))
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "eightfold":
-            host = str(entry.get("host") or "").strip()
-            domain = str(entry.get("domain") or "").strip()
-            if not host or not domain:
-                errors.append(f"ats (eightfold:{host or '?'}/{domain or '?'}): host/domain fehlt")
-                continue
-            try:
-                found = eightfold(host, domain, firma,
-                                  location=str(entry.get("location") or "munich"),
-                                  user_agent=user_agent,
-                                  max_jobs=entry.get("max_jobs", 500))
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "successfactors":
-            host = str(entry.get("host") or "").strip()
-            if not host:
-                errors.append("ats (successfactors: host fehlt)")
-                continue
-            try:
-                found = successfactors_j2w(host, firma,
-                                           user_agent=user_agent,
-                                           max_jobs=entry.get("max_jobs", 2000))
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "smartrecruiters":
-            company = str(entry.get("company") or "").strip()
-            if not company:
-                errors.append("ats (smartrecruiters: company fehlt)")
-                continue
-            try:
-                found = smartrecruiters(company, firma,
-                                        city=entry.get("city"),
-                                        country=entry.get("country"),
-                                        user_agent=user_agent,
-                                        max_jobs=entry.get("max_jobs", 500))
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "oracle":
-            host = str(entry.get("host") or "").strip()
-            site = str(entry.get("site") or "").strip()
-            if not host or not site:
-                errors.append("ats (oracle: host/site fehlt)")
-                continue
-            try:
-                found = oracle_cloud(host, site, firma,
-                                     location=entry.get("location"),
-                                     user_agent=user_agent,
-                                     max_jobs=entry.get("max_jobs", 500))
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "typo3":
-            list_url = str(entry.get("list_url") or "").strip()
-            if not list_url:
-                errors.append("ats (typo3: list_url fehlt)")
-                continue
-            try:
-                # Der Ortsfilter wird hier schon angewendet, weil er auch
-                # entscheidet, für welche Stellen die Detailseite geladen wird.
-                found = typo3_jobboard(
-                    list_url, firma,
-                    user_agent=user_agent,
-                    only_near_munich=only_near_munich,
-                    max_jobs=entry.get("max_jobs", 500),
-                )
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "diehl":
-            list_url = str(entry.get("list_url") or "").strip()
-            if not list_url:
-                errors.append("ats (diehl: list_url fehlt)")
-                continue
-            try:
-                found = diehl(
-                    list_url, firma,
-                    division=entry.get("division"),
-                    user_agent=user_agent,
-                    only_near_munich=only_near_munich,
-                    max_pages=int(entry.get("max_pages", 12)),
-                    max_jobs=int(entry.get("max_jobs", 400)),
-                )
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "jobleads":
-            list_url = str(entry.get("list_url") or "").strip()
-            if not list_url:
-                errors.append("ats (jobleads: list_url fehlt)")
-                continue
-            try:
-                found = jobleads(
-                    list_url, firma,
-                    user_agent=user_agent,
-                    only_near_munich=only_near_munich,
-                    with_description=entry.get("with_description", True),
-                    max_jobs=entry.get("max_jobs", 100),
-                )
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "vbjoblist":
-            api_url = str(entry.get("api_url") or "").strip()
-            if not api_url:
-                errors.append("ats (vbjoblist: api_url fehlt)")
-                continue
-            try:
-                found = vbjoblist(
-                    api_url, firma,
-                    work_locations=entry.get("work_locations") or [],
-                    user_agent=user_agent,
-                    only_near_munich=only_near_munich,
-                    max_pages=int(entry.get("max_pages", 15)),
-                    max_jobs=int(entry.get("max_jobs", 150)),
-                )
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        elif ats == "sitemap":
-            sitemap_url = str(entry.get("sitemap") or entry.get("sitemap_url") or "").strip()
-            if not sitemap_url:
-                errors.append("ats (sitemap: sitemap fehlt)")
-                continue
-            try:
-                found = sitemap_jobboard(
-                    sitemap_url, firma,
-                    url_must_contain=entry.get("url_must_contain") or (),
-                    user_agent=user_agent,
-                    only_near_munich=only_near_munich,
-                    with_description=entry.get("with_description", True),
-                    max_jobs=entry.get("max_jobs", 200),
-                )
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
-        else:
-            board = str(entry.get("board") or "").strip()
-            firma = firma or board
-            fetch = BOARDS.get(ats)
-            if not fetch or not board:
-                errors.append(f"ats ({ats or '?'}:{board or '?'}): unbekanntes System")
-                continue
-            try:
-                found = fetch(board, firma, user_agent=user_agent)
-            except requests.RequestException as exc:
-                errors.append(f"ats ({firma}): {type(exc).__name__}")
-                continue
+        firma = _board_name(entry)
+        eintrag = status.setdefault(firma, {"gefunden": 0, "im_umkreis": 0, "fehler": []})
+        try:
+            found = _abfragen(entry, firma, user_agent=user_agent,
+                              only_near_munich=only_near_munich, known_urls=known_urls)
+        except _BoardKonfigFehler as exc:
+            errors.append(str(exc))
+            eintrag["fehler"].append(str(exc))
+            continue
+        except requests.RequestException as exc:
+            grund = _fehlertext(exc)
+            errors.append(f"ats ({firma}): {grund}")
+            eintrag["fehler"].append(grund)
+            continue
         kept = 0
         for job in found:
             if not job.get("titel") or not job.get("url"):
@@ -1286,5 +1396,6 @@ def search(boards: list[dict], *, user_agent: str | None = None,
             seen.add(identity)
             jobs.append(job)
             kept += 1
-        errors.append(f"ats ({firma}): {len(found)} gefunden, {kept} im Umkreis")
+        eintrag["gefunden"] += len(found)
+        eintrag["im_umkreis"] += kept
     return jobs, errors

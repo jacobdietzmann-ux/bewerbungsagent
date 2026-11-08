@@ -28,6 +28,14 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from bewerbungsagent.config import Config
+from bewerbungsagent.matching import (
+    has_role_signal,
+    is_development_role,
+    is_software_role,
+    is_student_role,
+    is_technician_role,
+)
+from bewerbungsagent.storage import save_json
 
 # Substrings, die den Beginn des Beschreibungsteils markieren (Aufgaben/Anforderungen/Benefits).
 _START_SUBSTRINGS = [
@@ -77,9 +85,16 @@ _EXPIRED_PATTERNS = [
     r"(position|role)\s+has\s+been\s+filled",
     r"this\s+(position|role|job)\s+is\s+(no longer|closed|filled)",
     r"nicht\s+mehr\s+vakant",
+    r"job\s+posting\s+has\s+been\s+removed",
 ]
 
 _EXPIRED_RE = re.compile("|".join(_EXPIRED_PATTERNS), re.IGNORECASE)
+
+# Manche Portale melden eine abgelaufene Anzeige nur über die Weiterleitung.
+# LinkedIn schickt alte Links auf eine Trefferliste (``trk=expired_jd_redirect``).
+# Deren Text sieht wie eine Anzeige aus, gehört aber zu fremden Stellen: Am
+# 07.11.2026 kamen so „Linux-Administrator"-Texte zu einer RF-Stelle.
+_EXPIRED_REDIRECT_RE = re.compile(r"[?&]trk=expired_jd_redirect\b", re.IGNORECASE)
 
 
 def _is_expired(text: str) -> str | None:
@@ -90,6 +105,12 @@ def _is_expired(text: str) -> str | None:
     """
     match = _EXPIRED_RE.search(text)
     return match.group(0) if match else None
+
+
+def _is_expired_redirect(url: str | None) -> str | None:
+    """Liefert den Marker, wenn die Zieladresse eine abgelaufene Anzeige verrät."""
+    match = _EXPIRED_REDIRECT_RE.search(url or "")
+    return match.group(0).lstrip("?&") if match else None
 
 
 def _extract_description(text: str) -> str:
@@ -168,6 +189,17 @@ def load_page_text(page, url: str) -> str:
     return page.inner_text("body")
 
 
+def _lohnt_nachladen(job: dict) -> bool:
+    """False, wenn der Text das Ergebnis nicht mehr ändern kann.
+
+    Studenten- und Technikerrollen fallen unabhängig vom Text weg, Software- und
+    Entwicklerrollen sind unter die Research-Grenze gedeckelt.
+    """
+    titel = job.get("titel")
+    return not (is_student_role(titel) or is_technician_role(titel)
+                or is_software_role(titel) or is_development_role(titel))
+
+
 def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = False,
                        only_unsure: bool = False) -> dict:
     """Lädt fehlende Anzeigentexte per Browser.
@@ -184,7 +216,10 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
         return {"fetched": 0, "skipped": 0, "errors": 0}
 
     jobs = json.loads(jobs_path.read_text(encoding="utf-8"))
-    targets = [j for j in jobs if j.get("url") and not (j.get("beschreibung") or "").strip()]
+    targets = [j for j in jobs if j.get("url") and not (j.get("beschreibung") or "").strip()
+               and _lohnt_nachladen(j)]
+    # Passende Rollen zuerst: ``limit`` soll nicht an Randtreffer gehen.
+    targets.sort(key=lambda j: not has_role_signal(j.get("titel")))
     if only_unsure:
         from bewerbungsagent.triage import UNSURE, verdict_for
         targets = [j for j in targets if verdict_for(j, config).label == UNSURE]
@@ -192,6 +227,8 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
         targets = targets[:limit]
 
     print(f"Zu laden: {len(targets)} von {len(jobs)} Stellen (ohne Beschreibung).")
+    if not targets:
+        return {"fetched": 0, "skipped": 0, "errors": 0}
 
     fetched = skipped = errors = 0
 
@@ -201,7 +238,7 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
             firma = job.get("firma", "")[:24]
             try:
                 text = load_page_text(page, url)
-                marker = _is_expired(text)
+                marker = _is_expired(text) or _is_expired_redirect(page.url)
                 if marker:
                     job["verfuegbar"] = False
                     job["verfuegbar_grund"] = marker
@@ -222,10 +259,13 @@ def fetch_descriptions(config: Config, limit: int | None = None, headed: bool = 
                 errors += 1
                 print(f"[{i}/{len(targets)}] FEHL {firma}: {type(exc).__name__}")
 
-            # Fortschritt nach jedem Job speichern (resume-fähig).
-            jobs_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+            # Fortschritt alle 10 Stellen sichern (resume-fähig). Pro Stelle hieße
+            # das bei 300 Anzeigen rund 750 MB Schreiblast auf dem Sync-Ordner.
+            if i % 10 == 0:
+                save_json(jobs_path, jobs)
             time.sleep(1.0)
 
+    save_json(jobs_path, jobs)
     return {"fetched": fetched, "skipped": skipped, "errors": errors}
 
 

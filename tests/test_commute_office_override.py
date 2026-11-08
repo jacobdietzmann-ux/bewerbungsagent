@@ -8,11 +8,6 @@ Pendelweg zu kurz berechnet und eine zu weit entfernte Stelle rutscht durch die
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-import pytest
-
 from bewerbungsagent import commute
 
 

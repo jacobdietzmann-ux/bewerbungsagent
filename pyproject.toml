@@ -6,6 +6,10 @@ build-backend = "setuptools.build_meta"
 # Explizit: sonst scheitert die Auto-Discovery an mehreren Top-Level-Paketen
 # (bewerbungsagent + eval).
 packages = ["bewerbungsagent", "bewerbungsagent.search", "eval"]
+# Einstiegsskripte im Repo-Root. Ohne sie fände eine (editierbare) Installation
+# ``agent``, ``server`` und ``fetch_descriptions`` nicht (ADR-057). Installiert
+# wird editierbar, weil ``db._ensure_schema`` ``migrations/`` neben dem Paket sucht.
+py-modules = ["agent", "fetch_descriptions", "server"]
 
 [project]
 name = "bewerbungsagent"

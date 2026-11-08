@@ -18,6 +18,7 @@
       "indeed",
       "labo"
     ],
+    "abgelaufen_nach_tagen": 7,
     "jobspy_max_terms": 4,
     "ats_boards": [
       {
@@ -118,6 +119,7 @@
     ],
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,
+    "lead_url_provider": ["xing"],
     "jobleads_searches": [],
     "jobleads_min_salary": 0,
     "jobleads_max_terms": 6,

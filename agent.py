@@ -7,7 +7,7 @@ Beispiele:
     python agent.py generate --all
     python agent.py generate --ids 1,2,3
     python agent.py dashboard
-    python agent.py pipeline     # Suche → Match → Dokumente → Dashboard
+    python agent.py pipeline     # alle Schritte aus bewerbungsagent/schritte.py
     python agent.py status
 """
 
@@ -26,6 +26,7 @@ from bewerbungsagent.followup import run_followup
 from bewerbungsagent.pipeline import (
     FIT_BAND_AUSBLENDEN,
     FIT_BAND_UNTERLAGEN,
+    abgelaufen_kwargs,
     load_config_and_profile,
     run_dashboard,
     run_enrich,
@@ -90,6 +91,22 @@ def _print_provider_stats(stats: dict) -> None:
         fehler = len(st.get("fehler") or [])
         print(f"  - {name}: {st.get('gefunden', 0)} Fund(e)"
               + (f", {fehler} Fehler" if fehler else ""))
+        for hinweis in st.get("hinweise") or []:
+            print(f"      {hinweis}")
+
+
+def _print_failed(failed: list[dict]) -> None:
+    """Meldet Stellen, deren Unterlagen nicht erzeugt werden konnten."""
+    if failed:
+        print(f"Unterlagen fehlgeschlagen: {len(failed)} Stelle(n).")
+    for f in failed:
+        print(f"  ! {f['firma']} — {f['titel']}: {f['fehler']}")
+
+
+def _print_schritt_fehler(fehler: dict) -> None:
+    """Meldet optionale Schritte, die gescheitert sind."""
+    for name, text in (fehler or {}).items():
+        print(f"  ! Schritt {name} fehlgeschlagen: {text}")
 
 
 def main(argv=None) -> int:
@@ -197,6 +214,11 @@ def main(argv=None) -> int:
                   f"({len(saved.get('query_terms', []))} Begriffe, {saved.get('location')})")
         result = run_search(config, profile, definition=definition)
         print(f"Suche abgeschlossen: {result['count']} Stelle(n) gefunden.")
+        leads = result.get("leads") or {}
+        if leads.get("gesucht"):
+            print(f"  Mail-Leads: {leads['gesucht']} gesucht, {leads['gefunden']} Anzeige(n) gefunden")
+        if result.get("textluecken"):
+            print(f"  Aus dem Bestand erneut zum Nachladen: {result['textluecken']} Stelle(n)")
         rejected = result.get("triage_rejected", 0)
         if rejected:
             print(f"  Ausgefiltert (domänenfremd, z. B. Vertrieb/Marketing): {rejected} "
@@ -254,6 +276,11 @@ def main(argv=None) -> int:
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Ausgeblendet (FIT < {FIT_BAND_AUSBLENDEN} %): "
               f"{result['deleted_fit_under_50']} Stelle(n).")
+        print(f"Prüffälle (Text fehlt, Titel passt): {result.get('text_fehlt', 0)} Stelle(n); "
+              f"Mail-Leads als Dublette: {result.get('lead_dubletten', 0)}.")
+        still = result.get("stille_rollentreffer") or {}
+        print(f"Ausgeblendete Rollentreffer ohne Text: {still.get('vorher', 0)} → "
+              f"{still.get('nachher', 0)}.")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         print(f"Gelöscht (Studenten-/Praktikumsstelle): "
@@ -274,6 +301,7 @@ def main(argv=None) -> int:
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")
         print(f"Automatisch beworben (FIT ≥ {FIT_BAND_UNTERLAGEN} %): "
               f"{result['generated_count']} Stelle(n).")
+        _print_failed(result.get("failed") or [])
         if result.get("skipped_budget"):
             print(f"Zurückgestellt (Wochenbudget erreicht): {len(result['skipped_budget'])} "
                   "Stelle(n) — kommen nächste Woche dran.")
@@ -300,6 +328,10 @@ def main(argv=None) -> int:
             print(f"  - {g['firma']} — {g['titel']}")
             for name, rel in g["dokumente"].items():
                 print(f"      {name}: {rel}")
+        _print_failed(result.get("failed") or [])
+        if result.get("skipped_bestand"):
+            print(f"  Übersprungen (Dublette, gelöscht oder abgeschlossen): "
+                  f"{result['skipped_bestand']} Stelle(n)")
         skipped = result.get("skipped_commute") or []
         if skipped:
             print(f"  Übersprungen (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
@@ -450,7 +482,7 @@ def main(argv=None) -> int:
     elif args.command == "shortlist":
         from bewerbungsagent.auswahl import shortlist
         apps = Store(config.db_path()).load_state().get("applications", [])
-        liste = shortlist(apps, top=args.top)
+        liste = shortlist(apps, top=args.top, **abgelaufen_kwargs(config))
         if not liste:
             print("Keine fertigen, unversendeten Bewerbungen.")
             return 0
@@ -462,6 +494,8 @@ def main(argv=None) -> int:
                 hinweise.append("Ansprechpartner fehlt")
             if s["pendel_knapp"]:
                 hinweise.append("Pendelweg knapp drüber")
+            if s["vermutlich_abgelaufen"]:
+                hinweise.append("vermutlich abgelaufen")
             print(f"{i:>2}. {s['fit']:>3} %  {s['firma']} — {s['titel']} ({s['ort'] or '?'})"
                   + (f"  [{', '.join(hinweise)}]" if hinweise else ""))
             if s.get("url"):
@@ -473,9 +507,16 @@ def main(argv=None) -> int:
         _print_job_context(result["search"]["context"])
         for err in result["search"]["errors"]:
             print(f"  ! {err}")
+        f = result.get("fetch") or {}
+        print(f"Anzeigentexte: {f.get('fetched', 0)} geladen, {f.get('skipped', 0)} leer, "
+              f"{f.get('errors', 0)} Fehler")
         print(f"Matching: {result['match']} Stelle(n)")
         print(f"Dokumente: {len(result['generated'])} Datei(en)")
+        _print_failed(result.get("failed") or [])
+        q = result.get("quality") or {}
+        print(f"Qualität: {q.get('geprueft', 0)} geprüft, {q.get('mit_befunden', 0)} mit Befunden")
         print(f"Dashboard: {result['dashboard']['path']}")
+        _print_schritt_fehler(result.get("fehler"))
 
     elif args.command == "ablauf":
         from bewerbungsagent.orchestrator import run_abo
@@ -496,6 +537,8 @@ def main(argv=None) -> int:
               f"{result.get('beschreibung_versuche', 0)}× gelaufen")
         print(f"  Matching        : {(result.get('match') or {}).get('matched', 0)} Stelle(n)")
         print(f"  Dokumente       : {len((result.get('generate') or {}).get('generated', []))} Datei(en)")
+        _print_failed([*(result.get("enrich") or {}).get("failed", []),
+                       *(result.get("generate") or {}).get("failed", [])])
         if review:
             print("  Freigabe        : erfolgt im Dashboard (Status ändern oder Eintrag löschen)")
         else:
@@ -503,6 +546,7 @@ def main(argv=None) -> int:
         d = result.get("dashboard") or {}
         if d.get("path"):
             print(f"  Dashboard       : {d['path']} ({d.get('applications', 0)} relevant)")
+        _print_schritt_fehler(result.get("fehler"))
 
     return 0
 

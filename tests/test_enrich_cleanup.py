@@ -430,7 +430,8 @@ class TestFitBaender:
 
     def test_unter_50_wird_ausgeblendet_nicht_research(self, config):
         """Unter 50 % bleibt es beim Ausblenden — das ist kein Research-Fall."""
-        result = _run(config, [_job("zu wenig", score=45)])
+        # Mit Anzeigentext: Ohne Text wäre es ein Prüffall „Text fehlt" (ADR-055).
+        result = _run(config, [_job("zu wenig", score=45, beschreibung="Anzeigentext")])
         assert result["deleted_fit_under_50"] == 1
         app = Store(config.db_path()).load_state()["applications"][0]
         assert app.get("deleted") is True

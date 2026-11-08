@@ -15,7 +15,6 @@ er ohnehin gebraucht wird.
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
 
 from .base import split_title_firma
 from .browser import browser_page, dismiss_consent
@@ -87,7 +86,11 @@ def _mehr_anzeigen(page) -> bool:
 def search(terms: str | list[str], location: str = "München", *,
            max_results: int = 40, with_description: bool = False,
            headed: bool = False) -> list[dict]:
-    """StepStone-Treffer über den Browser (eine Sitzung für alle Begriffe)."""
+    """StepStone-Treffer über den Browser (eine Sitzung für alle Begriffe).
+
+    ``max_results`` gilt je Begriff. Als Gesamtgrenze endete der Lauf sonst
+    meist schon beim ersten Begriff, die übrigen wurden nie gesucht.
+    """
     begriffe = [terms] if isinstance(terms, str) else list(terms or [])
     begriffe = [b.strip() for b in begriffe if b and b.strip()]
     if not begriffe:
@@ -97,6 +100,7 @@ def search(terms: str | list[str], location: str = "München", *,
     with browser_page(headed=headed) as page:
         consent_erledigt = False
         for begriff in begriffe:
+            vorher = len(gesammelt)
             page.goto(search_url(begriff, location), timeout=45000,
                       wait_until="domcontentloaded")
             page.wait_for_timeout(2500)
@@ -120,13 +124,11 @@ def search(terms: str | list[str], location: str = "München", *,
                         "ort": karte.get("ort") or location,
                         "url": url,
                     }
-                if len(gesammelt) >= max_results:
+                if len(gesammelt) - vorher >= max_results:
                     break
                 if not _mehr_anzeigen(page):
                     break
-            if len(gesammelt) >= max_results:
-                break
 
     return [{"titel": j["titel"], "firma": j["firma"], "ort": j["ort"],
              "url": j["url"], "beschreibung": "", "quelle": "StepStone"}
-            for j in list(gesammelt.values())[:max_results]]
+            for j in gesammelt.values()]

@@ -9,8 +9,20 @@ from .. import triage as _triage
 from ..config import Config
 from ..profile import Profile, normalize
 from ..provider_health import is_disabled
-from . import (arbeitnow, ats, bing, duckduckgo, indeed, jobspy, labo, manual,
-               stepstone, stepstone_browser, xing)
+from . import (
+    arbeitnow,
+    ats,
+    bing,
+    duckduckgo,
+    glassdoor,
+    indeed,
+    jobspy,
+    labo,
+    manual,
+    stepstone,
+    stepstone_browser,
+    xing,
+)
 
 
 def _clean_url(url: str) -> str:
@@ -50,6 +62,21 @@ def _collect(stats: dict, name: str, gefunden: int, fehler: list[str]) -> None:
     entry = stats.setdefault(name, {"gefunden": 0, "fehler": []})
     entry["gefunden"] += max(0, int(gefunden))
     entry["fehler"].extend(str(f) for f in fehler)
+
+
+def _collect_boards(entry: dict, status: dict) -> None:
+    """Hängt Ergebnis und Statistik der ATS-Boards an den Eintrag der Quelle.
+
+    Mehrere Suchen eines Tageslaufs können dasselbe Board abfragen. ``boards``
+    summiert deshalb, ``hinweise`` ist die lesbare Statistik für die Konsole.
+    """
+    boards = entry.setdefault("boards", {})
+    hinweise = entry.setdefault("hinweise", [])
+    for name, st in status.items():
+        _collect(boards, name, st["gefunden"], st["fehler"])
+        if not st["fehler"]:
+            hinweise.append(f"ats ({name}): {st['gefunden']} gefunden, "
+                            f"{st['im_umkreis']} im Umkreis")
 
 
 def _is_listing_page(title: str) -> bool:
@@ -102,11 +129,24 @@ def _existing_jobs(config: Config) -> list[dict]:
 # roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
 # von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
-                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo", manual.MAIL_LEAD}
+                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo", "Glassdoor",
+                   manual.MAIL_LEAD}
+
+# Provider für die Anzeigensuche zu Mail-Leads (``search.lead_url_provider``).
+# Gemessen am 07.11.2026 auf 27 Leads (ADR-055): XING fand 5 von 5 geprüft richtig,
+# StepStone keine, LinkedIn antwortete mit 429 und Google lieferte nichts. Indeed
+# fehlt bewusst: Dort klappt die Suche nur mit abgeschalteter Automationserkennung.
+_LEAD_PROVIDER = {"xing": xing}
+_LEAD_TREFFER_JE_BEGRIFF = 20
 
 # Provider, die einen echten Browser brauchen. Sie liegen in eigenen Modulen und
 # erwarten eine **Liste** von Begriffen statt einem einzelnen.
-_BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser"}
+_BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser", "glassdoor"}
+
+# Glassdoor filtert serverseitig nach Umkreis und Gehalt (``glassdoor_*`` in der
+# ``search``-Konfiguration).
+_GLASSDOOR_FILTER = {"radius": "glassdoor_radius", "min_salary": "glassdoor_min_salary",
+                     "max_salary": "glassdoor_max_salary"}
 
 
 def _terms_for_provider(s: dict, name: str) -> list[str]:
@@ -146,7 +186,8 @@ def _filter_boards(boards: list[dict], firmen: list[str] | None) -> list[dict]:
 def run_search(config: Config, profile: Profile,
                definition: dict | None = None,
                health: dict | None = None,
-               stats: dict | None = None) -> tuple[list[dict], list[str], int]:
+               stats: dict | None = None,
+               known_urls: set[str] | None = None) -> tuple[list[dict], list[str], int]:
     """Führt eine Suche aus.
 
     ``definition`` (optional) überschreibt einzelne Suchparameter — für
@@ -158,13 +199,22 @@ def run_search(config: Config, profile: Profile,
     (``provider_health``): deaktivierte Provider werden übersprungen.
     ``stats`` (optional, Ausgabe) sammelt je Provider ``gefunden``/``fehler``;
     der Aufrufer verrechnet sie mit der Historie.
+    ``known_urls`` (optional) nennt Anzeigen, deren Text schon im Bestand liegt;
+    Provider mit Detailabruf sparen sich dafür die Anfrage.
     """
+    bekannt = {"known_urls": known_urls} if known_urls else {}
     s = dict(config.data["search"])
     if definition:
         for key in ("query_terms", "location", "providers", "ats_firmen",
                     "max_results_per_provider"):
             if definition.get(key) is not None:
                 s[key] = definition[key]
+        # Eigene Begriffe gelten für alle Provider. Sonst liefe zum Beispiel XING
+        # mit ``xing_terms`` ein zweites Mal die Standardsuche.
+        if definition.get("query_terms") is not None:
+            for key in [k for k in s if k.endswith("_terms") and k != "query_terms"
+                        and not k.endswith("_max_terms")]:
+                del s[key]
     jobs: list[dict] = []
     errors: list[str] = []
     seen: set[str] = set()
@@ -231,7 +281,7 @@ def run_search(config: Config, profile: Profile,
                         "jobspy": jobspy,
                         "ats": ats, "arbeitnow": arbeitnow,
                         "jobleads": ats, "xing": xing, "indeed": indeed,
-                        "labo": labo}.get(name)
+                        "labo": labo, "glassdoor": glassdoor}.get(name)
             if provider is None:
                 errors.append(f"Unbekannter Provider: {name}")
                 continue
@@ -254,6 +304,9 @@ def run_search(config: Config, profile: Profile,
                         max_results=s.get(f"{name}_max_results",
                                           s.get("max_results_per_provider", 25)),
                         with_description=s.get(f"{name}_with_description", True),
+                        **(bekannt if name in ("xing", "indeed") else {}),
+                        **({k: s[v] for k, v in _GLASSDOOR_FILTER.items() if s.get(v)}
+                           if name == "glassdoor" else {}),
                     ):
                         add(job)
                 except Exception as exc:
@@ -286,14 +339,19 @@ def run_search(config: Config, profile: Profile,
                 # Karriereseiten abklappert.
                 firmen = s.get("ats_firmen")
                 boards = _filter_boards(boards, firmen)
+                board_status: dict = {}
                 jobs_found, ats_errors = provider.search(
                     boards,
                     user_agent=s.get("user_agent", "Mozilla/5.0"),
                     only_near_munich=s.get("ats_only_near_munich", True),
+                    status=board_status,
+                    **bekannt,
                 )
                 for job in jobs_found:
                     add(job)
                 errors.extend(ats_errors)
+                _collect_boards(stats.setdefault(name, {"gefunden": 0, "fehler": []}),
+                                board_status)
             elif name == "jobleads":
                 # JobLeads ist ein Aggregator mit Such-URLs; anders als die
                 # ATS-Boards gibt es keine feste Karriereseite. Ein Eintrag ist
@@ -330,6 +388,7 @@ def run_search(config: Config, profile: Profile,
                             only_near_munich=s.get("ats_only_near_munich", True),
                             with_description=extra.get("with_description", True),
                             max_jobs=extra.get("max_jobs", 100),
+                            **bekannt,
                         ):
                             add(job)
                     except Exception as exc:
@@ -394,7 +453,10 @@ def run_search(config: Config, profile: Profile,
     # 3) Mail-Leads zuletzt: kennt ein Web-Provider dieselbe Stelle, gewinnt dessen
     #    Anzeige samt Volltext (``add`` verwirft Doubletten nach Firma + Titel).
     for j in mail_leads:
-        add(j)
+        # ``add`` kennt nur exakt gleiche Titel. Der Abgleich fängt zusätzlich „Bertrandt
+        # Group" gegen „Bertrandt AG" und gekürzte Titel aus den Mails ab.
+        if not any(manual.lead_passt(j, job) for job in jobs):
+            add(j)
 
     # IDs vergeben.
     for i, job in enumerate(jobs, start=1):
@@ -412,12 +474,17 @@ def run_search(config: Config, profile: Profile,
         jobs, rejected = _triage.split(jobs, config)
         if rejected:
             try:
-                from ..storage import save_json
-                save_json(config.data_dir / "triage_rejected.json",
-                          [{"titel": j.get("titel"), "firma": j.get("firma"),
-                            "url": j.get("url"),
-                            "grund": _triage.verdict_for(j, config).reason}
-                           for j in rejected])
+                from ..storage import load_json, save_json
+                pfad = config.data_dir / "triage_rejected.json"
+                protokoll = [{"titel": j.get("titel"), "firma": j.get("firma"),
+                              "url": j.get("url"),
+                              "grund": _triage.verdict_for(j, config).reason}
+                             for j in rejected]
+                # Weitere Suchen eines Tageslaufs ergänzen das Protokoll der
+                # Standard-Suche, statt es zu ersetzen.
+                if definition:
+                    protokoll = [*(load_json(pfad, []) or []), *protokoll]
+                save_json(pfad, protokoll)
             except Exception as exc:  # pragma: no cover - defensiv
                 errors.append(f"triage-Protokoll: {exc}")
         # IDs nach dem Filter neu und lückenlos vergeben.
@@ -427,6 +494,45 @@ def run_search(config: Config, profile: Profile,
     else:
         triage_rejected = 0
     return jobs, errors, triage_rejected
+
+
+def resolve_mail_leads(config: Config, health: dict | None = None) -> dict:
+    """Sucht zu offenen Mail-Leads die Anzeigen-URL über Firma + Titel.
+
+    Alle Begriffe laufen in einer Browsersitzung. Ein deaktivierter Provider wird
+    übersprungen, ein Fehler nicht wiederholt. Scheitern alle Provider, bleibt der
+    Lead für den nächsten Lauf offen. Der Text selbst kommt danach über ``fetch``.
+    """
+    s = config.data["search"]
+    ergebnis: dict = {"gesucht": 0, "gefunden": 0, "fehler": []}
+    namen = s.get("lead_url_provider", list(_LEAD_PROVIDER))
+    pfad = config.import_path()
+    if not s.get("enabled", True) or not namen:
+        return ergebnis
+    offen = manual.offene_leads(pfad)
+    if not offen:
+        return ergebnis
+    begriffe = list(dict.fromkeys(manual.suchbegriff(lead) for lead in offen))
+    anzeigen: list[dict] = []
+    gelaufen = False
+    for name in namen:
+        provider = _LEAD_PROVIDER.get(name)
+        if provider is None:
+            ergebnis["fehler"].append(f"Unbekannter Lead-Provider: {name}")
+            continue
+        if (health is not None and is_disabled(health, name)) or not provider.available():
+            continue
+        try:
+            anzeigen.extend(provider.search(begriffe, location=s.get("location", "München"),
+                                            max_results=_LEAD_TREFFER_JE_BEGRIFF,
+                                            with_description=False))
+            gelaufen = True
+        except Exception as exc:
+            ergebnis["fehler"].append(f"{name}: {exc}")
+    if gelaufen:
+        ergebnis["gesucht"] = len(offen)
+        ergebnis["gefunden"] = manual.leads_verknuepfen(pfad, anzeigen)
+    return ergebnis
 
 
 def _to_job(raw: dict) -> dict:

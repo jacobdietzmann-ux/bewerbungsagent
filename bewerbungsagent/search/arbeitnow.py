@@ -6,8 +6,9 @@ deshalb lokal gefiltert werden. Der Ertrag für München ist begrenzt (rund 10 v
 300 pro Seite), deshalb ist der Provider ein ergänzendes Netz und kein Ersatz
 für StepStone oder die ATS-Abfrage.
 
-Die Anzeigen kommen **ohne** Beschreibungstext (nur ``description``-Kurzfassung
-als HTML); für das Scoring lädt ``fetch_descriptions.py`` sie nach.
+``description`` enthält den vollständigen Anzeigentext als HTML (live geprüft
+am 07.11.2026: Median 6.671 Zeichen bei 300 Anzeigen). Der Browser-Fetch
+entfällt damit für diese Quelle.
 """
 
 from __future__ import annotations
@@ -19,6 +20,10 @@ from .base import clean_html
 
 ENDPOINT = "https://www.arbeitnow.com/api/job-board-api"
 _TIMEOUT = 25
+_MIN_DESCRIPTION = 200
+# Einzelne Anzeigen sind über 300.000 Zeichen lang (eingebettetes Markup). Eine
+# Obergrenze hält Bestand und Scoring frei von solchen Ausreißern.
+_MAX_DESCRIPTION = 20000
 
 
 def search(max_pages: int = 3, *, user_agent: str | None = None,
@@ -46,14 +51,14 @@ def search(max_pages: int = 3, *, user_agent: str | None = None,
             if only_near_munich and not is_near_munich(ort):
                 continue
             seen.add(url)
+            text = clean_html(raw.get("description") or "")[:_MAX_DESCRIPTION]
             jobs.append({
                 "titel": (raw.get("title") or "").strip(),
                 "firma": (raw.get("company_name") or "").strip(),
                 "ort": ort,
                 "url": url,
                 "quelle": "Arbeitnow",
-                "snippet": clean_html(raw.get("description") or "")[:400],
-                # Kein Volltext: Arbeitnow liefert nur eine Kurzfassung.
-                "beschreibung": "",
+                "snippet": text[:400],
+                "beschreibung": text if len(text) >= _MIN_DESCRIPTION else "",
             })
     return jobs

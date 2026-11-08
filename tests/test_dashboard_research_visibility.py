@@ -15,8 +15,6 @@ Für sie gibt es die Freigabe ``research_sichtbar``. Sie wirkt nur:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from bewerbungsagent import dashboard

@@ -2,9 +2,10 @@
 """Job-Watch: führt die Bewerbungs-Pipeline aus und meldet neue Stellen per Telegram.
 
 Ablauf pro Lauf:
-  1. optional: agent.py search -> match -> enrich -> dashboard (venv-Python)
+  1. optional: alle Schritte aus bewerbungsagent/schritte.py über agent.py (venv-Python)
   2. Vergleich der aktuellen Stellen mit dem Snapshot des letzten Laufs
   3. Digest der neuen Stellen (Fit-Band 60-70 % = Research, > 70 % = Unterlagen bauen)
+     und der Quellen, deren Zustand sich seit der letzten Meldung geändert hat
   4. Versand an Telegram (config.json in ~/telegram-bot) + Protokoll in data/watch_runs.json
 
 Nutzung:
@@ -17,6 +18,7 @@ Nutzung:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import subprocess
@@ -25,16 +27,25 @@ from datetime import datetime
 from pathlib import Path
 from urllib import parse, request
 
-AGENT_DIR = Path(__file__).resolve().parent.parent
+# Code-Ort: Das Paket liegt neben ``scripts/``; ohne diesen Eintrag fände es nur
+# ``PYTHONPATH``.
+CODE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(CODE_DIR))
+
+from bewerbungsagent.config import AGENT_ROOT  # noqa: E402
+from bewerbungsagent.schritte import SCHRITT_NAMEN, SCHRITTE  # noqa: E402
+
+# Datenordner (``BEWERBUNGSAGENT_HOME``, sonst der Code-Ort, ADR-057).
+AGENT_DIR = AGENT_ROOT
 DATA = AGENT_DIR / "data"
 SNAPSHOT = DATA / "watch_snapshot.json"
 RUN_LOG = DATA / "watch_runs.json"
 RUN_OUTPUT = DATA / "watch_last_run.log"
 NOTIFY_CONFIG = Path(os.environ.get("NOTIFY_CONFIG", Path.home() / "telegram-bot" / "config.json"))
 MAX_TG_LEN = 3800
-# Anzeigen pro Tageslauf nachladen (Browser). 300 × ~2,5 s ≈ 12 Minuten; reicht
-# für einen Suchlauf, ohne den 07:00-Job endlos werden zu lassen.
-FETCH_LIMIT = 300
+# Fällt das Netz aus, sind alle Quellen betroffen: Der Digest bleibt trotzdem kurz.
+MAX_QUELLEN = 8
+MAX_GRUND = 160
 
 
 def _log(msg: str) -> None:
@@ -56,33 +67,35 @@ def _pendelgrenze(default: int = 30) -> int:
 
 
 def run_pipeline(timeout: int = 3600) -> bool:
-    """search -> fetch -> match -> enrich -> dashboard.
+    """Führt jeden Schritt aus ``schritte.SCHRITTE`` als eigenen Prozess aus.
 
-    ``fetch`` gehört in den Tageslauf: StepStone und Arbeitnow liefern keine
-    Anzeigentexte mehr, und ohne Text zählt nur der Titel — der Fit fällt auf
-    0–34 % und keine Stelle erreicht mehr die 65-Prozent-Schwelle. Der Lauf ist
-    auf ``FETCH_LIMIT`` Anzeigen begrenzt (Browser, ~2–3 s pro Anzeige).
+    So hat jeder Schritt sein Zeitlimit und seine Zeilen im Protokoll, und ein
+    Absturz des Browsers trifft nicht den Digest. Ein optionaler Schritt darf
+    scheitern, ein Pflichtschritt beendet die Folge.
     """
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(AGENT_DIR)
+    env["PYTHONPATH"] = str(CODE_DIR)
     python = env.get("JOBWATCH_PYTHON") or str(Path.home() / ".venvs" / "bewerbungsagent" / "Scripts" / "python.exe")
-    steps = [("search", []), ("fetch", ["--limit", str(FETCH_LIMIT)]),
-             ("match", []), ("enrich", []), ("dashboard", [])]
     ok = True
     with RUN_OUTPUT.open("w", encoding="utf-8", errors="replace") as log:
-        for step, extra in steps:
+        for schritt in SCHRITTE:
+            step = schritt.name
             log.write(f"\n##### {step} ({datetime.now().isoformat(timespec='seconds')})\n")
             log.flush()
-            proc = subprocess.run(
-                [python, "agent.py", step, *extra],
-                cwd=str(AGENT_DIR), env=env, timeout=timeout,
-                stdout=log, stderr=subprocess.STDOUT,
-            )
-            log.write(f"##### {step} exit={proc.returncode}\n")
-            if proc.returncode != 0:
-                _log(f"Schritt '{step}' fehlgeschlagen (exit {proc.returncode}) — siehe {RUN_OUTPUT}")
+            try:
+                code = subprocess.run(
+                    [python, str(CODE_DIR / "agent.py"), step, *schritt.argumente],
+                    cwd=str(AGENT_DIR), env=env, timeout=timeout,
+                    stdout=log, stderr=subprocess.STDOUT,
+                ).returncode
+            except subprocess.TimeoutExpired:
+                code = -1
+            log.write(f"##### {step} exit={code}\n")
+            if code != 0:
+                _log(f"Schritt '{step}' fehlgeschlagen (exit {code}) — siehe {RUN_OUTPUT}")
                 ok = False
-                break
+                if not schritt.optional:
+                    break
     return ok
 
 
@@ -128,35 +141,45 @@ def fit_band(score: int | float) -> str:
     return ""
 
 
-def parse_failed_sources(log_path: Path = RUN_OUTPUT) -> list[str]:
-    """Findet Quellen, die im letzten Lauf einen Fehler geworfen haben.
+def quellen_zeilen(aenderungen: dict) -> list[str]:
+    """Digest-Zeilen zu den geänderten Quellen (leer, wenn sich nichts geändert hat)."""
+    zeilen: list[str] = []
+    for schluessel, kopf in (("neu", "⚠️ Neu ausgefallen"), ("abgeschaltet", "⛔ Abgeschaltet")):
+        eintraege = aenderungen.get(schluessel) or []
+        for name, grund in eintraege[:MAX_QUELLEN]:
+            zeilen.append(f"{kopf}: {name}" + (f" ({grund[:MAX_GRUND]})" if grund else ""))
+        if len(eintraege) > MAX_QUELLEN:
+            zeilen.append(f"… und {len(eintraege) - MAX_QUELLEN} weitere.")
+    if aenderungen.get("wieder_da"):
+        zeilen.append(f"✅ Wieder da: {', '.join(aenderungen['wieder_da'])}")
+    return zeilen
 
-    Die Pipeline loggt z. B. "! ats (Qualcomm): HTTPError". Fällt eine Quelle aus,
-    fehlen deren Stellen im Dashboard — das muss sichtbar sein, statt still zu passieren.
+
+def quellen_aenderungen(gemeldet: dict) -> tuple[dict, list[str]]:
+    """Vergleicht die aktuellen Störungen mit dem zuletzt Gemeldeten.
+
+    Die Historie kommt aus der Datenbank, nicht aus dem Lauf-Log: Dort stehen
+    Fehler nur als Text, und Statistikzeilen ließen sich nur am Wortlaut trennen.
+    Ist sie nicht lesbar, bleibt der Stand erhalten. Ein leeres Ergebnis hieße
+    sonst, alle gemeldeten Quellen wären wieder da.
     """
-    if not log_path.exists():
-        return []
-    error_markers = ("httperror", "timeout", "traceback", "fehler", "error",
-                     "exception", "connection", "403", "429", "500")
-    failed: list[str] = []
-    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("!") or "JobSpy" in stripped:
-            continue
-        # "! ats (X): 125 gefunden, 21 im Umkreis" ist eine Statistik, kein Fehler.
-        if "gefunden" in stripped or "im Umkreis" in stripped:
-            continue
-        if not any(marker in stripped.lower() for marker in error_markers):
-            continue
-        name = stripped.lstrip("! ").split(":")[0].strip()
-        if name and name not in failed:
-            failed.append(name)
-    return failed
+    try:
+        from bewerbungsagent.config import Config
+        from bewerbungsagent.db import Store
+        from bewerbungsagent.provider_health import aenderungen_seit, stoerungen
+
+        store = Store(Config(AGENT_DIR / "config.json").db_path())
+        aktuell = stoerungen(store.get_meta("provider_health"), store.get_meta("board_health"))
+    except Exception as exc:
+        _log(f"Quellen-Historie nicht lesbar ({exc}) — keine Quellenmeldung in diesem Lauf.")
+        return gemeldet, []
+    stand, aenderungen = aenderungen_seit(gemeldet, aktuell)
+    return stand, quellen_zeilen(aenderungen)
 
 
 def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
                  min_fit: int, top: int, warnings: list[str] | None = None,
-                 max_commute: int | None = None) -> str:
+                 max_commute: int | None = None, quellen: list[str] | None = None) -> str:
     today = datetime.now().strftime("%d.%m.%Y")
 
     def nah(job: dict) -> bool:
@@ -184,6 +207,11 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
     if warnings:
         lines.append("")
         lines.extend(f"⚠️ {w}" for w in warnings)
+
+    if quellen:
+        lines.append("")
+        lines.append("Quellen:")
+        lines.extend(quellen)
 
     picks = [j for j in (relevant if baseline_created else new_jobs)
              if (j.get("score") or 0) >= min_fit and nah(j)]
@@ -272,13 +300,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="auch senden, wenn es nichts Neues gibt (Standard: still bleiben)")
     args = parser.parse_args(argv)
 
-    try:
+    with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
 
     if not args.no_search:
-        _log("Pipeline startet (search -> match -> enrich -> dashboard) …")
+        _log(f"Pipeline startet ({' -> '.join(SCHRITT_NAMEN)}) …")
         if not run_pipeline():
             _log("Pipeline unvollständig — Digest wird aus dem vorhandenen Stand gebaut.")
 
@@ -298,34 +324,29 @@ def main(argv: list[str] | None = None) -> int:
     baseline_created = not known
     new_jobs = [j for j in jobs if job_key(j) not in known]
 
-    # Rückgang gegenüber dem letzten Lauf sichtbar machen: eine ausgefallene Quelle
-    # (z. B. "! ats (Qualcomm): HTTPError") lässt Stellen still aus dem Dashboard fallen.
+    # Der Bestand kommt aus der Datenbank und schrumpft nicht, wenn eine Quelle
+    # ausfällt. Ein Rückgang heißt: Einträge wurden gelöscht, versendet oder
+    # ausgeblendet. Ausfälle meldet ``quellen_aenderungen`` unabhängig davon.
     warnings: list[str] = []
     prev_count = previous.get("count") or 0
     if quellenwechsel:
         _log("Quelle gewechselt (matches.json → Datenbank): Snapshot neu aufgebaut.")
     elif not baseline_created and len(jobs) < prev_count:
-        failed = parse_failed_sources()
-        if failed:
-            warnings.append(
-                f"Bestand gefallen ({prev_count} → {len(jobs)}): Quelle(n) mit Fehler im Lauf: "
-                f"{', '.join(failed[:4])}. Diese Stellen fehlen im Dashboard bis zum nächsten erfolgreichen Lauf — "
-                "nichts gelöscht, der Verlauf bleibt in der Datenbank."
-            )
-        else:
-            warnings.append(
-                f"Bestand gefallen ({prev_count} → {len(jobs)}), ohne Fehler in der Quelle: "
-                "vermutlich abgelaufene Anzeigen."
-            )
+        warnings.append(f"Bestand gefallen ({prev_count} → {len(jobs)}): "
+                        "Einträge gelöscht, versendet oder ausgeblendet.")
+
+    gemeldet = previous.get("gemeldete_quellen") or {}
+    quellen_stand, quellen = quellen_aenderungen(gemeldet)
 
     digest = build_digest(jobs, new_jobs, baseline_created, args.min_fit, args.top, warnings,
                           max_commute=args.max_pendel if args.max_pendel is not None
-                          else _pendelgrenze())
+                          else _pendelgrenze(), quellen=quellen)
     print("\n" + digest + "\n")
 
     # Watchdog-Prinzip: ohne Neuigkeiten still bleiben (kein Rauschen im Chat) —
-    # außer der Bestand ist messbar geschrumpft, dann ist eine Warnung nötig.
-    should_send = baseline_created or bool(new_jobs) or bool(warnings) or args.always
+    # außer der Bestand ist messbar geschrumpft oder eine Quelle hat sich geändert.
+    should_send = (baseline_created or bool(new_jobs) or bool(warnings) or bool(quellen)
+                   or args.always)
     sent = False
     if not args.dry_run and should_send:
         sent = send_telegram(digest)
@@ -338,6 +359,9 @@ def main(argv: list[str] | None = None) -> int:
         "quelle": quelle,
         "count": len(jobs),
         "keys": [job_key(j) for j in jobs],
+        # Nur Zugestelltes gilt als gemeldet: Kam die Nachricht nicht an oder war
+        # es ein Probelauf, erscheint die Änderung im nächsten Digest erneut.
+        "gemeldete_quellen": quellen_stand if sent or not quellen else gemeldet,
     }, ensure_ascii=False), encoding="utf-8")
 
     runs = []

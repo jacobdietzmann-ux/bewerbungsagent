@@ -137,7 +137,7 @@ _EINLADUNG = [
     rf"einladung zum? (?:vorstellungs)?(?:{_GESPRAECH}|interview)",
     rf"(?:vorstellungs|bewerbungs){_GESPRAECH} .{{0,40}}(?:\bam\b|termin|einladung|freuen)",
     rf"ein erstes .{{0,30}}(?:{_GESPRAECH}|interview)",
-    rf"(?:online.?|telefon.?)?interview (?:mit ihnen )?fuhren",
+    r"(?:online.?|telefon.?)?interview (?:mit ihnen )?fuhren",
     r"laden (?:wir )?(?:sie|dich) (?:hiermit |herzlich |gerne )?(?:zu|ein)",
     r"nennen sie mir .{0,40}terminvorschl",
     r"invit(?:e|ation) (?:you )?to (?:an? )?(?:interview|call|meeting)",
@@ -166,7 +166,7 @@ _VERANSTALTUNG = [
 # Absage-Floskeln, die wie eine Einladung aussehen („leider können wir Sie nicht
 # zu einem Gespräch einladen").
 _NEGATION = [
-    rf"nicht .{{0,40}}(?:einladen|einen termin)",
+    r"nicht .{0,40}(?:einladen|einen termin)",
     r"(?:kein|keinen) (?:termin|gespraechstermin|interviewtermin)",
     rf"nicht zu einem .{{0,30}}(?:{_GESPRAECH}|interview)",
     r"leider .{0,60}(?:kein|keinen) .{0,25}termin",

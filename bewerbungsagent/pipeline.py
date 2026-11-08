@@ -1,4 +1,4 @@
-"""Pipeline-Orchestrierung: Suche → Matching → Dokumente → Dashboard."""
+"""Pipeline-Orchestrierung: die Schritte aus ``schritte.py`` als Funktionen."""
 
 from __future__ import annotations
 
@@ -7,10 +7,19 @@ import re
 from pathlib import Path
 
 from .auswahl import (
+    DEFAULT_ABGELAUFEN_NACH_TAGEN,
     DEFAULT_COMMUTE_GRACE_MIN,
     DEFAULT_MAX_AUTO_PER_WEEK,
     DEFAULT_MAX_OFFEN_PRO_FIRMA,
+    TEXT_FEHLT_TAGE,
+    TEXT_NACHLADEN_TAGE,
     apply_limits,
+    juenger_als,
+    ohne_text,
+    rollentreffer_ohne_text,
+    stelle_offen,
+    stille_rollentreffer,
+    text_fehlt_titel_passt,
     within_commute_grace,
 )
 from .commute import (
@@ -21,7 +30,20 @@ from .commute import (
 )
 from .config import AGENT_ROOT, Config
 from .dashboard import build_dashboard, dashboard_applications, documented_applications
-from .db import USER_DELETE_REASON, Store
+from .db import (
+    DELETE_FIT,
+    DELETE_NUTZER,
+    DELETE_PENDEL,
+    DELETE_RESEARCH,
+    DELETE_SONSTIG,
+    DELETE_STUDENT,
+    DELETE_TECHNIKER,
+    RESEARCH_REASON_PREFIX,
+    Store,
+    delete_code_aus_text,
+    hebe_loeschung_auf,
+    markiere_geloescht,
+)
 from .dimensions import score_dimensions
 from .documents import (
     DEFAULT_CV_TEMPLATE,
@@ -34,10 +56,13 @@ from .importer import import_old_dashboard
 from .industry import classify_industry
 from .matching import fit_value, has_role_signal, is_student_role, is_technician_role, match_jobs
 from .profile import Profile, normalize
-from .provider_health import DEFAULT_MAX_FAILURES, record
-from .quality import check_application
+from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
+from .quality import check_application, run_quality
 from .salary import enrich_salary
+from .schritte import FETCH_LIMIT, SCHRITT_NAMEN, fuehre_aus
+from .search import resolve_mail_leads
 from .search import run_search as _search
+from .search.manual import MAIL_LEAD, lead_passt
 from .statuses import normalize_status
 from .storage import load_json, now_iso, save_json
 
@@ -107,6 +132,9 @@ def load_config_and_profile(config_path: Path | None = None):
 
 
 def _job_key(job: dict) -> str:
+    # Ein Mail-Lead behält nach dem Finden der URL seinen Bestandsschlüssel.
+    if job.get("bestand_key"):
+        return job["bestand_key"]
     url = normalize(job.get("url", ""))
     if url:
         return url
@@ -226,17 +254,68 @@ def _dimensionen_blockieren(config: Config, dims: dict) -> bool:
 # Schritte
 # --------------------------------------------------------------------------
 
-def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
-    store = _store(config)
-    health = store.get_meta("provider_health") or {}
-    stats: dict = {}
-    jobs, errors, triage_rejected = _search(config, profile, definition,
-                                            health=health, stats=stats)
+def _retry_hours(config: Config) -> float:
+    cfg = (config.data.get("search") or {}).get("provider_health") or {}
+    value = cfg.get("retry_hours")
+    return DEFAULT_RETRY_HOURS if value is None else float(value)
+
+
+def _quellen_verbuchen(config: Config, store: Store, health: dict, stats: dict,
+                       jetzt: str) -> dict:
+    """Schreibt die Historie der Quellen und der ATS-Boards eines Laufs fort."""
     max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
                        .get("max_failures") or DEFAULT_MAX_FAILURES)
-    health = record(health, stats, now=now_iso(), max_failures=max_failures)
+    health = record(health, stats, now=jetzt, max_failures=max_failures)
     store.set_meta("provider_health", health)
-    jobs = _preserve_descriptions(jobs, store.load_state())
+    boards = (stats.get("ats") or {}).get("boards")
+    if boards:
+        store.set_meta("board_health", record(store.get_meta("board_health") or {}, boards,
+                                              now=jetzt, max_failures=None))
+    return health
+
+
+def _als_gesehen_stempeln(jobs: list[dict], jetzt: str) -> None:
+    """Hält in ``jobs.json`` fest, wann die Suche eine Stelle wirklich sah.
+
+    ``run_match`` läuft auch ohne neue Suche auf derselben Datei. Ein Stempel erst
+    beim Matching ließe jede Stelle aus einem alten Stand frisch aussehen.
+    """
+    for job in jobs:
+        job["zuletzt_gesehen"] = jetzt
+
+
+def _urls_mit_text(state: dict) -> set[str]:
+    """Anzeigen, deren Text schon im Bestand liegt: Provider laden sie nicht erneut."""
+    return {a["url"] for a in state.get("applications", [])
+            if a.get("url") and (a.get("beschreibung") or "").strip()}
+
+
+def _bekannt_kwargs(state: dict) -> dict:
+    bekannt = _urls_mit_text(state)
+    return {"known_urls": bekannt} if bekannt else {}
+
+
+def run_search(config: Config, profile: Profile, definition: dict | None = None) -> dict:
+    """Führt eine Suche aus.
+
+    Ohne ``definition`` laufen alle Tageslauf-Suchen (Standard plus
+    ``"daily": true``). Sonst bliebe eine als täglich markierte Suche in
+    ``jobwatch`` und ``agent.py ablauf`` wirkungslos, die beide hier einsteigen.
+    """
+    if definition is None:
+        return run_searches(config, profile)
+    store = _store(config)
+    jetzt = now_iso()
+    health = release_due(store.get_meta("provider_health") or {}, now=jetzt,
+                         retry_hours=_retry_hours(config))
+    stats: dict = {}
+    bestand = store.load_state()
+    jobs, errors, triage_rejected = _search(config, profile, definition,
+                                            health=health, stats=stats,
+                                            **_bekannt_kwargs(bestand))
+    health = _quellen_verbuchen(config, store, health, stats, now_iso())
+    jobs = _preserve_descriptions(jobs, bestand)
+    _als_gesehen_stempeln(jobs, jetzt)
     save_json(config.jobs_path(), jobs)
     context = _enrich_job_context(config, jobs)
     return {
@@ -271,15 +350,23 @@ def run_searches(config: Config, profile: Profile) -> dict:
     eigenen Begriffe, Provider und Board-Auswahl.
     """
     store = _store(config)
-    health = store.get_meta("provider_health") or {}
+    jetzt = now_iso()
+    health = release_due(store.get_meta("provider_health") or {}, now=jetzt,
+                         retry_hours=_retry_hours(config))
     stats: dict = {}
     alle: list[dict] = []
     gesehen: set[str] = set()
     fehler: list[str] = []
     triage = 0
     definitionen = _tageslauf_definitionen(config)
+    bestand = store.load_state()
+    bekannt = _bekannt_kwargs(bestand)
+    # Vor der Suche: Gefundene URLs laufen im selben Tageslauf durch Fetch und Match.
+    leads = resolve_mail_leads(config, health)
+    fehler.extend(leads["fehler"])
     for name, definition in definitionen:
-        jobs, errs, tri = _search(config, profile, definition, health=health, stats=stats)
+        jobs, errs, tri = _search(config, profile, definition, health=health, stats=stats,
+                                  **bekannt)
         triage += tri
         fehler.extend(f"{name}: {e}" for e in errs)
         for job in jobs:
@@ -290,22 +377,89 @@ def run_searches(config: Config, profile: Profile) -> dict:
                 gesehen.add(key)
             alle.append(job)
 
-    max_failures = int(((config.data.get("search") or {}).get("provider_health") or {})
-                       .get("max_failures") or DEFAULT_MAX_FAILURES)
-    health = record(health, stats, now=now_iso(), max_failures=max_failures)
-    store.set_meta("provider_health", health)
+    health = _quellen_verbuchen(config, store, health, stats, now_iso())
 
+    gefunden = len(alle)
+    alle.extend(_textluecken(bestand, alle))
     for i, job in enumerate(alle, start=1):
         job["id"] = i
-    alle = _preserve_descriptions(alle, store.load_state())
+    alle = _preserve_descriptions(alle, bestand)
+    # Nachgeladene Textlücken hat die Suche nicht gesehen.
+    _als_gesehen_stempeln(alle[:gefunden], jetzt)
     save_json(config.jobs_path(), alle)
     context = _enrich_job_context(config, alle)
     return {
-        "count": len(alle), "errors": fehler, "path": str(config.jobs_path()),
+        "count": gefunden, "errors": fehler, "path": str(config.jobs_path()),
         "context": context, "triage_rejected": triage,
         "provider_stats": stats, "provider_health": health,
         "searches": [name for name, _ in definitionen],
+        "textluecken": len(alle) - gefunden, "leads": leads,
     }
+
+
+def _textluecken(state: dict, jobs: list[dict]) -> list[dict]:
+    """Bestandsstellen ohne Text, die der nächste ``fetch`` noch retten kann.
+
+    ``fetch`` und ``match`` arbeiten nur auf ``jobs.json``, also auf dem letzten
+    Suchlauf. Eine Stelle, die dort fehlt, behielt ihren Titel-Fit für immer: Von
+    29 ausgeblendeten Rollentreffern mit URL standen am 07.11.2026 nur einer in
+    ``jobs.json``, 21 lieferten beim Direktaufruf noch Text, einer davon mit 100 %.
+    Sie laufen deshalb einmal mit, bis Text da ist oder die Anzeige als abgelaufen
+    gilt. Nutzerentscheidungen und abgeschlossene Vorgänge bleiben unberührt.
+    """
+    vorhanden = {_job_key(j) for j in jobs}
+    luecken = []
+    for app in state.get("applications") or []:
+        key = app.get("key")
+        if (not app.get("url") or key in vorhanden or _job_key(app) != key
+                or app.get("status") in _HISTORISCHE_STATUS
+                or _vom_nutzer_geloescht(app)
+                or not rollentreffer_ohne_text(app)
+                or not juenger_als(app, TEXT_NACHLADEN_TAGE)):
+            continue
+        luecken.append({f: app.get(f) or "" for f in ("titel", "firma", "ort", "url", "quelle",
+                                                      "snippet", "branche", "branche_quelle")})
+    return luecken
+
+
+def _vom_nutzer_geloescht(app: dict) -> bool:
+    """Im Dashboard gelöscht: eine Entscheidung, die kein Lauf zurücknimmt."""
+    code = app.get("deleted_code") or delete_code_aus_text(app.get("deleted_reason"))
+    return code == DELETE_NUTZER
+
+
+def _grund_unter_ausblendgrenze(app: dict) -> str:
+    """Ausblendgrund unter ``FIT_BAND_AUSBLENDEN``: sagt, warum der Fit fehlt (ADR-055)."""
+    if ohne_text(app) and app.get("verfuegbar") is False:
+        return "Anzeige abgelaufen (ohne Text)"
+    if rollentreffer_ohne_text(app):
+        return f"Text fehlt seit über {TEXT_FEHLT_TAGE} Tagen"
+    return f"FIT < {FIT_BAND_AUSBLENDEN} %"
+
+
+def _lead_dubletten(apps: list[dict]) -> int:
+    """Blendet Mail-Leads aus, deren Anzeige mit Text schon im Bestand liegt.
+
+    Am 07.11.2026 standen so zwei Leads ohne Text neben ihrer bewerteten Anzeige
+    (Panasonic bei StepStone mit 58 %, Software Engineering bei XING mit 62 %).
+    Der Abgleich ist derselbe wie bei der URL-Suche (``manual.lead_passt``).
+    """
+    mit_text = [a for a in apps if a.get("quelle") != MAIL_LEAD and not ohne_text(a)
+                and not _vom_nutzer_geloescht(a)]
+    n = 0
+    for lead in apps:
+        if (lead.get("quelle") != MAIL_LEAD or not ohne_text(lead) or lead.get("dokumente")
+                or lead.get("status") in _HISTORISCHE_STATUS or _vom_nutzer_geloescht(lead)
+                or str(lead.get("deleted_reason") or "").startswith("Dublette")):
+            continue
+        treffer = next((a for a in mit_text if lead_passt(lead, a)), None)
+        if treffer:
+            markiere_geloescht(lead, DELETE_SONSTIG,
+                               f"Dublette: dieselbe Stelle wie {treffer.get('firma')} "
+                               f"({treffer.get('quelle') or 'Bestand'})")
+            lead.pop("text_fehlt", None)
+            n += 1
+    return n
 
 
 def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
@@ -342,6 +496,17 @@ def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
     if restored:
         print(f"Anzeigentexte aus dem Bestand übernommen: {restored} Stelle(n).")
     return jobs
+
+
+def run_fetch(config: Config, *, nur_unsure: bool = False) -> dict:
+    """Lädt fehlende Anzeigentexte per Browser nach (höchstens ``FETCH_LIMIT``).
+
+    Der Import steht hier, weil ``fetch_descriptions`` Playwright braucht: Fehlt
+    es, scheitert nur dieser optionale Schritt.
+    """
+    from fetch_descriptions import fetch_descriptions
+
+    return fetch_descriptions(config, limit=FETCH_LIMIT, only_unsure=nur_unsure)
 
 
 def letzter_fund_meta(config: Config) -> dict:
@@ -449,10 +614,6 @@ def _company_key_fn(config: Config):
     return lambda name: _company_key(name, aliases)
 
 
-# Kennung am ``deleted_reason``: erkennbar und bei jedem Lauf neu bewertbar.
-RESEARCH_REASON_PREFIX = "research-kriterium"
-
-
 def _research_filter_settings(config: Config) -> dict | None:
     """Einstellungen des Research-Filters oder ``None`` bei ``enabled: false``.
 
@@ -513,10 +674,9 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
     limit = _commute_limit_minutes(config)
     kept = removed = restored = 0
     for a in apps:
-        if normalize_status(a.get("status")) != "research":
+        if normalize_status(a.get("status")) != "research" or a.get("text_fehlt"):
             continue
-        reason = (a.get("deleted_reason") or "")
-        is_filtered = reason.lower().startswith(RESEARCH_REASON_PREFIX)
+        is_filtered = a.get("deleted_code") == DELETE_RESEARCH
 
         # Oberhalb des Research-Fensters ist ein Fund kein Research-Fall mehr,
         # sondern ein Dokumenten-Kandidat. Der Filter löscht ihn also nicht,
@@ -526,8 +686,7 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
             if _commute_blocked(config, a):
                 continue  # Pendelweg bleibt harte Grenze
             if a.get("deleted") and is_filtered:
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored += 1
             continue
 
@@ -536,15 +695,13 @@ def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
             kept += 1
             if a.get("deleted") and is_filtered:
                 # Grund gilt nicht mehr (Fit/Pendelweg haben sich geändert).
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored += 1
         elif not a.get("deleted"):
-            a["deleted"] = True
-            a["deleted_reason"] = (
+            markiere_geloescht(a, DELETE_RESEARCH, (
                 f"{RESEARCH_REASON_PREFIX}: Fit {settings['fit_min']}–{settings['fit_max']} % "
                 f"oder Pendelweg ≤ {limit + settings['commute_grace_min']} min nötig"
-            )
+            ))
             removed += 1
     return {"enabled": True, "kept": kept, "removed": removed, "restored": restored}
 
@@ -567,11 +724,16 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     # ausdrücklicher Wunsch und erzeugt weiter neu.
     bereits_dokumentiert: set[str] = set()
     ko_blockiert: dict[str, str] = {}
+    gesperrt: set[str] = set()
+    bekannte_keys: set[str] = set()
     if job_ids is None:
         for a in _store(config).load_state().get("applications", []):
             key = a.get("key") or _job_key(a)
             if not key:
                 continue
+            bekannte_keys.add(key)
+            if a.get("deleted") or a.get("status") in _HISTORISCHE_STATUS:
+                gesperrt.add(key)
             if a.get("dokumente"):
                 bereits_dokumentiert.add(key)
             # Harte K.O.-Kriterien aus der mehrdimensionalen Bewertung (P0a).
@@ -589,10 +751,20 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     skipped_existing = []
     skipped_role = []
     skipped_ko = []
+    skipped_bestand = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
         if m.get("verfuegbar") is False:
             continue
+        # ``matches.json`` enthält auch, was ``_merge_state`` als Dublette einer
+        # anderen Börse verworfen hat, sowie gelöschte und abgeschlossene Stellen.
+        # Solche Treffer haben keinen eigenen offenen Eintrag: Der Mengenlauf
+        # überschrieb sonst den Ordner einer bereits versendeten Bewerbung.
+        if job_ids is None and bekannte_keys:
+            key = m.get("key") or _job_key(m)
+            if key not in bekannte_keys or key in gesperrt:
+                skipped_bestand.append(m)
+                continue
         # Studenten-/Praktikumsstellen werden nie bedient.
         if is_student_role(m.get("titel")):
             skipped_student.append(m)
@@ -640,11 +812,15 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
             max_per_week=max_woche, max_per_company=max_firma)
 
     created = []
+    fehlgeschlagen: list[dict] = []
     for job in selected:
-        created.extend(_generate_one(config, profile, job, template=template,
-                                     auto=job_ids is None))
+        created.extend(_generate_sicher(config, profile, job, fehlgeschlagen,
+                                        template=template, auto=job_ids is None))
+    if created:
+        _store(config).export_json(config.state_path())
 
     return {"generated": created, "jobs_processed": len(selected),
+            "failed": fehlgeschlagen, "skipped_bestand": len(skipped_bestand),
             "skipped_budget": skipped_budget, "skipped_firma": skipped_firma,
             "skipped_commute": skipped_commute, "skipped_student": skipped_student,
             "skipped_technician": skipped_technician, "skipped_ko": skipped_ko,
@@ -670,8 +846,10 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     state = store.load_state()
     apps = state.get("applications", [])
 
-    # 1) Pendelweg
-    commute_stats = enrich_commute(apps, config.data_dir, *_commute_settings(config))
+    # 1) Pendelweg. Ausgeblendete Stellen behalten ihren gespeicherten Wert; die
+    #    Neubewertung unten braucht keine frische Abfrage.
+    offen = [a for a in apps if not a.get("deleted") or not a.get("pendel_modus")]
+    commute_stats = enrich_commute(offen, config.data_dir, *_commute_settings(config))
 
     # 1b) Homeoffice-Anteil aus der Beschreibung (falls noch nicht gesetzt).
     for a in apps:
@@ -713,6 +891,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     #       Wunsch), sie sind also kein Suchrauschen. Der Pendelweg-Ausschluss
     #       gilt weiterhin, weil er eine harte Vorgabe ist.
     _ACTIVE_STATUSES = {"sent", "followup", "interview", "rejected"}
+    still_vorher = stille_rollentreffer(apps)
+    lead_dubletten = _lead_dubletten(apps)
+    text_fehlt = 0
     deleted_count = 0
     deleted_commute = 0
     deleted_student = 0
@@ -721,9 +902,11 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     restored_reason = 0
     restored_active = 0
     for a in apps:
+        # Der Prüffall wird in jedem Lauf neu abgeleitet (ADR-055).
+        a.pop("text_fehlt", None)
         # Im Dashboard gelöscht: das ist eine Entscheidung des Nutzers, keine
         # ableitbare Bewertung. Der Lauf darf sie nicht wieder einblenden.
-        if str(a.get("deleted_reason") or "").lower().startswith(USER_DELETE_REASON):
+        if a.get("deleted_code") == DELETE_NUTZER:
             continue
         # Harte Ausschlussregel (oberste Priorität): Studenten-/Praktikums-/
         # Ausbildungsstellen sind für einen Vollzeit-Ingenieur kategorisch
@@ -731,8 +914,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         # Unterlagen. Auch ein abgeschlossener „rejected“-Eintrag ist hier
         # kein wertvoller Verlauf, sondern fehladressiertes Rauschen.
         if is_student_role(a.get("titel")):
-            a["deleted"] = True
-            a["deleted_reason"] = "Studenten-/Praktikumsstelle (keine Vollzeit-Ingenieurrolle)"
+            markiere_geloescht(a, DELETE_STUDENT,
+                               "Studenten-/Praktikumsstelle (keine Vollzeit-Ingenieurrolle)")
             deleted_student += 1
             continue
         if a.get("status") in _ACTIVE_STATUSES:
@@ -742,8 +925,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             # 3 verschickte Bewerbungen (u. a. AIRBUS mit 78 %) waren dadurch
             # im Dashboard unsichtbar.
             if a.get("deleted"):
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored_active += 1
             continue
         # Techniker-/Facharbeiterrollen sind keine Ingenieursstellen. Der Check
@@ -751,9 +933,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         # Bewerbung auf eine Technikerstelle ist echter Verlauf und bleibt
         # sichtbar (z. B. „Test System Technician", rejected).
         if is_technician_role(a.get("titel")):
-            if not a.get("deleted") or not str(a.get("deleted_reason") or "").startswith("Technikerrolle"):
-                a["deleted"] = True
-                a["deleted_reason"] = "Technikerrolle (keine Ingenieursstelle)"
+            if not a.get("deleted") or a.get("deleted_code") != DELETE_TECHNIKER:
+                markiere_geloescht(a, DELETE_TECHNIKER, "Technikerrolle (keine Ingenieursstelle)")
                 deleted_technician += 1
             continue
         if a.get("deleted"):
@@ -784,26 +965,24 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                 and normalize_status(a.get("status")) == "research"
                 and _fit_value(a) < research["fit_min"]
             ):
-                a.pop("deleted", None)
-                a.pop("deleted_reason", None)
+                hebe_loeschung_auf(a)
                 restored_documented += 1
                 continue
-            reason = (a.get("deleted_reason") or "").strip()
-            low = reason.lower()
-            # Vom Nutzer gesetzte Kriterien bleiben unangetastet — sie sind eine
-            # bewusste Entscheidung, kein ableitbarer Zustand.
-            if not reason or "nutzerkriterium" in low or "neubewertung" in low:
-                continue
-            if low.startswith("fit"):
-                if _fit_value(a) < FIT_BAND_AUSBLENDEN:
+            # Neu bewertet werden nur Fit und Pendelweg. Alles andere ist eine
+            # bewusste Entscheidung, kein ableitbarer Zustand; den Research-Filter
+            # bewertet ``_apply_research_filter`` selbst.
+            code = a.get("deleted_code")
+            if code == DELETE_FIT:
+                if _fit_value(a) < FIT_BAND_AUSBLENDEN and not text_fehlt_titel_passt(a):
+                    a["deleted_reason"] = _grund_unter_ausblendgrenze(a)
                     continue                 # Grund gilt weiter
-            elif low.startswith("pendel"):
-                pass                         # Pendelweg ist oben schon geprüft
-            else:
-                continue                     # z. B. Rollen-Ausschluss — bewusst
-            a.pop("deleted", None)
-            a.pop("deleted_reason", None)
+            elif code != DELETE_PENDEL:      # Pendelweg ist oben schon geprüft
+                continue
+            hebe_loeschung_auf(a)
             restored_reason += 1
+            if _fit_value(a) < FIT_BAND_AUSBLENDEN:
+                a["text_fehlt"] = True       # Prüffall „Text fehlt, Titel passt"
+                text_fehlt += 1
             continue
         if _commute_grace(config, a):
             # Knapp über der Grenze, aber starker Treffer: bleibt als Research
@@ -812,13 +991,18 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         else:
             a.pop("pendel_knapp", None)
             if _commute_blocked(config, a):
-                a["deleted"] = True
-                a["deleted_reason"] = f"Pendelweg > {_commute_limit_minutes(config)} min"
+                markiere_geloescht(a, DELETE_PENDEL,
+                                   f"Pendelweg > {_commute_limit_minutes(config)} min")
                 deleted_commute += 1
                 continue
         if _fit_value(a) < FIT_BAND_AUSBLENDEN and not a.get("dokumente"):
-            a["deleted"] = True
-            a["deleted_reason"] = f"FIT < {FIT_BAND_AUSBLENDEN} %"
+            # Ohne Text kann ein Rollentreffer die 50 % nicht erreichen (ADR-055).
+            # Er bleibt als Prüffall sichtbar, statt still zu verschwinden.
+            if text_fehlt_titel_passt(a):
+                a["text_fehlt"] = True
+                text_fehlt += 1
+                continue
+            markiere_geloescht(a, DELETE_FIT, _grund_unter_ausblendgrenze(a))
             deleted_count += 1
 
     # 4b) Research-Pool begrenzen: nur Funde im Fit-Fenster, mit sehr hohem Fit
@@ -852,9 +1036,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         # als „Research“ im Dashboard (ADR-036).
         research = _research_filter_settings(config)
         if research and _fit_value(a) < research["fit_min"]:
-            a["deleted"] = True
-            a["deleted_reason"] = (f"{RESEARCH_REASON_PREFIX}: FIT {int(_fit_value(a))} "
-                                   f"< {research['fit_min']} %")
+            markiere_geloescht(a, DELETE_RESEARCH,
+                               f"{RESEARCH_REASON_PREFIX}: FIT {int(_fit_value(a))} "
+                               f"< {research['fit_min']} %")
         zurueckgenommen.append({"firma": a.get("firma"), "titel": a.get("titel"),
                                 "fit": _fit_value(a)})
 
@@ -863,7 +1047,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     skipped_role = []
     kandidaten = []
     for a in apps:
-        if a.get("deleted"):
+        if a.get("deleted") or a.get("status") in _HISTORISCHE_STATUS:
             continue
         if a.get("verfuegbar") is False:
             continue
@@ -889,10 +1073,12 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     kandidaten, ueber_budget, ueber_firma = apply_limits(
         kandidaten, apps, company_key=_company_key_fn(config),
         max_per_week=max_woche, max_per_company=max_firma)
+    fehlgeschlagen: list[dict] = []
     for a in kandidaten:
-        a["unterlagen_erzeugt_am"] = now_iso()
-        for created in _generate_one(config, profile, a, auto=True):
+        for created in _generate_sicher(config, profile, a, fehlgeschlagen, auto=True):
             generated.append(created)
+            # Erst nach Erfolg: ein Fehlversuch zählt nicht gegen das Wochenbudget.
+            a["unterlagen_erzeugt_am"] = now_iso()
             # Dokument-Referenzen direkt in den In-Memory-Zustand übernehmen,
             # damit sie nicht durch den finalen ``_persist_state`` verloren gehen.
             a["dokumente"] = {**a.get("dokumente", {}), **created["dokumente"]}
@@ -912,6 +1098,9 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "dimensionen_ko": dim_blockiert,
         "research_checked": research_checked,
         "deleted_fit_under_50": deleted_count,
+        "text_fehlt": text_fehlt,
+        "lead_dubletten": lead_dubletten,
+        "stille_rollentreffer": {"vorher": still_vorher, "nachher": stille_rollentreffer(apps)},
         "deleted_commute": deleted_commute,
         "deleted_student": deleted_student,
         "deleted_technician": deleted_technician,
@@ -921,6 +1110,7 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "research_filter": research_stats,
         "generated": generated,
         "generated_count": len(generated),
+        "failed": fehlgeschlagen,
         "skipped_role": skipped_role,
         "skipped_budget": [{"firma": a.get("firma"), "titel": a.get("titel"),
                             "fit": _fit_value(a)} for a in ueber_budget],
@@ -949,13 +1139,31 @@ def run_import_old(config: Config) -> dict:
     return {"imported": len(apps), "total": len(merged)}
 
 
+def abgelaufen_kwargs(config: Config) -> dict:
+    """Grundlage für „vermutlich abgelaufen“ in Dashboard und ``shortlist``."""
+    store = _store(config)
+    tage = (config.data.get("search") or {}).get("abgelaufen_nach_tagen")
+    return {
+        "quellen": {"provider": store.get_meta("provider_health") or {},
+                    "boards": store.get_meta("board_health") or {}},
+        "abgelaufen_tage": DEFAULT_ABGELAUFEN_NACH_TAGEN if tage is None else int(tage),
+    }
+
+
+def dashboard_kwargs(config: Config) -> dict:
+    """Konfigurierte Dashboard-Optionen für ``agent.py dashboard`` und den Server."""
+    return {
+        "followup_days": int((config.data.get("followup") or {}).get("after_days")
+                             or DEFAULT_AFTER_DAYS),
+        "min_fit": _dashboard_min_fit(config),
+        **abgelaufen_kwargs(config),
+    }
+
+
 def run_dashboard(config: Config) -> dict:
     state = _store(config).load_state()
     path = build_dashboard(state, config.dashboard_path, _commute_limit_minutes(config),
-                           letzter_fund_meta(config),
-                           followup_days=int((config.data.get("followup") or {}).get("after_days")
-                                             or DEFAULT_AFTER_DAYS),
-                           min_fit=_dashboard_min_fit(config))
+                           letzter_fund_meta(config), **dashboard_kwargs(config))
     all_applications = state.get("applications", [])
     documented = documented_applications(all_applications)
     applications = dashboard_applications(all_applications, _commute_limit_minutes(config))
@@ -987,11 +1195,27 @@ def run_dashboard(config: Config) -> dict:
 
 
 def run_full(config: Config, profile: Profile) -> dict:
-    s = run_searches(config, profile)
-    m = run_match(config, profile)
-    g = run_generate(config, profile)
-    d = run_dashboard(config)
-    return {"search": s, "match": m["matched"], "generated": g["generated"], "dashboard": d}
+    """Führt alle Schritte aus ``schritte.SCHRITTE`` nacheinander aus.
+
+    Dieselbe Folge wie der Graph, nur ohne dessen Verzweigung. ``fetch`` lädt hier
+    alle fehlenden Texte: ohne sie bewertet ``match`` nur den Titel (ADR-050).
+    """
+    aufrufe = {
+        "search": lambda: run_search(config, profile),
+        "fetch": lambda: run_fetch(config),
+        "match": lambda: run_match(config, profile),
+        "enrich": lambda: run_enrich(config, profile),
+        "generate": lambda: run_generate(config, profile),
+        "quality": lambda: run_quality(config),
+        "dashboard": lambda: run_dashboard(config),
+    }
+    fehler: dict[str, str] = {}
+    r = {name: fuehre_aus(name, aufrufe[name], fehler) for name in SCHRITT_NAMEN}
+    return {"search": r["search"], "fetch": r["fetch"], "match": r["match"]["matched"],
+            "enrich": r["enrich"],
+            "generated": [*r["enrich"]["generated"], *r["generate"]["generated"]],
+            "failed": [*r["enrich"]["failed"], *r["generate"]["failed"]],
+            "quality": r["quality"], "dashboard": r["dashboard"], "fehler": fehler}
 
 
 # --------------------------------------------------------------------------
@@ -1019,6 +1243,13 @@ def _merge_state(existing: dict, matches: list[dict],
                  synonyms: dict | None = None) -> dict:
     apps = existing.get("applications", []) if isinstance(existing, dict) else []
     by_key = {a.get("key"): a for a in apps if a.get("key")}
+    jetzt = now_iso()
+
+    def gesehen(app: dict, treffer: dict) -> None:
+        # Zählt auch für beworbene Stellen: Das Feld gehört nicht zu Status und
+        # Bewertung, die ADR-039 einfriert.
+        app["zuletzt_gesehen"] = treffer.get("zuletzt_gesehen") or jetzt
+
     # Felder, die aus dem Matching-Ergebnis übernommen werden.
     # Wichtig: ``score_job()`` liefert nur Scoring-Felder plus die Kopie des Job-
     # Datensatzes. Fehlt ein Feld dort (z. B. ``verfuegbar``, weil jobs.json
@@ -1040,12 +1271,18 @@ def _merge_state(existing: dict, matches: list[dict],
     # URL erneut gefunden wird, darf keine zweite Bewerbung erzeugen — sonst
     # entstehen zwei Ordner und im schlimmsten Fall zwei Bewerbungen auf
     # dieselbe Stelle.
-    vorhandene_identitaet = {_identity(a, aliases, synonyms) for a in apps if a.get("key")}
+    vorhandene_identitaet: dict[tuple, list[dict]] = {}
+    for a in apps:
+        if a.get("key"):
+            vorhandene_identitaet.setdefault(_identity(a, aliases, synonyms), []).append(a)
     # Bereits beworbene Rollen: gleiche Firma + gleicher Titel gilt als dieselbe
     # Stelle, auch wenn eine Börse sie unter mehreren Orten führt (Glassdoor
     # listet dieselbe Anzeige für München, Dachau und Freising).
-    beworben = {(_company_key(a.get("firma"), aliases), _title_key(a.get("titel"), synonyms))
-                for a in apps if a.get("status") in ("sent", "followup", "interview")}
+    beworben: dict[tuple, list[dict]] = {}
+    for a in apps:
+        if a.get("status") in ("sent", "followup", "interview"):
+            rolle = (_company_key(a.get("firma"), aliases), _title_key(a.get("titel"), synonyms))
+            beworben.setdefault(rolle, []).append(a)
     for m in matches:
         key = m["key"]
         if key in by_key:
@@ -1056,18 +1293,29 @@ def _merge_state(existing: dict, matches: list[dict],
                     if historisch and f in _SCORE_FELDER:
                         continue
                     old[f] = m[f]
+            # Mail-Leads kommen ohne URL und Ort. Eine gefundene Anzeige füllt die Lücke.
+            for f in ("url", "ort"):
+                if m.get(f) and not old.get(f):
+                    old[f] = m[f]
             old.setdefault("status", "research")
             old.setdefault("dokumente", {})
             old.setdefault("created", now_iso())
+            gesehen(old, m)
             _flag_far_commute(old, limit)
             result.append(old)
         else:
             ident = _identity(m, aliases, synonyms)
-            if ident in vorhandene_identitaet or (ident[0], ident[1]) in beworben:
+            gleiche = [*vorhandene_identitaet.get(ident, []),
+                       *beworben.get((ident[0], ident[1]), [])]
+            if gleiche:
                 # Dieselbe Stelle, andere Quelle: der bestehende Eintrag
                 # dokumentiert den Vorgang (Status, Unterlagen, Notizen) und
-                # bleibt unangetastet.
+                # bleibt unangetastet. Nur ``zuletzt_gesehen`` rückt vor, sonst
+                # gälte er als vermisst, obwohl die Stelle gerade gefunden wurde.
+                for vorhanden in gleiche:
+                    gesehen(vorhanden, m)
                 continue
+            gesehen(m, m)
             m.setdefault("status", "research")
             m.setdefault("dokumente", {})
             m.setdefault("created", now_iso())
@@ -1075,12 +1323,16 @@ def _merge_state(existing: dict, matches: list[dict],
             # Neue Stellen mit zu weitem Pendelweg gar nicht erst anlegen.
             _flag_far_commute(m, limit)
             result.append(m)
-            vorhandene_identitaet.add(ident)
+            vorhandene_identitaet.setdefault(ident, []).append(m)
         seen.add(key)
 
     # Bereits erfasste, aber aktuell nicht mehr gefundene Stellen behalten.
     for a in apps:
         if a.get("key") not in seen:
+            # Altbestand ohne Feld: Seit wann er fehlt, ist unbekannt. Die Frist
+            # beginnt deshalb hier; ``created`` meldete sonst am ersten Tag alles.
+            if stelle_offen(a):
+                a.setdefault("zuletzt_gesehen", jetzt)
             result.append(a)
 
     # ``id`` wird bei jedem Match-Lauf neu vergeben (1..n) und kollidierte
@@ -1110,9 +1362,23 @@ def _flag_far_commute(app: dict, limit: int) -> bool:
         return False
     if not exceeds_commute_limit(app, limit=limit):
         return False
-    app["deleted"] = True
-    app["deleted_reason"] = f"Pendelweg > {limit} min"
+    markiere_geloescht(app, DELETE_PENDEL, f"Pendelweg > {limit} min")
     return True
+
+
+def _generate_sicher(config: Config, profile: Profile, job: dict, fehlgeschlagen: list[dict],
+                     template: str | None = None, auto: bool = False) -> list[dict]:
+    """Wie ``_generate_one``, aber eine defekte Stelle stoppt den Lauf nicht.
+
+    Ein gesperrtes PDF auf dem Sync-Laufwerk oder ein LibreOffice-Fehler brach
+    sonst ``run_enrich`` ab, bevor dessen Bereinigung gespeichert war.
+    """
+    try:
+        return _generate_one(config, profile, job, template=template, auto=auto)
+    except Exception as exc:
+        fehlgeschlagen.append({"firma": job.get("firma"), "titel": job.get("titel"),
+                               "fehler": f"{type(exc).__name__}: {exc}"})
+        return []
 
 
 def _generate_one(config: Config, profile: Profile, job: dict, template: str | None = None,
@@ -1198,18 +1464,15 @@ def _rel(path: Path) -> str:
 
 def _record_docs(config: Config, job: dict, files: dict,
                  qualitaet: dict | None = None, auto: bool = False) -> None:
-    store = _store(config)
-    state = store.load_state()
-    key = job.get("key") or _job_key(job)
-    for a in state.get("applications", []):
-        if a.get("key") == key:
-            a["dokumente"] = {**a.get("dokumente", {}), **files}
-            if qualitaet is not None:
-                a["qualitaet"] = qualitaet
-            if auto:
-                # Zählt gegen das Wochenbudget (``auswahl.auto_docs_last_days``).
-                a["unterlagen_erzeugt_am"] = now_iso()
-            if a.get("status") in (None, "research", "neu"):
-                a["status"] = "docs"
-            break
-    _persist_state(config, store, state)
+    """Schreibt die Unterlagen nur in den betroffenen Eintrag."""
+    def eintragen(a: dict) -> None:
+        a["dokumente"] = {**(a.get("dokumente") or {}), **files}
+        if qualitaet is not None:
+            a["qualitaet"] = qualitaet
+        if auto:
+            # Zählt gegen das Wochenbudget (``auswahl.auto_docs_last_days``).
+            a["unterlagen_erzeugt_am"] = now_iso()
+        if a.get("status") in (None, "research", "neu"):
+            a["status"] = "docs"
+
+    _store(config).update_app(job.get("key") or _job_key(job), eintragen)

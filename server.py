@@ -44,26 +44,29 @@ except Exception:
     normalize_status = lambda s: _LEGACY.get(s, s if s else "research")  # noqa: E731
 
 try:
-    from bewerbungsagent.config import Config
+    from bewerbungsagent.config import AGENT_ROOT, Config
     from bewerbungsagent.dashboard import build_dashboard
     from bewerbungsagent.db import Store
 except Exception:
     Config = None  # type: ignore[assignment]
     build_dashboard = None  # type: ignore[assignment]
     Store = None  # type: ignore[assignment]
+    AGENT_ROOT = None  # type: ignore[assignment]
 
-# Agent-Root = Ordner, der dieses Skript enthält (04_Agent).
+# Code-Ort: Ordner, der dieses Skript enthält.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Datenordner (04_Agent). Er kann vom Code getrennt liegen (ADR-057).
+DATA_HOME = str(AGENT_ROOT) if AGENT_ROOT is not None else SCRIPT_DIR
 # Server-Root = eine Ebene darüber (der alte Bewerbungsordner 2026/), damit
 # sowohl 01_Bewerbungen/ als auch 04_Agent/output/ erreichbar sind.
-ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+ROOT = os.path.abspath(os.path.join(DATA_HOME, ".."))
 HOST = "127.0.0.1"
 PORT = 8766
 # Das Dashboard liegt seit der Trennung von Code und Ausgabe in ``00_Dashboard``
 # (Ordner für alle Dashboard-Artefakte). Der Code bleibt in ``04_Agent``.
 DASHBOARD_DIR = os.path.join(ROOT, "00_Dashboard")
 DASHBOARD_PATH = "/00_Dashboard/dashboard.html"
-STATE_FILE = os.path.join(SCRIPT_DIR, "data", "state.json")
+STATE_FILE = os.path.join(DATA_HOME, "data", "state.json")
 # SQLite-Datenbank = Single Source of Truth (ADR-018). ``state.json`` bleibt nur
 # als abgeleiteter Snapshot für bisync/Backup bestehen. Der Pfad kommt aus der
 # Config, damit ``BEWERBUNGSAGENT_DB`` (nicht synchronisierte Ablage unter
@@ -74,7 +77,7 @@ def _resolve_db_file() -> str:
             return str(Config().db_path())
         except Exception:
             pass
-    return os.path.join(SCRIPT_DIR, "data", "jobs.db")
+    return os.path.join(DATA_HOME, "data", "jobs.db")
 
 
 DB_FILE = _resolve_db_file()
@@ -94,7 +97,11 @@ ALLOWED_ORIGINS = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}", "null
 MAX_BODY_BYTES = 5 * 1024 * 1024
 # Pfade (relativ zu ROOT, klein geschrieben), die nie statisch ausgeliefert
 # werden: persönliche Konfiguration, Datenbank, Snapshots, Repo-Interna.
-_BLOCKED_PREFIXES = ("04_agent/config", "04_agent/data/", "04_agent/.git", "04_agent/.env")
+# Der Datenordner wird auch unter seinem tatsächlichen Namen gesperrt.
+_DATA_DIRS = sorted({"04_agent", os.path.basename(DATA_HOME).lower()})
+_BLOCKED_PREFIXES = (*(f"{d}/{p}" for d in _DATA_DIRS
+                       for p in ("config", "data/", ".git", ".env")),
+                     "02_profil-und-assets/")
 _BLOCKED_SUFFIXES = (".db", ".db-wal", ".db-shm", ".env", ".bak")
 
 
@@ -262,14 +269,13 @@ def _rebuild_dashboard() -> bytes:
             # das Dashboard mit dem Modul-Standard und ignorierte
             # ``max_pendelzeit_min`` aus der config.json.
             from bewerbungsagent.commute import commute_limit_minutes
-            from bewerbungsagent.pipeline import _dashboard_min_fit, letzter_fund_meta
-            # Sichtbarkeitsschwelle aus der config.json (dashboard.min_fit_visible)
-            # mitgeben: ohne sie baute der Server das Dashboard ohne Fit-Grenze und
-            # überschrieb damit den Stand, den `agent.py dashboard` erzeugt hatte.
+            from bewerbungsagent.pipeline import dashboard_kwargs, letzter_fund_meta
+            # Dieselben Optionen wie ``agent.py dashboard``: Sonst überschreibt
+            # der Server dessen Stand mit abweichenden Grenzen.
             path = _dash.build_dashboard(state, config.dashboard_path,
                                          commute_limit_minutes(config.data),
                                          letzter_fund_meta(config),
-                                         min_fit=_dashboard_min_fit(config))
+                                         **dashboard_kwargs(config))
             with open(path, "rb") as fh:
                 html = fh.read()
         except Exception as exc:

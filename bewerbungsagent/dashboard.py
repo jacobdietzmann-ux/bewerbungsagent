@@ -36,6 +36,7 @@ from .auswahl import DEFAULT_ABGELAUFEN_NACH_TAGEN, neufund_relevant, vermutlich
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
+from .firmenwerte import zufriedenheit
 from .followup import DEFAULT_AFTER_DAYS, days_waiting, is_due
 from .matching import fit_value
 from .profile import normalize
@@ -459,6 +460,7 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         "followupDays": (days_waiting(app) or 0) if is_due(app, after_days=followup_days) else 0,
         "salary": app.get("gehalt", "") or "",
         "salarySource": app.get("gehalt_quelle", "") or "",
+        "salarySat": zufriedenheit(app.get("firma")),
         "commute": app.get("pendelzeit_min"),
         "commuteKm": app.get("pendeldistanz_km"),
         "commuteMode": app.get("pendel_modus", "") or "",
@@ -649,6 +651,11 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   /* Geklemmter Text: clip1 = eine Zeile mit Auslassungspunkten, clip2 = zwei.
      Der volle Inhalt steht jeweils im title-Tooltip. */
   .clip1 { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sat { font-size:11px; margin-top:2px; white-space:nowrap; }
+  .sat-n { opacity:.7; }
+  .sat-hi { color:#1a7f37; }
+  .sat-mid { color:#9a6700; }
+  .sat-lo { color:#cf222e; }
   .clip2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
            overflow:hidden; line-height:1.25; }
   .pos-line { display:flex; align-items:flex-start; gap:5px; min-width:0; }
@@ -1193,6 +1200,13 @@ function qualityBadge(q) {
   return `<span class="micro" style="color:${color};cursor:help"
     title="Qualitätsprüfung ${symbol} ${q.n} Befund(e): ${esc((q.befunde || []).join(' · '))}">${symbol}${q.n}</span>`;
 }
+// Indeed „Gehaltszufriedenheit“: Anteil der Bewerter, die ihre Bezahlung angemessen finden.
+function satLine(s) {
+  if (!s) return "";
+  const cls = s.pct >= 70 ? "sat-hi" : (s.pct >= 50 ? "sat-mid" : "sat-lo");
+  return `<div class="sat ${cls}" title="Indeed: ${s.pct} % von ${s.n} Bewertern finden ihre Bezahlung angemessen">Gehalt ${s.pct} % zufrieden <span class="sat-n">(${s.n})</span></div>`;
+}
+
 function salaryBadge(s, source) {
   if (!s) return '<span class="faint">k. A.</span>';
   const raw = String(s).trim();
@@ -1728,7 +1742,7 @@ function renderRows() {
             : "")
       : "";
     tr.innerHTML = `
-      <td class="c-company" data-label="Unternehmen"><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span></td>
+      <td class="c-company" data-label="Unternehmen"><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span>${satLine(r.salarySat)}</td>
       <td class="c-pos" data-label="Position">
         <div class="pos-line">
           <span class="pos-title clip2" title="${esc(r.position)}">${esc(r.position)}</span>

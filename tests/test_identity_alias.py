@@ -15,6 +15,15 @@ class TestCompanyKey:
         assert _company_key("BWI GmbH") == _company_key("BWI")
         assert _company_key("Quantum-Systems GmbH") == _company_key("Quantum-Systems")
 
+    def test_verklebter_name_mit_rechtsform(self):
+        """Arbeitnow schreibt „Agile Robots SE" als „Agilerobotsse" (10.11.2026)."""
+        assert _company_key("Agilerobotsse") == _company_key("Agile Robots SE")
+        assert _company_key("Agile Robots") == _company_key("Agile Robots SE")
+
+    def test_kurzer_kern_behaelt_seine_endung(self):
+        assert _company_key("Bosse") == "bosse"
+        assert _company_key("Bosse") != _company_key("Bos")
+
     def test_alias_fuehrt_zusammen(self):
         aliases = {"nxp semiconductors": "nxp"}
         assert _company_key("NXP Semiconductors", aliases) == "nxp"

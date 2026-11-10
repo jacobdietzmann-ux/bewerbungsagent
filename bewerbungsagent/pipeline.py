@@ -151,6 +151,13 @@ _ORT_ALIAS = {"munich": "münchen", "muenchen": "münchen", "munchen": "münchen
 # ``matching.company_aliases`` auf „NXP" abgebildet.
 _LEGAL_SUFFIX = {"gmbh", "mbh", "ag", "se", "kg", "co", "deutschland", "group", "holding"}
 
+# Portale verkleben Namen samt Rechtsform: Arbeitnow führt „Agile Robots SE" als
+# „Agilerobotsse". Der Schlüssel ist deshalb leerzeichenfrei, und eine angehängte
+# Rechtsform fällt weg, solange ein unterscheidbarer Kern bleibt.
+_LEGAL_SUFFIX_ANGEHAENGT = ("gmbh", "se", "ag")
+_MIN_KERN_ANGEHAENGT = 6
+
+
 def _company_key(name: str | None, aliases: dict | None = None) -> str:
     s = normalize(name or "")
     for w in _LEGAL_SUFFIX:
@@ -158,6 +165,10 @@ def _company_key(name: str | None, aliases: dict | None = None) -> str:
     s = " ".join(s.split())
     if aliases:
         s = aliases.get(s, s)
+    s = re.sub(r"[^a-z0-9]+", "", s)
+    for w in _LEGAL_SUFFIX_ANGEHAENGT:
+        if s.endswith(w) and len(s) - len(w) >= _MIN_KERN_ANGEHAENGT:
+            return s[: -len(w)]
     return s
 
 
@@ -980,6 +991,13 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                     continue                 # Grund gilt weiter
             elif code != DELETE_PENDEL:      # Pendelweg ist oben schon geprüft
                 continue
+            elif _fit_value(a) < FIT_BAND_AUSBLENDEN and not text_fehlt_titel_passt(a):
+                # Der Pendelweg passt jetzt, der Fit aber nicht: neuer Grund statt
+                # Prüffall. Am 10.11.2026 kamen nach der Anhebung auf 35 min so
+                # 31 schwache Stellen mit Text als „Text fehlt" ins Dashboard.
+                markiere_geloescht(a, DELETE_FIT, _grund_unter_ausblendgrenze(a))
+                deleted_count += 1
+                continue
             hebe_loeschung_auf(a)
             restored_reason += 1
             if _fit_value(a) < FIT_BAND_AUSBLENDEN:
@@ -1029,7 +1047,10 @@ def run_enrich(config: Config, profile: Profile) -> dict:
             continue                     # echte Aktivität, nicht anfassen
         if a.get("unterlagen_gewuenscht"):
             continue                     # ausdrücklicher Wunsch, bleibt stehen
-        if _fit_value(a) >= schwellenwert:
+        # Über der Pendelgrenze ist eine Stelle Research, auch mit hohem Fit
+        # (Vorgabe vom 10.11.2026). Ohne diese Regel behielten Stellen ihre
+        # Unterlagen, die unter einer früheren, weiteren Grenze entstanden.
+        if _fit_value(a) >= schwellenwert and not _commute_blocked(config, a):
             continue
         a["status"] = "research"
         # Ein zurückgenommener Fund ist nur dann ein Research-Fall, wenn er im

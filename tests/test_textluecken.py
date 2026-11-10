@@ -358,6 +358,24 @@ class TestPrueffallTextFehlt:
         assert stand["k1"]["deleted"] is True
         assert stand["k1"]["deleted_reason"].startswith("Pendelweg")
 
+    @pytest.mark.parametrize("mehr", [
+        {"beschreibung": "Echter Anzeigentext"},     # Fit ist bewertet, nicht nur der Titel
+        {"titel": "Psychologe (m/w/d)"},            # kein Rollensignal
+    ])
+    def test_pendel_wieder_frei_aber_fit_zu_schwach(self, config, mehr):
+        alt = self._stelle(deleted=True, deleted_reason="Pendelweg > 30 min",
+                           deleted_code="pendel", **mehr)
+        _e, stand = self._lauf(config, alt)
+        assert stand["k1"]["deleted"] is True
+        assert stand["k1"]["deleted_reason"] == "FIT < 50 %"
+        assert "text_fehlt" not in stand["k1"]
+
+    def test_pendel_wieder_frei_rollentreffer_ohne_text_wird_prueffall(self, config):
+        alt = self._stelle(deleted=True, deleted_reason="Pendelweg > 30 min", deleted_code="pendel")
+        _e, stand = self._lauf(config, alt)
+        assert not stand["k1"].get("deleted")
+        assert stand["k1"]["text_fehlt"] is True
+
     def test_research_filter_laesst_den_prueffall_stehen(self, config):
         _e, stand = self._lauf(config, self._stelle(status="research"))
         assert not stand["k1"].get("deleted")

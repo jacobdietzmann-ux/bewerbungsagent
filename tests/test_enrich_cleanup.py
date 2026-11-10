@@ -401,6 +401,24 @@ class TestFitBaender:
         assert app.get("deleted") is True
         assert app["dokumente"]
 
+    def test_unterlagen_ueber_der_pendelgrenze_werden_research(self, config):
+        """Vorgabe vom 10.11.2026: über 30 min ist eine Stelle Research."""
+        apps = [_job("weit", score=84, status="docs", pendelzeit_min=34,
+                     dokumente={"anschreiben_de": "x/Anschreiben.pdf"})]
+        result = _run(config, apps)
+        assert [z["titel"] for z in result["zurueckgenommen"]] == ["Testingenieur"]
+        app = Store(config.db_path()).load_state()["applications"][0]
+        assert app["status"] == "research"
+        assert not app.get("deleted")
+        assert app["dokumente"]
+
+    def test_gewuenschte_unterlagen_ueber_der_pendelgrenze_bleiben(self, config):
+        apps = [_job("weit", score=84, status="docs", pendelzeit_min=34,
+                     unterlagen_gewuenscht=True,
+                     dokumente={"anschreiben_de": "x/Anschreiben.pdf"})]
+        result = _run(config, apps)
+        assert result["zurueckgenommen"] == []
+
     def test_versendete_stelle_im_mittelband_bleibt_docs(self, config):
         """Echte Aktivität wird nicht nachträglich kleingerechnet."""
         apps = [_job("gesendet", score=60, status="docs", sentAt="2026-10-14T18:30:00",

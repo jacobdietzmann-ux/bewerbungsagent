@@ -1985,3 +1985,33 @@ den Keyword-Fit nicht (ADR-015, ADR-016) und liefen nur noch in `eval/`.
 `semantic` sind entfernt. Die Git-Historie bewahrt sie. Der Name `stepstone` in einer
 Konfiguration meldet jetzt „Unbekannter Provider“. Die Messergebnisse bleiben in den
 ADRs und im README stehen.
+
+## ADR-052 – Firmen- und Titelmatch: nur kennzeichnende Wörter, spezifischster Titel gewinnt
+
+**Problem.** Am 10.11.2026 blieb die **Interview-Einladung** von SII Consulting
+(vorgeschlagener Termin: Mo 09.11. 15:30, Webex) unzugeordnet — der Mailcheck
+meldete nur „4 offene Bewerbungen passen zum Titel". Zwei Ursachen:
+
+1. `firma_passt` verglich den ersten Firmen-Token als **Teilzeichenkette** mit der
+   Absender-Domain. „MAN Truck & Bus" (Token `man`) traf damit `sii-germany.com`
+   (`…ger`**`man`**`y…`), „Software Engineering GmbH" (Token `software`) traf jeden
+   Anzeigentext. Aus 3 wurden 18 Kandidaten.
+2. Bei mehreren Titel-Treffern brach `match_mail` ab. Eine Consultancy schreibt
+   aber mehrere Rollen derselben Gattung aus: „Test Engineer", „Software Test
+   Engineer" und „Software Test Engineer Verteidigungsindustrie" passen alle auf
+   denselben Mailtext.
+
+**Entscheidung.**
+
+1. Domain wird in **Segmente** zerlegt (`[^a-z0-9]+`) und Token gegen Segment
+   geprüft (`gleich` oder `startswith` ab 4 Zeichen) — kein Teilwort mehr.
+2. Für den Text-Fallback (`Firma steht im Betreff/Body`) zählen nur
+   kennzeichnende Tokens; `_FIRMA_GENERISCH` (software, hardware, system, test,
+   data, man, engineering, consulting, …) belegt ohne Domain-Treffer nichts.
+3. Passen mehrere Titel, gewinnt der **spezifischste**: meiste kennzeichnende
+   Wörter im Kerntitel (`_kern_worte`, ohne Gender-Tag und Generika). Nur bei
+   Gleichstand bleibt es unklar — dann ist Raten weiter verboten.
+
+**Grenze.** Der Tie-Break ordnet zu, er prüft nicht inhaltlich. Zwei Anzeigen mit
+gleich langem, verschiedenem Titel bleiben „unklar" und müssen vom Nutzer
+entschieden werden.

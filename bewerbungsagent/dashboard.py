@@ -36,7 +36,7 @@ from .auswahl import DEFAULT_ABGELAUFEN_NACH_TAGEN, neufund_relevant, vermutlich
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
-from .firmenwerte import zufriedenheit
+from .firmenwerte import kununu_gehalt, zufriedenheit
 from .followup import DEFAULT_AFTER_DAYS, days_waiting, is_due
 from .matching import fit_value
 from .profile import normalize
@@ -461,6 +461,7 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         "salary": app.get("gehalt", "") or "",
         "salarySource": app.get("gehalt_quelle", "") or "",
         "salarySat": zufriedenheit(app.get("firma")),
+        "salaryKununu": kununu_gehalt(app.get("firma")),
         "commute": app.get("pendelzeit_min"),
         "commuteKm": app.get("pendeldistanz_km"),
         "commuteMode": app.get("pendel_modus", "") or "",
@@ -653,6 +654,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .clip1 { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sat { font-size:11px; margin-top:2px; white-space:nowrap; }
   .sat-n { opacity:.7; }
+  .sat-k { color:#57606a; }
   .sat-hi { color:#1a7f37; }
   .sat-mid { color:#9a6700; }
   .sat-lo { color:#cf222e; }
@@ -1207,6 +1209,13 @@ function satLine(s) {
   return `<div class="sat ${cls}" title="Indeed: ${s.pct} % von ${s.n} Bewertern finden ihre Bezahlung angemessen">Gehalt ${s.pct} % zufrieden <span class="sat-n">(${s.n})</span></div>`;
 }
 
+// Kununu „Gehälter“: Ø brutto/Jahr der passendsten Rolle bei dieser Firma.
+function kununuLine(k) {
+  if (!k) return "";
+  const t = k.tEuro.toFixed(1).replace(".", ",");
+  return `<div class="sat sat-k" title="Kununu: Ø ${t} T€ brutto/Jahr für ${esc(k.rolle)}, ${k.n} Gehaltsangaben">Kununu ${esc(k.rolle)} Ø ${t} T€ <span class="sat-n">(${k.n})</span></div>`;
+}
+
 function salaryBadge(s, source) {
   if (!s) return '<span class="faint">k. A.</span>';
   const raw = String(s).trim();
@@ -1742,7 +1751,7 @@ function renderRows() {
             : "")
       : "";
     tr.innerHTML = `
-      <td class="c-company" data-label="Unternehmen"><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span>${satLine(r.salarySat)}</td>
+      <td class="c-company" data-label="Unternehmen"><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span>${satLine(r.salarySat)}${kununuLine(r.salaryKununu)}</td>
       <td class="c-pos" data-label="Position">
         <div class="pos-line">
           <span class="pos-title clip2" title="${esc(r.position)}">${esc(r.position)}</span>

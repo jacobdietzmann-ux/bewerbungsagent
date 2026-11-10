@@ -24,3 +24,14 @@ def test_kein_treffer_mitten_im_namen():
 def test_alle_schluessel_sind_normalisiert():
     for key in GEHALTSZUFRIEDENHEIT:
         assert schluessel(key) == key
+
+
+def test_kununu_gehalt_zuordnung():
+    from bewerbungsagent.firmenwerte import kununu_gehalt
+
+    assert kununu_gehalt("FERCHAU – Connecting People and Technologies") == {
+        "rolle": "Testingenieur", "tEuro": 60.1, "n": 27}
+    assert kununu_gehalt("Quantum- Systems GmbH")["tEuro"] == 67.0
+    assert kununu_gehalt("ALTEN Consulting Services")["tEuro"] == 58.2
+    assert kununu_gehalt("Unbekannt GmbH") is None
+    assert kununu_gehalt(None) is None

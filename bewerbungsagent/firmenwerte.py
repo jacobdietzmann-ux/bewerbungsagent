@@ -18,6 +18,7 @@ STAND = "2026-11-10"
 # Wert = (Prozent zufrieden, Anzahl Bewertungen).
 GEHALTSZUFRIEDENHEIT: dict[str, tuple[int, int]] = {
     "infineon": (89, 50),
+    "brunel": (70, 27),
     "man truck bus": (73, 152),
     "e on": (46, 102),
     "hays": (50, 74),

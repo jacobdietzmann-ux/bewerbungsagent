@@ -30,7 +30,6 @@ from bewerbungsagent.pipeline import (
     run_dashboard,
     run_enrich,
     run_generate,
-    run_import_old,
     run_match,
     run_search,
 )
@@ -123,7 +122,6 @@ def main(argv=None) -> int:
     fetch_p.add_argument("--only-unsure", action="store_true",
                          help="nur Stellen, deren Titel allein nicht für die Triage reicht")
     sub.add_parser("match", help="Fit-Scoring gegen das Skill-Profil ausführen")
-    sub.add_parser("import-old", help="Inhalt des alten Dashboards übernehmen")
     sub.add_parser("enrich", help="Pendelweg + Gehalt + Bereinigung (FIT-Filter) + Auto-Bewerbung")
     sub.add_parser("quality", help="Erzeugte Unterlagen unabhängig prüfen (Fakten, Pflichtteile, PDF)")
     fo = sub.add_parser("followup", help="Fällige Nachfassen anzeigen (optional Texte schreiben)")
@@ -241,13 +239,6 @@ def main(argv=None) -> int:
         print(f"Matching abgeschlossen: {result['matched']} Stelle(n) bewertet.")
         _print_job_context(result["context"])
         _print_jobs(config)
-        run_dashboard(config)
-        print(f"Dashboard aktualisiert: {config.dashboard_path}")
-
-    elif args.command == "import-old":
-        result = run_import_old(config)
-        print(f"Import abgeschlossen: {result['imported']} Einträge übernommen "
-              f"(gesamt {result['total']}).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
 

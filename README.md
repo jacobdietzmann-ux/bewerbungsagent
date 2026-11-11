@@ -64,18 +64,6 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
    Prüfbefunde, Versanddatum, Homeoffice-Original, km/Restluft, Bewertungsdimensionen)
    im Tooltip. Dokumente werden nicht mehr einzeln verlinkt — geöffnet wird der
    Bewerbungsordner, der Tooltip des Ordner-Links nennt die enthaltenen Dateien.
-7. **Ablauf als Graph** (`ablauf`, optional) – dieselben Stufen, aber als
-   Zustandsgraph mit Verzweigung: Stellen, deren Titel für die Relevanz-Triage
-   nicht reicht, werden gezielt nachgeladen (`fetch --only-unsure`), statt für
-   alles einen Browseraufruf zu bezahlen. Der Ablauf macht außerdem sichtbar,
-   dass vor dem Versand eine menschliche Entscheidung steht — die Bewertung
-   passiert im Dashboard; `--ohne-review` überspringt den Knoten.
-   Braucht die optionale Gruppe (`pip install -e ".[graph]"`); ohne sie läuft
-   `pipeline` unverändert linear. Siehe [ADR-023](docs/DECISIONS.md).
-8. **Alt-Dashboard-Import** – übernimmt den kompletten Inhalt des bisherigen Dashboards
-   (`00_Dashboard/Bewerbungs-Dashboard.md` + `dashboard-state.json`): alle Bewerbungen mit
-   Status, Profil-Fit, Arbeitsort, Gehalt, Ansprechpartner, Stellenanzeige-URL und
-   Dokument-Links.
 
 ## Projektstruktur
 
@@ -98,7 +86,6 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
     │   ├── documents.py      # Anschreiben + Lebenslauf (ReportLab-PDF)
     │   ├── tailoring.py      # Stellenbezogene Lebenslauf-Auswahl (JSON im Bewerbungsordner)
     │   ├── dashboard.py      # Template des interaktiven HTML-Dashboards
-    │   ├── importer.py       # Import des alten Dashboards
     │   ├── pipeline.py       # Orchestrierung der Schritte
     │   ├── db.py             # SQLite-Persistenz (Provider-/Nutzer-Feldtrennung)
     │   ├── storage.py        # JSON-Persistenz (jobs.json, matches.json)
@@ -169,7 +156,6 @@ pip install -e ".[jobspy]"       # JobSpy-Provider
 
 ```bash
 # Einzelschritte
-python agent.py import-old     # Inhalt des alten Dashboards übernehmen
 python agent.py search          # Web-Suche (StepStone + DuckDuckGo)
 python agent.py searches        # gespeicherte Suchen auflisten
 python agent.py search "Test & Verification"  # nur eine gespeicherte Suche ausführen
@@ -675,13 +661,7 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ### Backup
 
-```bash
-scripts/backup_chat.sh    # Chat-Verlauf + Checkpoints → auch als Markdown
-scripts/backup_state.sh   # state.json/jobs.json (mit Integritätsprüfung)
-```
-
-> ⚠️ Der Chat-Verlauf liegt unter `~/.copilot/session-state/…` und wird vom
-> Google-Drive-Sync **nicht** erfasst — dafür gibt es `backup_chat.sh`.
+Siehe [`docs/BACKUP.md`](docs/BACKUP.md).
 
 ### Wichtig: Repo nicht auf dem Sync-Mount betreiben
 

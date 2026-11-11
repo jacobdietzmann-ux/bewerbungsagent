@@ -52,7 +52,6 @@ from .documents import (
 )
 from .followup import DEFAULT_AFTER_DAYS
 from .homeoffice import detect_home_office
-from .importer import import_old_dashboard
 from .industry import classify_industry
 from .matching import fit_value, has_role_signal, is_student_role, is_technician_role, match_jobs
 from .profile import Profile, normalize
@@ -1143,23 +1142,6 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "zurueckgenommen": zurueckgenommen,
         "total": len(apps),
     }
-
-
-def run_import_old(config: Config) -> dict:
-    """Importiert den Inhalt des alten Dashboards (MD + State) als Anwendungen."""
-    apps = import_old_dashboard(config)
-    store = _store(config)
-    state = store.load_state()
-    existing_keys = {a.get("key") for a in state.get("applications", [])}
-    merged = state.get("applications", [])
-    for app in apps:
-        if app["key"] not in existing_keys:
-            merged.append(app)
-            existing_keys.add(app["key"])
-    state["applications"] = merged
-    state["updated"] = now_iso()
-    _persist_state(config, store, state)
-    return {"imported": len(apps), "total": len(merged)}
 
 
 def abgelaufen_kwargs(config: Config) -> dict:

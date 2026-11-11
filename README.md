@@ -39,7 +39,7 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
 2. **Relevanz-Triage** – verwirft domänenfremde Treffer (Vertrieb, Marketing, Finanzen,
    Gastronomie, Fahren, Pflege, handwerkliche Fertigung) und Studenten-/Praktikumsstellen
    bereits bei der Suche, bevor sie bewertet werden. Regelbasiert und nachvollziehbar
-   (`bewerbungsagent/triage.py`); unklare Titel bleiben im Bestand, dort entscheidet der Fit.
+   (`bewerbungsagent/matching.py`, `triage_*`); unklare Titel bleiben im Bestand, dort entscheidet der Fit.
 3. **Beschreibungs-Fetch** (`fetch`) – lädt die **vollständigen Stellenbeschreibungen**
    (Aufgaben + Anforderungen) über einen echten Headless-Browser (Chromium). StepStone blockiert
    den `requests`-Weg, der Browser rendert die Detailseite aber vollständig — dadurch wird der
@@ -51,17 +51,16 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
    Mit `documents.anschreiben_quellen` wird jeder Anspruch im Anschreiben mit **Quelle und
    Zeitraum belegt** (Retrieval-Schicht `bewerbungsagent/rag.py`); mit
    `documents.anschreiben_luecken` werden bestätigte Lücken transparent benannt statt
-   verschwiegen. Liegt im Bewerbungsordner eine `Lebenslauf-Tailoring.json`, wird der
-   Lebenslauf daraus gebaut (Headline, Profilabsatz, Stations-Bullets, Fähigkeitsgruppen,
-   Kernkompetenzen) — Auswahl und Formulierung kommen aus der Profil-Datenbank, unbelegte
-   Fachbegriffe werden beim Erzeugen gemeldet (`bewerbungsagent/tailoring.py`).
+   verschwiegen.
+   Der Lebenslauf entsteht aus der eigenen DOCX-Vorlage; nur der Profilabsatz wird je
+   Stelle angepasst. Fehlt die Vorlage, greift das Ersatzdesign `classic`.
 6. **Dashboard** – interaktives HTML-Dashboard (angelehnt an das alte `00_Dashboard`):
    Suche, Profil-Fit-Filter, Status-Sichtfilter, KPI-Karten, Status- und Wochen-Diagramme,
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
    Änderungen werden über einen lokalen Server dauerhaft in `data/jobs.db` (SQLite)
    gespeichert. Die Tabelle ist auf **Dichte** gebaut: eine Zeile pro Stelle (Titel max.
    zwei Zeilen), feste Spaltenbreiten in Pixeln und alle Zusatzinfos (Profil-Treffer,
-   Prüfbefunde, Versanddatum, Homeoffice-Original, km/Restluft, Bewertungsdimensionen)
+   Prüfbefunde, Versanddatum, Homeoffice-Original, km/Restluft)
    im Tooltip. Dokumente werden nicht mehr einzeln verlinkt — geöffnet wird der
    Bewerbungsordner, der Tooltip des Ordner-Links nennt die enthaltenen Dateien.
 
@@ -84,7 +83,6 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
     │   ├── matching.py       # Fit-Scoring
     │   ├── statuses.py       # Kanonische Statuswerte (6-Stufen-Funnel)
     │   ├── documents.py      # Anschreiben + Lebenslauf (ReportLab-PDF)
-    │   ├── tailoring.py      # Stellenbezogene Lebenslauf-Auswahl (JSON im Bewerbungsordner)
     │   ├── dashboard.py      # Template des interaktiven HTML-Dashboards
     │   ├── pipeline.py       # Orchestrierung der Schritte
     │   ├── db.py             # SQLite-Persistenz (Provider-/Nutzer-Feldtrennung)
@@ -261,7 +259,7 @@ Enthalten sind:
   ist der Wohnort, Linien zeigen den Pendelweg, gefärbt nach Fahrzeit.
 - **Toolchain** — Arbeitsplatz, Versionsverwaltung, Dauerlauf und Benachrichtigung:
   Windows-PC (VS Code/Copilot, MCP-Server, venv, Git) → GitHub/Google Drive →
-  Raspberry Pi (systemd-Timer, `agent.py`, `jobwatch.py`) → Telegram → Handy. Jeder
+  Hermes-Cron auf dem PC (`jobwatch.py`, `agent.py`) → Telegram → Handy. Jeder
   Kasten trägt einen **Belegt-Status**: `geprüft` (auf diesem Rechner nachgesehen),
   `konfiguriert` (steht im Code/der `config.json`), `laut Auskunft` (vom Nutzer
   bestätigt, von hier nicht prüfbar) oder `nicht vorhanden`. Damit behauptet die
@@ -457,25 +455,26 @@ Seit ADR-043 zählen **Grundkenntnisse nicht als Alleinstellungsmerkmal**: `matc
 (Standard: Python) gibt für Titel-, Text- und Worttreffer keine Punkte. Im Profil und in den
 Unterlagen bleibt Python sichtbar — der Fit bewertet es nur nicht mehr.
 
-Zusätzlich bewertet `bewerbungsagent/dimensions.py` dieselbe Stelle in sieben Dimensionen
-(Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell, Entwicklung) —
-**berichtend**: Der Fit-Wert bleibt der Keyword-Score, die Dimensionen erscheinen im Dashboard
-als „Dim NN %“ und dienen der Diagnose. Hart ist nur die K.O.-Liste (Anzeigen-Gehalt unter
-`matching.dimensions.ko_gehalt_min_tsd`), sie blockiert die automatische Unterlagenerzeugung.
-Details: `docs/ARCHITECTURE.md`, ADR-031.
-
 Aus dem Fit folgt der Status — die Grenzen stehen in `bewerbungsagent/pipeline.py`:
 
 | Fit | Status | Dokumente |
 |---|---|---|
-| < 50 % | ausgeblendet | – |
-| 50–70 % | `Research` (Filter hält 65–70 % bzw. Pendelweg knapp drüber; 50–64 % wird verborgen) | keine |
+| < 65 % | ausgeblendet | – |
+| 65–70 % | `Research` | keine |
 | > 70 % | `Dokumente erstellt` | ja |
 
-Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch — deshalb
-bekommt das mittlere Band nur den Status `Research`. Bereits erzeugte Unterlagen in
-diesem Band setzt der nächste `enrich`-Lauf auf `Research` zurück; die Dateien bleiben
-liegen. Versendete und abgeschlossene Bewerbungen bleiben unangetastet.
+Drei Regeln, eine Funktion (`pipeline._einordnung`, ADR-059):
+
+1. Pendelweg über `max_pendelzeit_min`: `Research` bis zur Grenze plus
+   `research_filter.commute_grace_min` und ab 65 % Fit, sonst ausgeblendet. Keine
+   automatischen Unterlagen.
+2. Fit unter 65 %: ausgeblendet, außer bei ausdrücklich angeforderten Unterlagen.
+3. Sonst sichtbar: bis 70 % `Research`, ab 71 % Unterlagen.
+
+Bereits erzeugte Unterlagen, die nicht mehr ins Unterlagen-Band fallen, setzt der
+nächste `enrich`-Lauf auf `Research` zurück; die Dateien bleiben liegen. Stellen ohne
+Anzeigentext bleiben ausgeblendet, bis ein Lauf den Text nachgeladen hat. Versendete
+und abgeschlossene Bewerbungen bleiben unangetastet.
 
 Research-Funde erscheinen **nur mit Unterlagen** in der Dashboard-Tabelle — das ist die
 Entscheidungsgrundlage „lohnt sich eine Bewerbung?". Eine pauschale Lockerung wäre kein
@@ -492,7 +491,7 @@ auf und ist ein Nutzerfeld (`db.USER_FIELDS`) — ein Suchlauf kann es nicht
 überschreiben. Die Zeile steht dann mit Badge `Research` in der Tabelle, die der
 Status-Schalter „Research einblenden" ein- und ausblenden kann.
 
-Die Schwelle (`documents.min_fit_for_generation`: `hoch` = > 70 %, `mittel` = 50 %,
+Die Schwelle (`documents.min_fit_for_generation`: `hoch` = > 70 %, `mittel` = 65 %,
 `niedrig` = 0 %) lässt sich in `config.json` anpassen und gilt für beide Wege —
 `generate` und die automatische Erzeugung in `enrich`.
 
@@ -546,14 +545,9 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 30). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
-- `research_filter` – begrenzt den `research`-Bestand. Behalten werden nur Funde mit
-  Fit zwischen `fit_min` und `fit_max` (Standard 65–70 %) oder mit Pendelweg bis
-  `max_pendelzeit_min + commute_grace_min` (Standard 40 min). Funde **oberhalb**
-  des Fensters sind keine Research-Fälle mehr, sondern Dokumenten-Kandidaten und
-  werden nicht gelöscht. Alles andere wird nur als `deleted` markiert (nichts wird
-  gelöscht) und bei jeder Neubewertung erneut geprüft — verbessert sich der Fit,
-  kommt die Stelle zurück. Stellen mit Unterlagen bleiben immer erhalten.
-  `"enabled": false` schaltet den Filter ab.
+- `research_filter.commute_grace_min` – so viele Minuten über `max_pendelzeit_min` bleibt
+  eine Stelle ab 65 % Fit als `Research` sichtbar (Standard 10). Darüber wird sie
+  ausgeblendet und bei jedem Lauf neu geprüft.
 - `commute.home_address` – Ausgangspunkt für die Pendelweg-Berechnung. Bewusst **nicht** im
   Quelltext, sondern hier (bzw. in der privaten `config.json`).
 - `commute.contact_email` – Kontakt für die Nominatim-/OSRM-Anfragen; leer lassen genügt
@@ -566,7 +560,7 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung
-  (`hoch` = > 70 %, Standard; `mittel` = 50 %; `niedrig` = 0 %).
+  (`hoch` = > 70 %, Standard; `mittel` = 65 %; `niedrig` = 0 %).
 - `documents.anschreiben_quellen` – `true`: belegt jeden Anspruch im Anschreiben mit
   Quelle und Zeitraum (siehe `bewerbungsagent/rag.py`). Standard `false`.
 - `documents.anschreiben_luecken` – `true`: benennt im Anschreiben transparent die

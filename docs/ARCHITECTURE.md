@@ -21,9 +21,8 @@ Dashboard als Lese-/Schreib-Oberfläche:
 
 Das Bild zeigt die Stufen. Die vollständige Schrittfolge steht an genau einer Stelle,
 in `bewerbungsagent/schritte.py`: `search`, `fetch`, `match`, `enrich`, `generate`,
-`quality`, `dashboard`. `run_full`, der Graph in `orchestrator.py` und
-`scripts/jobwatch.py` leiten sich daraus ab, `scripts/lauf.sh` ruft `agent.py ablauf`
-auf (ADR-056).
+`quality`, `dashboard`. Der Tageslauf `scripts/jobwatch.py` (Hermes-Cron) ruft
+jeden Schritt als `agent.py <schritt>` auf (ADR-056). Es gibt keinen zweiten Laufweg.
 
 Die JSON-Dateien `jobs.json`/`matches.json` sind nur der Zwischenstand der
 jeweiligen Stufe; gelesen und geschrieben wird der Bestand über

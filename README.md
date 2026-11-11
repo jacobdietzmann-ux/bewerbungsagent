@@ -184,8 +184,8 @@ python agent.py providers       # Zustand der Such-Quellen (--enable/--disable/-
 python agent.py dashboard       # HTML-Dashboard (neu) erzeugen
 python agent.py status          # aktuelle Stellen anzeigen
 
-# Alles in einem Durchlauf
-python agent.py pipeline        # Suche → Texte → Match → Enrich → Dokumente → Prüfung → Dashboard
+# Alles in einem Durchlauf (wie der Tageslauf)
+python scripts/jobwatch.py
 ```
 
 Das Ergebnis ist [`dashboard.html`](dashboard.html) (nach dem ersten Lauf) sowie pro Stelle ein
@@ -239,50 +239,17 @@ Aufgabe.
 
 ## Täglicher Lauf (automatisch)
 
-Damit die Stellen und Unterlagen jeden Tag aktuell vorliegen, läuft der Ablauf
-automatisch — per **systemd-User-Timer**, ohne Cloud (Begründung:
-[ADR-024](docs/DECISIONS.md)).
+Den Tageslauf startet Hermes (Cron `jobwatch-bewerbung`, täglich 7:00) über
+`scripts/jobwatch.py`. Das Skript ruft jeden Schritt aus `bewerbungsagent/schritte.py`
+einzeln als `agent.py <schritt>` auf: `search`, `fetch`, `match`, `enrich`,
+`generate`, `quality`, `dashboard`. Nur `fetch` und `quality` dürfen scheitern, ohne
+den Lauf zu stoppen. Danach meldet das Skript die besten Funde per Telegram.
 
-```bash
-# Einmalig einrichten (Units liegen im Repo unter docs/systemd/)
-cp docs/systemd/bewerbungsagent-tageslauf.* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now bewerbungsagent-tageslauf.timer
-
-# Prüfen
-systemctl --user list-timers bewerbungsagent-tageslauf.timer
-```
-
-Der Timer feuert **täglich 12:00** (plus Streuung bis 5 min) und holt einen
-verpassten Lauf nach, wenn der Rechner aus war (`Persistent=true`) — so fällt
-kein Tag aus.
-
-Der Lauf macht dasselbe wie `agent.py ablauf`, aber mit `--beschreibung alle`:
-vollständige Anzeigentexte für einen präzisen Fit, nicht nur für unklare Titel.
-
-**Ergebnis prüfen:**
-
-```bash
-cat data/tageslauf-status.json     # { "zustand": "OK" | "FEHLER" | "LAUFEND", ... }
-tail -40 data/tageslauf.log        # Verlauf des Laufs
-```
-
-Läuft der Lauf, während der Google-Drive-Sync (bisync, alle 15 min) dazwischen
-greift, darf er nicht das offene Log verlieren. Die Laufzeitdateien
-(`tageslauf.log`, `-status.json`, `.lock`) sind deshalb in
-`~/.config/rclone/bisync-exclude.txt` ausgenommen — am 19.10. löschte bisync das
-offene Log, der Prozess schrieb danach in eine verschwundene Datei
-(`/proc/<pid>/fd/1 → tageslauf.log (deleted)`).
+Von Hand: `python scripts/jobwatch.py` oder einzelne Schritte über `agent.py`.
 
 Die Stellen, die der Lauf neu gefunden hat, tragen im Dashboard das Badge
 **„neu gefunden"** (Filter: „Nur neu gefundene"). Sie bleiben markiert, bis ein
-Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht. Sie
-erscheinen auch ohne Unterlagen, damit das Label sichtbar ist; ein Hinweis nennt,
-wie viele Funde ausserhalb der Pendelgrenze liegen. Details:
-[ADR-025](docs/DECISIONS.md).
-
-Von Hand auslösen: `systemctl --user start bewerbungsagent-tageslauf.service`
-oder direkt `scripts/tageslauf.sh`.
+Lauf neue Stellen mitbringt. Details: [ADR-025](docs/DECISIONS.md).
 
 ## Agenten-Map (was der Agent tut)
 
@@ -456,7 +423,7 @@ und einzeln starten. Lege dazu `data/saved_searches.json` an:
 
 - `python agent.py searches` listet alle gespeicherten Suchen.
 - `python agent.py search "Test & Verification"` führt nur diese aus.
-- `"daily": true` hängt eine Suche in den Tageslauf (`agent.py pipeline`): Standard-Suche plus alle
+- `"daily": true` hängt eine Suche in den Tageslauf (`scripts/jobwatch.py`): Standard-Suche plus alle
   Tageslauf-Suchen laufen nacheinander, die Treffer werden über die URL zusammengeführt und einmal
   geschrieben.
 - `"ats_firmen": ["XPeng"]` beschränkt den `ats`-Provider auf einzelne Karriereseiten — sonst zieht

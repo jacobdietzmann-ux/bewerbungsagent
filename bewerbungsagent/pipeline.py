@@ -57,9 +57,9 @@ from .industry import classify_industry
 from .matching import fit_value, has_role_signal, is_student_role, is_technician_role, match_jobs
 from .profile import Profile, normalize
 from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
-from .quality import check_application, run_quality
+from .quality import check_application
 from .salary import enrich_salary
-from .schritte import FETCH_LIMIT, SCHRITT_NAMEN, fuehre_aus
+from .schritte import FETCH_LIMIT
 from .search import resolve_mail_leads
 from .search import run_search as _search
 from .search.manual import MAIL_LEAD, lead_passt
@@ -310,8 +310,8 @@ def run_search(config: Config, profile: Profile, definition: dict | None = None)
     """Führt eine Suche aus.
 
     Ohne ``definition`` laufen alle Tageslauf-Suchen (Standard plus
-    ``"daily": true``). Sonst bliebe eine als täglich markierte Suche in
-    ``jobwatch`` und ``agent.py ablauf`` wirkungslos, die beide hier einsteigen.
+    ``"daily": true``). Sonst bliebe eine als täglich markierte Suche im
+    Tageslauf (``jobwatch``) wirkungslos, der hier einsteigt.
     """
     if definition is None:
         return run_searches(config, profile)
@@ -1215,30 +1215,6 @@ def run_dashboard(config: Config) -> dict:
                               if id(app) not in sichtbar_ids
                               and id(app) in dokument_ids),
     }
-
-
-def run_full(config: Config, profile: Profile) -> dict:
-    """Führt alle Schritte aus ``schritte.SCHRITTE`` nacheinander aus.
-
-    Dieselbe Folge wie der Graph, nur ohne dessen Verzweigung. ``fetch`` lädt hier
-    alle fehlenden Texte: ohne sie bewertet ``match`` nur den Titel (ADR-050).
-    """
-    aufrufe = {
-        "search": lambda: run_search(config, profile),
-        "fetch": lambda: run_fetch(config),
-        "match": lambda: run_match(config, profile),
-        "enrich": lambda: run_enrich(config, profile),
-        "generate": lambda: run_generate(config, profile),
-        "quality": lambda: run_quality(config),
-        "dashboard": lambda: run_dashboard(config),
-    }
-    fehler: dict[str, str] = {}
-    r = {name: fuehre_aus(name, aufrufe[name], fehler) for name in SCHRITT_NAMEN}
-    return {"search": r["search"], "fetch": r["fetch"], "match": r["match"]["matched"],
-            "enrich": r["enrich"],
-            "generated": [*r["enrich"]["generated"], *r["generate"]["generated"]],
-            "failed": [*r["enrich"]["failed"], *r["generate"]["failed"]],
-            "quality": r["quality"], "dashboard": r["dashboard"], "fehler": fehler}
 
 
 # --------------------------------------------------------------------------

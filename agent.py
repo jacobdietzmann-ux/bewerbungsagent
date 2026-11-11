@@ -7,7 +7,6 @@ Beispiele:
     python agent.py generate --all
     python agent.py generate --ids 1,2,3
     python agent.py dashboard
-    python agent.py pipeline     # alle Schritte aus bewerbungsagent/schritte.py
     python agent.py status
 """
 
@@ -30,7 +29,6 @@ from bewerbungsagent.pipeline import (
     load_config_and_profile,
     run_dashboard,
     run_enrich,
-    run_full,
     run_generate,
     run_import_old,
     run_match,
@@ -168,14 +166,6 @@ def main(argv=None) -> int:
     sl = sub.add_parser("shortlist",
                         help="Wochenauswahl: fertige, noch nicht versendete Bewerbungen nach Fit")
     sl.add_argument("--top", type=int, default=8, help="Anzahl (Standard 8)")
-    sub.add_parser("pipeline", help="Vollständigen Ablauf ausführen")
-    ablauf = sub.add_parser("ablauf", help="Ablauf als Graph ausführen (LangGraph)")
-    ablauf.add_argument("--ohne-review", action="store_true",
-                        help="Freigabe-Knoten überspringen (Bewertung erfolgt im Dashboard)")
-    ablauf.add_argument("--beschreibung", choices=["nur_unsure", "alle"],
-                        default="nur_unsure",
-                        help="Anzeigentexte nachladen: nur für unklare Titel (Standard) "
-                             "oder für alle Stellen ohne Text")
 
     gen = sub.add_parser("generate", help="Bewerbungsunterlagen erzeugen")
     gen.add_argument("--all", action="store_true", help="alle passenden Stellen (gem. min_fit)")
@@ -500,53 +490,6 @@ def main(argv=None) -> int:
                   + (f"  [{', '.join(hinweise)}]" if hinweise else ""))
             if s.get("url"):
                 print(f"      {s['url']}")
-
-    elif args.command == "pipeline":
-        result = run_full(config, profile)
-        print(f"Suche: {result['search']['count']} Stelle(n)")
-        _print_job_context(result["search"]["context"])
-        for err in result["search"]["errors"]:
-            print(f"  ! {err}")
-        f = result.get("fetch") or {}
-        print(f"Anzeigentexte: {f.get('fetched', 0)} geladen, {f.get('skipped', 0)} leer, "
-              f"{f.get('errors', 0)} Fehler")
-        print(f"Matching: {result['match']} Stelle(n)")
-        print(f"Dokumente: {len(result['generated'])} Datei(en)")
-        _print_failed(result.get("failed") or [])
-        q = result.get("quality") or {}
-        print(f"Qualität: {q.get('geprueft', 0)} geprüft, {q.get('mit_befunden', 0)} mit Befunden")
-        print(f"Dashboard: {result['dashboard']['path']}")
-        _print_schritt_fehler(result.get("fehler"))
-
-    elif args.command == "ablauf":
-        from bewerbungsagent.orchestrator import run_abo
-        review = not args.ohne_review
-        try:
-            result = run_abo(config, profile, review=review,
-                             beschreibung=args.beschreibung)
-        except (RuntimeError, ValueError) as exc:
-            print(str(exc))
-            return 1
-        print(f"Ablauf durchlaufen: {' → '.join(result.get('weg', []))}")
-        s = result.get("search") or {}
-        print(f"  Suche          : {s.get('count', 0)} Stelle(n)")
-        if s.get("triage_rejected"):
-            print(f"  Triage verworfen: {s['triage_rejected']} (Protokoll: data/triage_rejected.json)")
-        print(f"  Text nachladen  : Umfang {result.get('beschreibung_umfang', '?')}, "
-              f"offen {result.get('triage_unsure_verbleibend', 0)}, "
-              f"{result.get('beschreibung_versuche', 0)}× gelaufen")
-        print(f"  Matching        : {(result.get('match') or {}).get('matched', 0)} Stelle(n)")
-        print(f"  Dokumente       : {len((result.get('generate') or {}).get('generated', []))} Datei(en)")
-        _print_failed([*(result.get("enrich") or {}).get("failed", []),
-                       *(result.get("generate") or {}).get("failed", [])])
-        if review:
-            print("  Freigabe        : erfolgt im Dashboard (Status ändern oder Eintrag löschen)")
-        else:
-            print("  Freigabe        : übersprungen (--ohne-review)")
-        d = result.get("dashboard") or {}
-        if d.get("path"):
-            print(f"  Dashboard       : {d['path']} ({d.get('applications', 0)} relevant)")
-        _print_schritt_fehler(result.get("fehler"))
 
     return 0
 

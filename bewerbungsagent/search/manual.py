@@ -22,7 +22,7 @@ from pathlib import Path
 
 from ..profile import normalize
 
-# Leads aus Job-Mails (JobLeads, Xing, Instaffo …): nur Firma + Titel, ohne Anzeigentext.
+# Leads aus Job-Mails (StepStone, Xing, Instaffo …): nur Firma + Titel, ohne Anzeigentext.
 # Sie landen im selben Import, werden aber erst nach den Web-Providern aufgenommen
 # (siehe ``run_search``) — eine vollständige Anzeige darf nicht vom Platzhalter verdrängt werden.
 MAIL_LEAD = "Mail-Lead"
@@ -147,17 +147,6 @@ def leads_verknuepfen(path: Path, anzeigen: list[dict], heute: date | None = Non
     return gefunden
 
 
-def saubere_lead_url(url: str | None) -> str:
-    """Öffentliche Anzeigen-URL eines Mail-Leads, sonst ``""``.
-
-    Links aus Job-Mails tragen Nutzer-Kennungen, und XING meldet Recruitern den
-    Klick. Übernommen wird deshalb nur die JobLeads-Detailseite, ohne Query:
-    Sie öffnet ohne Anmeldung und enthält den Anzeigentext.
-    """
-    treffer = re.match(r"https://www\.jobleads\.com/de/job/[^?#\s]+", (url or "").strip())
-    return treffer.group(0) if treffer else ""
-
-
 def merge_mail_leads(path: Path, leads: list[dict], heute: date | None = None,
                      max_age_days: int = MAIL_LEAD_TAGE) -> int:
     """Hängt neue Mail-Leads an den Import an; gibt die Zahl der neu aufgenommenen zurück.
@@ -174,26 +163,18 @@ def merge_mail_leads(path: Path, leads: list[dict], heute: date | None = None,
                 if j.get("quelle") != MAIL_LEAD or str(j.get("gefunden") or "9999") >= grenze]
     bekannt = {_identity(j.get("firma"), j.get("titel")): j for j in behalten}
     neu = 0
-    url_ergaenzt = False
     for lead in leads:
         firma, titel = (lead.get("firma") or "").strip(), (lead.get("titel") or "").strip()
         ident = _identity(firma, titel)
-        url = saubere_lead_url(lead.get("url"))
-        vorhanden = bekannt.get(ident)
-        if vorhanden is not None:
-            if url and vorhanden.get("quelle") == MAIL_LEAD and not vorhanden.get("url"):
-                vorhanden["url"] = url
-                url_ergaenzt = True
-            continue
-        if not firma or not titel:
+        if ident in bekannt or not firma or not titel:
             continue
         eintrag = {"firma": firma, "titel": titel, "ort": lead.get("ort") or "",
-                   "url": url, "beschreibung": "", "quelle": MAIL_LEAD,
+                   "url": "", "beschreibung": "", "quelle": MAIL_LEAD,
                    "herkunft": lead.get("quelle") or "", "gefunden": heute.isoformat()}
         bekannt[ident] = eintrag
         behalten.append(eintrag)
         neu += 1
-    if neu or url_ergaenzt or len(behalten) != len(bestehend):
+    if neu or len(behalten) != len(bestehend):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(behalten, ensure_ascii=False, indent=2), encoding="utf-8")
     return neu

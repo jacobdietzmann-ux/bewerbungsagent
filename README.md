@@ -420,28 +420,6 @@ Die freie Websuche ist bewusst **pluggable**:
   die Firma nicht), Titel enthalten weiche Trennzeichen (`&shy;`), und die Detailseite hat
   **kein** JSON-LD — der Text steht in `div.jwtpl-jobaded-dataTextField`-Blöcken. Die
   Folge-Seite muss über die Knopf-URL geladen werden (sie enthält eine Sitzungs-ID).
-- **JobLeads** (`jobleads`) liefert die Trefferliste serverseitig gerendert, ohne Login: jede
-  Stelle ist eine `div.search-job-card` mit `data-testid`-Markern für Titel, Firma, Gehalt und
-  Datum, der Ort steckt im Slug der Anzeigen-URL (`…--munchen--hash`). Die Detailseite enthält
-  den Volltext als `JobPosting`-JSON-LD (`id="jobPostingLdjson"`) — der Browser-Fetch entfällt.
-  Anders als bei den ATS-Quellen ist die Firma **der Arbeitgeber aus der Anzeige**, nicht der
-  Aggregator, sonst landen alle Treffer unter einem Namen. Einschränkungen (alle live geprüft):
-  - **25 Karten pro Anfrage** — `page=2`, `start=25`, `offset=25`, `currentPage`, `p`, `spage`
-    und `pageIndex` werden ignoriert, es kommt stets dieselbe erste Seite. Mehr Treffer gibt es
-    nur über **mehr Suchbegriffe** (`jobleads_searches`) oder einen Browser mit Scrollen; die
-    gespeicherte Seite einer Browser-Sitzung enthielt 177 Karten. Weil das Fenster nur 25 Karten
-    breit ist, entscheidet die **Wortwahl** über die Abdeckung: `Test Engineer` fand eine Stelle
-    3/3 Läufe, `System Test Engineer` nur 1/3 — breitere Begriffe decken mehr ab.
-  - **HTTP 429 (Cloudflare)** bei Bursts: 177 Detailseiten mit 6 Threads → nur 80 Volltexte.
-    Der Provider holt deshalb mit 3 Threads und bis zu 4 Versuchen mit Backoff.
-  - `minSalary` ist **keine** harte Grenze (bei `minSalary=80000` kamen weiterhin
-    60.000–80.000 durch), sondern verschiebt nur das Ranking — bleibt standardmäßig aus.
-  - Die Firma stammt aus der Anzeige und ist **nicht immer der Arbeitgeber**: bei
-    Aggregator-Anzeigen steht dort teils die Quellbörse („Free resume", „Devopsroles",
-    „Itsicherheit Online") oder die Anzeige erscheint mehrfach. Das JSON-LD wiederholt nur
-    denselben Namen, liefert also keine Korrektur.
-  - Die Treffer überlappen stark mit StepStone/JobSpy — deshalb ist der Provider nicht
-    voreingestellt.
 
 - **DuckDuckGo** und **Bing** gibt es nicht mehr: live geprüft
   lieferte DuckDuckGo 0 Treffer, Bing ausschließlich `bing.com/ck/a`-Redirects zu
@@ -587,7 +565,7 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   Quelle: `agent.py profile-export` schreibt sie neu, `--check` meldet Abweichungen (Exit 1),
   `agent.py enrich` zieht sie automatisch nach.
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
-  (verfügbar: `manual`, `stepstone_browser`, `jobspy`, `ats`, `arbeitnow`, `jobleads`, `xing`,
+  (verfügbar: `manual`, `stepstone_browser`, `jobspy`, `ats`, `arbeitnow`, `xing`,
   `indeed`, `labo`, `glassdoor`).
 - `search.xing_terms` / `search.indeed_terms` – eigene Begriffslisten für die beiden
   Browser-Provider (Standard: `search.query_terms`). Sinnvoll, weil jeder Begriff dort einen
@@ -606,16 +584,6 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `search.ats_only_near_munich` – nur Stellen aus der Münchener Metropolregion übernehmen
   (Standard `true`); verhindert teure Geocoding-Aufrufe für weltweite Stellen.
 - `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).
-- `search.jobleads_searches` – JobLeads-Suchen (Standard `[]`). Ein Eintrag ist entweder ein
-  Suchbegriff (die URL wird samt München-Koordinaten gebaut) oder ein Objekt mit fertiger
-  `list_url`, optional `max_jobs` und `with_description`. Ist die Liste **leer**, greift der
-  Provider auf `search.query_terms` zurück (begrenzt über `jobleads_max_terms`, Standard 6) —
-  eine leere Liste ist eine vergessene Pflege, keine Abschaltung, und hat schon einmal dazu
-  geführt, dass Stellen derselben Trefferliste nie gefunden wurden.
-- `search.jobleads_max_terms` – Obergrenze für diesen Rückfall (Standard 6). Jede Suche kostet
-  eine Listenseite plus bis zu 25 Detailseiten; JobLeads drosselt mit HTTP 429.
-- `search.jobleads_min_salary` – `minSalary` in der Such-URL (Standard `0` = aus). Filtert bei
-  JobLeads **nicht** hart, verschiebt nur das Ranking.
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
   (Standard 4).
 - `search.triage` – Relevanz-Triage an/aus (Standard `true`). Domänenfremde Treffer  (Vertrieb, Marketing, Finanzen, Gastronomie, Fahren, Pflege, handwerkliche Fertigung)

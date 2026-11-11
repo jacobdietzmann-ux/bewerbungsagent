@@ -13,7 +13,6 @@
       "jobspy",
       "ats",
       "arbeitnow",
-      "jobleads",
       "xing",
       "indeed",
       "labo"
@@ -120,9 +119,6 @@
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,
     "lead_url_provider": ["xing"],
-    "jobleads_searches": [],
-    "jobleads_min_salary": 0,
-    "jobleads_max_terms": 6,
     "xing_terms": [
       "Testingenieur",
       "Test Engineer",

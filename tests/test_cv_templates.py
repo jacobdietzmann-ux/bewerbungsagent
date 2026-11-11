@@ -1,4 +1,4 @@
-"""Tests für die drei Lebenslauf-Vorlagen (classic, modern, functional)."""
+"""Tests für das Ersatzdesign des Lebenslaufs (``classic``)."""
 
 from __future__ import annotations
 
@@ -18,9 +18,7 @@ def match():
 
 
 def test_registry_has_expected_templates():
-    assert set(D.CV_TEMPLATES) == {
-        "classic", "awesome", "deedy", "mcdowell", "sidebar", "elegant", "clean",
-    }
+    assert set(D.CV_TEMPLATES) == {"classic"}
     for template in D.CV_TEMPLATES.values():
         assert template["label"]
         assert template["description"]
@@ -53,7 +51,7 @@ def test_generate_lebenslauf_all_templates(tmp_path, demo_profile, job, match, t
 
 
 def test_generate_lebenslauf_defaults_to_config_template(tmp_path, demo_profile, job, match, tmp_config):
-    tmp_config["documents"]["lebenslauf_template"] = "elegant"
+    tmp_config["documents"]["lebenslauf_template"] = "classic"
     out = tmp_path / "cv-default.pdf"
     D.generate_lebenslauf(demo_profile, job, match, out, tmp_config, lang="de")
     assert out.exists() and out.stat().st_size > 0

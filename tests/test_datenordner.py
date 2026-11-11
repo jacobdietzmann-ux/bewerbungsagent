@@ -124,33 +124,3 @@ def test_einstiegsskripte_sind_installierbar():
     """Eine editierbare Installation findet sonst nur die Pakete."""
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'py-modules = ["agent", "fetch_descriptions", "server"]' in text
-
-
-@pytest.mark.parametrize("modus", ["daten", "alt"])
-def test_lauf_sh_trennt_code_und_daten(tmp_path, modus):
-    """Mit Code-Kopie im Datenordner läuft diese (wie bisher), sonst der Checkout."""
-    if os.name == "nt":
-        pytest.skip("braucht readlink -f und bash")
-    bin_ = tmp_path / "bin"
-    bin_.mkdir()
-    (bin_ / "flock").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    code = tmp_path / "code"
-    (code / "scripts").mkdir(parents=True)
-    for name in ("lauf.sh", "tageslauf.sh"):
-        (code / "scripts" / name).write_text((ROOT / "scripts" / name).read_text(encoding="utf-8"),
-                                             encoding="utf-8")
-    daten = tmp_path / "daten"
-    venv = (daten if modus == "alt" else code) / ".venv" / "bin"
-    venv.mkdir(parents=True)
-    (venv / "python").write_text(
-        '#!/usr/bin/env bash\necho "HOME=$BEWERBUNGSAGENT_HOME ARGS=$*"\n', encoding="utf-8")
-    if modus == "alt":
-        (daten / "agent.py").write_text("", encoding="utf-8")
-    for f in [*bin_.iterdir(), venv / "python", *(code / "scripts").iterdir()]:
-        f.chmod(0o755)
-    env = {**os.environ, "PATH": f"{bin_}{os.pathsep}{os.environ['PATH']}"}
-    subprocess.run(["bash", str(code / "scripts" / "tageslauf.sh"), str(daten)], env=env,
-                   check=True)
-    log = (daten / "data" / "tageslauf.log").read_text(encoding="utf-8")
-    erwartet = daten if modus == "alt" else code
-    assert f"HOME={daten} ARGS=-u {erwartet}/agent.py ablauf" in log

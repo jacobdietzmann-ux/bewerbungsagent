@@ -39,7 +39,7 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
 2. **Relevanz-Triage** – verwirft domänenfremde Treffer (Vertrieb, Marketing, Finanzen,
    Gastronomie, Fahren, Pflege, handwerkliche Fertigung) und Studenten-/Praktikumsstellen
    bereits bei der Suche, bevor sie bewertet werden. Regelbasiert und nachvollziehbar
-   (`bewerbungsagent/triage.py`); unklare Titel bleiben im Bestand, dort entscheidet der Fit.
+   (`bewerbungsagent/matching.py`, `triage_*`); unklare Titel bleiben im Bestand, dort entscheidet der Fit.
 3. **Beschreibungs-Fetch** (`fetch`) – lädt die **vollständigen Stellenbeschreibungen**
    (Aufgaben + Anforderungen) über einen echten Headless-Browser (Chromium). StepStone blockiert
    den `requests`-Weg, der Browser rendert die Detailseite aber vollständig — dadurch wird der
@@ -51,31 +51,18 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
    Mit `documents.anschreiben_quellen` wird jeder Anspruch im Anschreiben mit **Quelle und
    Zeitraum belegt** (Retrieval-Schicht `bewerbungsagent/rag.py`); mit
    `documents.anschreiben_luecken` werden bestätigte Lücken transparent benannt statt
-   verschwiegen. Liegt im Bewerbungsordner eine `Lebenslauf-Tailoring.json`, wird der
-   Lebenslauf daraus gebaut (Headline, Profilabsatz, Stations-Bullets, Fähigkeitsgruppen,
-   Kernkompetenzen) — Auswahl und Formulierung kommen aus der Profil-Datenbank, unbelegte
-   Fachbegriffe werden beim Erzeugen gemeldet (`bewerbungsagent/tailoring.py`).
+   verschwiegen.
+   Der Lebenslauf entsteht aus der eigenen DOCX-Vorlage; nur der Profilabsatz wird je
+   Stelle angepasst. Fehlt die Vorlage, greift das Ersatzdesign `classic`.
 6. **Dashboard** – interaktives HTML-Dashboard (angelehnt an das alte `00_Dashboard`):
    Suche, Profil-Fit-Filter, Status-Sichtfilter, KPI-Karten, Status- und Wochen-Diagramme,
    sortierbare Tabelle mit **editierbarem Status** und ein-/ausklappbarer Beschreibung —
    Änderungen werden über einen lokalen Server dauerhaft in `data/jobs.db` (SQLite)
    gespeichert. Die Tabelle ist auf **Dichte** gebaut: eine Zeile pro Stelle (Titel max.
    zwei Zeilen), feste Spaltenbreiten in Pixeln und alle Zusatzinfos (Profil-Treffer,
-   Prüfbefunde, Versanddatum, Homeoffice-Original, km/Restluft, Bewertungsdimensionen)
+   Prüfbefunde, Versanddatum, Homeoffice-Original, km/Restluft)
    im Tooltip. Dokumente werden nicht mehr einzeln verlinkt — geöffnet wird der
    Bewerbungsordner, der Tooltip des Ordner-Links nennt die enthaltenen Dateien.
-7. **Ablauf als Graph** (`ablauf`, optional) – dieselben Stufen, aber als
-   Zustandsgraph mit Verzweigung: Stellen, deren Titel für die Relevanz-Triage
-   nicht reicht, werden gezielt nachgeladen (`fetch --only-unsure`), statt für
-   alles einen Browseraufruf zu bezahlen. Der Ablauf macht außerdem sichtbar,
-   dass vor dem Versand eine menschliche Entscheidung steht — die Bewertung
-   passiert im Dashboard; `--ohne-review` überspringt den Knoten.
-   Braucht die optionale Gruppe (`pip install -e ".[graph]"`); ohne sie läuft
-   `pipeline` unverändert linear. Siehe [ADR-023](docs/DECISIONS.md).
-8. **Alt-Dashboard-Import** – übernimmt den kompletten Inhalt des bisherigen Dashboards
-   (`00_Dashboard/Bewerbungs-Dashboard.md` + `dashboard-state.json`): alle Bewerbungen mit
-   Status, Profil-Fit, Arbeitsort, Gehalt, Ansprechpartner, Stellenanzeige-URL und
-   Dokument-Links.
 
 ## Projektstruktur
 
@@ -96,9 +83,7 @@ nach dem Muster von [`tests/fixtures/profil-demo.json`](tests/fixtures/profil-de
     │   ├── matching.py       # Fit-Scoring
     │   ├── statuses.py       # Kanonische Statuswerte (6-Stufen-Funnel)
     │   ├── documents.py      # Anschreiben + Lebenslauf (ReportLab-PDF)
-    │   ├── tailoring.py      # Stellenbezogene Lebenslauf-Auswahl (JSON im Bewerbungsordner)
     │   ├── dashboard.py      # Template des interaktiven HTML-Dashboards
-    │   ├── importer.py       # Import des alten Dashboards
     │   ├── pipeline.py       # Orchestrierung der Schritte
     │   ├── db.py             # SQLite-Persistenz (Provider-/Nutzer-Feldtrennung)
     │   ├── storage.py        # JSON-Persistenz (jobs.json, matches.json)
@@ -169,7 +154,6 @@ pip install -e ".[jobspy]"       # JobSpy-Provider
 
 ```bash
 # Einzelschritte
-python agent.py import-old     # Inhalt des alten Dashboards übernehmen
 python agent.py search          # Web-Suche (StepStone + DuckDuckGo)
 python agent.py searches        # gespeicherte Suchen auflisten
 python agent.py search "Test & Verification"  # nur eine gespeicherte Suche ausführen
@@ -184,8 +168,8 @@ python agent.py providers       # Zustand der Such-Quellen (--enable/--disable/-
 python agent.py dashboard       # HTML-Dashboard (neu) erzeugen
 python agent.py status          # aktuelle Stellen anzeigen
 
-# Alles in einem Durchlauf
-python agent.py pipeline        # Suche → Texte → Match → Enrich → Dokumente → Prüfung → Dashboard
+# Alles in einem Durchlauf (wie der Tageslauf)
+python scripts/jobwatch.py
 ```
 
 Das Ergebnis ist [`dashboard.html`](dashboard.html) (nach dem ersten Lauf) sowie pro Stelle ein
@@ -239,50 +223,17 @@ Aufgabe.
 
 ## Täglicher Lauf (automatisch)
 
-Damit die Stellen und Unterlagen jeden Tag aktuell vorliegen, läuft der Ablauf
-automatisch — per **systemd-User-Timer**, ohne Cloud (Begründung:
-[ADR-024](docs/DECISIONS.md)).
+Den Tageslauf startet Hermes (Cron `jobwatch-bewerbung`, täglich 7:00) über
+`scripts/jobwatch.py`. Das Skript ruft jeden Schritt aus `bewerbungsagent/schritte.py`
+einzeln als `agent.py <schritt>` auf: `search`, `fetch`, `match`, `enrich`,
+`generate`, `quality`, `dashboard`. Nur `fetch` und `quality` dürfen scheitern, ohne
+den Lauf zu stoppen. Danach meldet das Skript die besten Funde per Telegram.
 
-```bash
-# Einmalig einrichten (Units liegen im Repo unter docs/systemd/)
-cp docs/systemd/bewerbungsagent-tageslauf.* ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now bewerbungsagent-tageslauf.timer
-
-# Prüfen
-systemctl --user list-timers bewerbungsagent-tageslauf.timer
-```
-
-Der Timer feuert **täglich 12:00** (plus Streuung bis 5 min) und holt einen
-verpassten Lauf nach, wenn der Rechner aus war (`Persistent=true`) — so fällt
-kein Tag aus.
-
-Der Lauf macht dasselbe wie `agent.py ablauf`, aber mit `--beschreibung alle`:
-vollständige Anzeigentexte für einen präzisen Fit, nicht nur für unklare Titel.
-
-**Ergebnis prüfen:**
-
-```bash
-cat data/tageslauf-status.json     # { "zustand": "OK" | "FEHLER" | "LAUFEND", ... }
-tail -40 data/tageslauf.log        # Verlauf des Laufs
-```
-
-Läuft der Lauf, während der Google-Drive-Sync (bisync, alle 15 min) dazwischen
-greift, darf er nicht das offene Log verlieren. Die Laufzeitdateien
-(`tageslauf.log`, `-status.json`, `.lock`) sind deshalb in
-`~/.config/rclone/bisync-exclude.txt` ausgenommen — am 19.10. löschte bisync das
-offene Log, der Prozess schrieb danach in eine verschwundene Datei
-(`/proc/<pid>/fd/1 → tageslauf.log (deleted)`).
+Von Hand: `python scripts/jobwatch.py` oder einzelne Schritte über `agent.py`.
 
 Die Stellen, die der Lauf neu gefunden hat, tragen im Dashboard das Badge
 **„neu gefunden"** (Filter: „Nur neu gefundene"). Sie bleiben markiert, bis ein
-Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht. Sie
-erscheinen auch ohne Unterlagen, damit das Label sichtbar ist; ein Hinweis nennt,
-wie viele Funde ausserhalb der Pendelgrenze liegen. Details:
-[ADR-025](docs/DECISIONS.md).
-
-Von Hand auslösen: `systemctl --user start bewerbungsagent-tageslauf.service`
-oder direkt `scripts/tageslauf.sh`.
+Lauf neue Stellen mitbringt. Details: [ADR-025](docs/DECISIONS.md).
 
 ## Agenten-Map (was der Agent tut)
 
@@ -308,7 +259,7 @@ Enthalten sind:
   ist der Wohnort, Linien zeigen den Pendelweg, gefärbt nach Fahrzeit.
 - **Toolchain** — Arbeitsplatz, Versionsverwaltung, Dauerlauf und Benachrichtigung:
   Windows-PC (VS Code/Copilot, MCP-Server, venv, Git) → GitHub/Google Drive →
-  Raspberry Pi (systemd-Timer, `agent.py`, `jobwatch.py`) → Telegram → Handy. Jeder
+  Hermes-Cron auf dem PC (`jobwatch.py`, `agent.py`) → Telegram → Handy. Jeder
   Kasten trägt einen **Belegt-Status**: `geprüft` (auf diesem Rechner nachgesehen),
   `konfiguriert` (steht im Code/der `config.json`), `laut Auskunft` (vom Nutzer
   bestätigt, von hier nicht prüfbar) oder `nicht vorhanden`. Damit behauptet die
@@ -413,35 +364,6 @@ Die freie Websuche ist bewusst **pluggable**:
     (im Test 0 von 3). Der Text wird deshalb über den **Klick auf den Titel** geholt: das
     öffnet die Master-Detail-Ansicht (`…&vjk=<jk>`), die auf der Trefferliste bleibt — im
     Test 3 von 3 mit Volltext.
-- **jobs.labo.de** (`labo`) ist eine Fach-Jobbörse (Medizin/Labor/Technik) mit serverseitig
-  gerendertem HTML, kein Browser nötig. Suche über `/suchergebnis?jsjr=<Begriff>&jsjo=<Ort>`;
-  jede Anzeige ist ein `div.jwtpl-hili-item`. Drei Eigenheiten: Bei `itemCompany` stehen
-  `data-*`-Attribute **vor** `class` (ein Regex auf `class` direkt nach dem Tag-Namen findet
-  die Firma nicht), Titel enthalten weiche Trennzeichen (`&shy;`), und die Detailseite hat
-  **kein** JSON-LD — der Text steht in `div.jwtpl-jobaded-dataTextField`-Blöcken. Die
-  Folge-Seite muss über die Knopf-URL geladen werden (sie enthält eine Sitzungs-ID).
-- **JobLeads** (`jobleads`) liefert die Trefferliste serverseitig gerendert, ohne Login: jede
-  Stelle ist eine `div.search-job-card` mit `data-testid`-Markern für Titel, Firma, Gehalt und
-  Datum, der Ort steckt im Slug der Anzeigen-URL (`…--munchen--hash`). Die Detailseite enthält
-  den Volltext als `JobPosting`-JSON-LD (`id="jobPostingLdjson"`) — der Browser-Fetch entfällt.
-  Anders als bei den ATS-Quellen ist die Firma **der Arbeitgeber aus der Anzeige**, nicht der
-  Aggregator, sonst landen alle Treffer unter einem Namen. Einschränkungen (alle live geprüft):
-  - **25 Karten pro Anfrage** — `page=2`, `start=25`, `offset=25`, `currentPage`, `p`, `spage`
-    und `pageIndex` werden ignoriert, es kommt stets dieselbe erste Seite. Mehr Treffer gibt es
-    nur über **mehr Suchbegriffe** (`jobleads_searches`) oder einen Browser mit Scrollen; die
-    gespeicherte Seite einer Browser-Sitzung enthielt 177 Karten. Weil das Fenster nur 25 Karten
-    breit ist, entscheidet die **Wortwahl** über die Abdeckung: `Test Engineer` fand eine Stelle
-    3/3 Läufe, `System Test Engineer` nur 1/3 — breitere Begriffe decken mehr ab.
-  - **HTTP 429 (Cloudflare)** bei Bursts: 177 Detailseiten mit 6 Threads → nur 80 Volltexte.
-    Der Provider holt deshalb mit 3 Threads und bis zu 4 Versuchen mit Backoff.
-  - `minSalary` ist **keine** harte Grenze (bei `minSalary=80000` kamen weiterhin
-    60.000–80.000 durch), sondern verschiebt nur das Ranking — bleibt standardmäßig aus.
-  - Die Firma stammt aus der Anzeige und ist **nicht immer der Arbeitgeber**: bei
-    Aggregator-Anzeigen steht dort teils die Quellbörse („Free resume", „Devopsroles",
-    „Itsicherheit Online") oder die Anzeige erscheint mehrfach. Das JSON-LD wiederholt nur
-    denselben Namen, liefert also keine Korrektur.
-  - Die Treffer überlappen stark mit StepStone/JobSpy — deshalb ist der Provider nicht
-    voreingestellt.
 
 - **DuckDuckGo** und **Bing** gibt es nicht mehr: live geprüft
   lieferte DuckDuckGo 0 Treffer, Bing ausschließlich `bing.com/ck/a`-Redirects zu
@@ -478,7 +400,7 @@ und einzeln starten. Lege dazu `data/saved_searches.json` an:
 
 - `python agent.py searches` listet alle gespeicherten Suchen.
 - `python agent.py search "Test & Verification"` führt nur diese aus.
-- `"daily": true` hängt eine Suche in den Tageslauf (`agent.py pipeline`): Standard-Suche plus alle
+- `"daily": true` hängt eine Suche in den Tageslauf (`scripts/jobwatch.py`): Standard-Suche plus alle
   Tageslauf-Suchen laufen nacheinander, die Treffer werden über die URL zusammengeführt und einmal
   geschrieben.
 - `"ats_firmen": ["XPeng"]` beschränkt den `ats`-Provider auf einzelne Karriereseiten — sonst zieht
@@ -533,25 +455,26 @@ Seit ADR-043 zählen **Grundkenntnisse nicht als Alleinstellungsmerkmal**: `matc
 (Standard: Python) gibt für Titel-, Text- und Worttreffer keine Punkte. Im Profil und in den
 Unterlagen bleibt Python sichtbar — der Fit bewertet es nur nicht mehr.
 
-Zusätzlich bewertet `bewerbungsagent/dimensions.py` dieselbe Stelle in sieben Dimensionen
-(Kompetenz, Aufgaben, Seniorität, Technologie/Branche, Gehalt, Arbeitsmodell, Entwicklung) —
-**berichtend**: Der Fit-Wert bleibt der Keyword-Score, die Dimensionen erscheinen im Dashboard
-als „Dim NN %“ und dienen der Diagnose. Hart ist nur die K.O.-Liste (Anzeigen-Gehalt unter
-`matching.dimensions.ko_gehalt_min_tsd`), sie blockiert die automatische Unterlagenerzeugung.
-Details: `docs/ARCHITECTURE.md`, ADR-031.
-
 Aus dem Fit folgt der Status — die Grenzen stehen in `bewerbungsagent/pipeline.py`:
 
 | Fit | Status | Dokumente |
 |---|---|---|
-| < 50 % | ausgeblendet | – |
-| 50–70 % | `Research` (Filter hält 65–70 % bzw. Pendelweg knapp drüber; 50–64 % wird verborgen) | keine |
+| < 65 % | ausgeblendet | – |
+| 65–70 % | `Research` | keine |
 | > 70 % | `Dokumente erstellt` | ja |
 
-Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch — deshalb
-bekommt das mittlere Band nur den Status `Research`. Bereits erzeugte Unterlagen in
-diesem Band setzt der nächste `enrich`-Lauf auf `Research` zurück; die Dateien bleiben
-liegen. Versendete und abgeschlossene Bewerbungen bleiben unangetastet.
+Drei Regeln, eine Funktion (`pipeline._einordnung`, ADR-059):
+
+1. Pendelweg über `max_pendelzeit_min`: `Research` bis zur Grenze plus
+   `research_filter.commute_grace_min` und ab 65 % Fit, sonst ausgeblendet. Keine
+   automatischen Unterlagen.
+2. Fit unter 65 %: ausgeblendet, außer bei ausdrücklich angeforderten Unterlagen.
+3. Sonst sichtbar: bis 70 % `Research`, ab 71 % Unterlagen.
+
+Bereits erzeugte Unterlagen, die nicht mehr ins Unterlagen-Band fallen, setzt der
+nächste `enrich`-Lauf auf `Research` zurück; die Dateien bleiben liegen. Stellen ohne
+Anzeigentext bleiben ausgeblendet, bis ein Lauf den Text nachgeladen hat. Versendete
+und abgeschlossene Bewerbungen bleiben unangetastet.
 
 Research-Funde erscheinen **nur mit Unterlagen** in der Dashboard-Tabelle — das ist die
 Entscheidungsgrundlage „lohnt sich eine Bewerbung?". Eine pauschale Lockerung wäre kein
@@ -568,7 +491,7 @@ auf und ist ein Nutzerfeld (`db.USER_FIELDS`) — ein Suchlauf kann es nicht
 überschreiben. Die Zeile steht dann mit Badge `Research` in der Tabelle, die der
 Status-Schalter „Research einblenden" ein- und ausblenden kann.
 
-Die Schwelle (`documents.min_fit_for_generation`: `hoch` = > 70 %, `mittel` = 50 %,
+Die Schwelle (`documents.min_fit_for_generation`: `hoch` = > 70 %, `mittel` = 65 %,
 `niedrig` = 0 %) lässt sich in `config.json` anpassen und gilt für beide Wege —
 `generate` und die automatische Erzeugung in `enrich`.
 
@@ -587,13 +510,12 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   Quelle: `agent.py profile-export` schreibt sie neu, `--check` meldet Abweichungen (Exit 1),
   `agent.py enrich` zieht sie automatisch nach.
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
-  (verfügbar: `manual`, `stepstone_browser`, `jobspy`, `ats`, `arbeitnow`, `jobleads`, `xing`,
-  `indeed`, `labo`, `glassdoor`).
+  (verfügbar: `manual`, `stepstone_browser`, `jobspy`, `ats`, `arbeitnow`, `xing`,
+  `indeed`).
 - `search.xing_terms` / `search.indeed_terms` – eigene Begriffslisten für die beiden
   Browser-Provider (Standard: `search.query_terms`). Sinnvoll, weil jeder Begriff dort einen
   Seitenaufruf plus bis zu 25 Detailseiten kostet.
 - `search.xing_max_results` / `search.indeed_max_results` – Obergrenze je Lauf (Standard 25).
-- `search.labo_max_jobs` – Obergrenze für jobs.labo.de (Standard 120).
 - `search.ats_boards` – Karriereseiten für die ATS-Abfrage. Greenhouse/Lever/Ashby nutzen
   `board`, Workday `tenant`+`site` (optional `host`: Instanz wie `wd5` oder der ganze Hostname
   aus der URL der Karriereseite, Standard `wd3`), Eightfold `host`+`domain`, SuccessFactors „Jobs2Web" nur
@@ -606,16 +528,6 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `search.ats_only_near_munich` – nur Stellen aus der Münchener Metropolregion übernehmen
   (Standard `true`); verhindert teure Geocoding-Aufrufe für weltweite Stellen.
 - `search.arbeitnow_pages` – Seiten der Arbeitnow-API (Standard 3, je 300 Stellen).
-- `search.jobleads_searches` – JobLeads-Suchen (Standard `[]`). Ein Eintrag ist entweder ein
-  Suchbegriff (die URL wird samt München-Koordinaten gebaut) oder ein Objekt mit fertiger
-  `list_url`, optional `max_jobs` und `with_description`. Ist die Liste **leer**, greift der
-  Provider auf `search.query_terms` zurück (begrenzt über `jobleads_max_terms`, Standard 6) —
-  eine leere Liste ist eine vergessene Pflege, keine Abschaltung, und hat schon einmal dazu
-  geführt, dass Stellen derselben Trefferliste nie gefunden wurden.
-- `search.jobleads_max_terms` – Obergrenze für diesen Rückfall (Standard 6). Jede Suche kostet
-  eine Listenseite plus bis zu 25 Detailseiten; JobLeads drosselt mit HTTP 429.
-- `search.jobleads_min_salary` – `minSalary` in der Such-URL (Standard `0` = aus). Filtert bei
-  JobLeads **nicht** hart, verschiebt nur das Ranking.
 - `search.jobspy_max_terms` – Anzahl der Suchbegriffe, auf denen der JobSpy-Provider läuft
   (Standard 4).
 - `search.triage` – Relevanz-Triage an/aus (Standard `true`). Domänenfremde Treffer  (Vertrieb, Marketing, Finanzen, Gastronomie, Fahren, Pflege, handwerkliche Fertigung)
@@ -633,14 +545,9 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `max_pendelzeit_min` – Obergrenze des Pendelwegs in Minuten (Standard 30). Zu weit
   entfernte Stellen werden gar nicht erst angelegt: keine Unterlagen, kein Eintrag im
   Dashboard. Unbekannte Pendelzeiten (z. B. Remote) sind kein Ausschlussgrund.
-- `research_filter` – begrenzt den `research`-Bestand. Behalten werden nur Funde mit
-  Fit zwischen `fit_min` und `fit_max` (Standard 65–70 %) oder mit Pendelweg bis
-  `max_pendelzeit_min + commute_grace_min` (Standard 40 min). Funde **oberhalb**
-  des Fensters sind keine Research-Fälle mehr, sondern Dokumenten-Kandidaten und
-  werden nicht gelöscht. Alles andere wird nur als `deleted` markiert (nichts wird
-  gelöscht) und bei jeder Neubewertung erneut geprüft — verbessert sich der Fit,
-  kommt die Stelle zurück. Stellen mit Unterlagen bleiben immer erhalten.
-  `"enabled": false` schaltet den Filter ab.
+- `research_filter.commute_grace_min` – so viele Minuten über `max_pendelzeit_min` bleibt
+  eine Stelle ab 65 % Fit als `Research` sichtbar (Standard 10). Darüber wird sie
+  ausgeblendet und bei jedem Lauf neu geprüft.
 - `commute.home_address` – Ausgangspunkt für die Pendelweg-Berechnung. Bewusst **nicht** im
   Quelltext, sondern hier (bzw. in der privaten `config.json`).
 - `commute.contact_email` – Kontakt für die Nominatim-/OSRM-Anfragen; leer lassen genügt
@@ -653,7 +560,7 @@ Alle Einstellungen stehen in [`config.json`](config.json):
 - `documents.languages` – erzeugte Sprachen (`["de", "en"]`).
 - `documents.accent_color` – Akzentfarbe der PDFs.
 - `documents.min_fit_for_generation` – Mindest-Fit für die automatische Erstellung
-  (`hoch` = > 70 %, Standard; `mittel` = 50 %; `niedrig` = 0 %).
+  (`hoch` = > 70 %, Standard; `mittel` = 65 %; `niedrig` = 0 %).
 - `documents.anschreiben_quellen` – `true`: belegt jeden Anspruch im Anschreiben mit
   Quelle und Zeitraum (siehe `bewerbungsagent/rag.py`). Standard `false`.
 - `documents.anschreiben_luecken` – `true`: benennt im Anschreiben transparent die
@@ -740,13 +647,7 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 ### Backup
 
-```bash
-scripts/backup_chat.sh    # Chat-Verlauf + Checkpoints → auch als Markdown
-scripts/backup_state.sh   # state.json/jobs.json (mit Integritätsprüfung)
-```
-
-> ⚠️ Der Chat-Verlauf liegt unter `~/.copilot/session-state/…` und wird vom
-> Google-Drive-Sync **nicht** erfasst — dafür gibt es `backup_chat.sh`.
+Siehe [`docs/BACKUP.md`](docs/BACKUP.md).
 
 ### Wichtig: Repo nicht auf dem Sync-Mount betreiben
 

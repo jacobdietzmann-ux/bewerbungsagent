@@ -4,18 +4,9 @@ Zwei Dokumente werden pro Stelle erzeugt:
 - Anschreiben (Cover Letter) — auf die Stelle zugeschnitten.
 - Lebenslauf (CV) — mit einem auf die Stelle abgestimmten Profil-Absatz.
 
-Der Lebenslauf unterstützt mehrere Vorlagen (``CV_TEMPLATES``, wählbar über
-``config.json`` → ``documents.lebenslauf_template`` oder CLI ``--template``).
-Die Vorlagen sind originalgetreue ReportLab-Ports bekannter Open-Source-Templates
-(Design, Farben und Layout aus dem jeweiligen Quellcode übernommen):
-
-- ``classic``  — einspaltig, klare Sektionen mit Akzentlinien (ATS-freundlich).
-- ``awesome``  — zweifarbiger Name, akzentfarbene Sektionstitel (Awesome-CV).
-- ``deedy``    — großer zentrierter Name, zwei Spalten (Deedy-Resume).
-- ``mcdowell`` — Serifen-Typografie, zentrierter Name, 3-spaltige Einträge.
-- ``sidebar``  — dunkle Seitenleiste mit Foto/Kontakt/Skills (latexcv).
-- ``elegant``  — zentrierter Kopf, datierte Einträge (billryan/resume).
-- ``clean``    — minimaler Einspalter mit Titel-Regeln (devcelio/resume-template).
+Der Lebenslauf entsteht aus der eigenen DOCX-Vorlage (``documents.lebenslauf_vorlage``).
+Fehlt sie oder scheitert die Konvertierung, greift das Ersatzdesign ``classic``
+(ReportLab): einspaltig, klare Sektionen mit Akzentlinien, ATS-freundlich.
 
 Das Design orientiert sich an den bestehenden Generatoren (Akzentfarbe #0B3D5C,
 klare Typografie) und nutzt ausschliesslich eingebaute Helvetica-Schriften, damit
@@ -24,15 +15,13 @@ keine Font-Dateien benötigt werden.
 
 from __future__ import annotations
 
-import inspect
 import io
 import re
 from datetime import date
-from functools import cache
 from xml.sax.saxutils import escape as _xmlescape
 
 from reportlab.lib.colors import HexColor
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
@@ -73,18 +62,12 @@ _CHIP_HINTS = (
 )
 
 
-def _headline(job: dict, match: dict, lang: str, config: dict | None = None,
-              tailoring: dict | None = None) -> str:
+def _headline(job: dict, match: dict, lang: str, config: dict | None = None) -> str:
     """Wählt die passende Profil-Headline (Test vs. Hardware/Embedded).
 
-    Reihenfolge: Tailoring der Stelle → ``config["documents"]["personal"]
+    Reihenfolge: ``config["documents"]["personal"]
     ["headline_<lang>[_chip]"]`` → hardkodierte Module-Konstanten.
     """
-    from . import tailoring as tal
-
-    eigen = tal.text(tailoring, "headline", lang)
-    if eigen:
-        return eigen
     if config is not None:
         personal = config.get("documents", {}).get("personal", {})
         key = f"headline_{'chip_' if _is_chip_role(job, match) else ''}{lang}"
@@ -489,8 +472,6 @@ def _consolidate_experience(we_list: list[dict]) -> list[dict]:
         else:
             merged.append(copy.deepcopy(we))
     return merged
-
-
 
 
 # --------------------------------------------------------------------------
@@ -922,13 +903,7 @@ def _letter_story(profile: Profile, job: dict, match: dict, config: dict, lang: 
 # Lebenslauf
 # --------------------------------------------------------------------------
 
-def _cv_profile_summary(profile: Profile, job: dict, match: dict, lang: str,
-                        tailoring: dict | None = None) -> str:
-    from . import tailoring as tal
-
-    eigen = tal.text(tailoring, "profil", lang)
-    if eigen:
-        return esc(eigen)
+def _cv_profile_summary(profile: Profile, job: dict, match: dict, lang: str) -> str:
     skills = ", ".join(_summary_skills(profile, job, match, lang, n=4))
     is_chip = _is_chip_role(job, match)
     if lang == "en":
@@ -957,16 +932,12 @@ def _cv_profile_summary(profile: Profile, job: dict, match: dict, lang: str,
     )
 
 
-def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, lang: str,
-                      tailoring: dict | None = None) -> list:
+def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
     """Vorlage „Klassisch": einspaltig, klare Sektionen mit Akzentlinien."""
-    from . import tailoring as tal
-
     st = _styles()
     personal = profile.personal
     accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
     is_en = lang == "en"
-    rollen = tal.role_overrides(tailoring)
 
     story: list = []
     contact = " · ".join(x for x in [
@@ -977,7 +948,7 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
     if photo:
         left = Paragraph(
             f"<b>{esc(personal.get('name', ''))}</b><br/>"
-            f"{esc(_headline(job, match, lang, tailoring=tailoring))}<br/>"
+            f"{esc(_headline(job, match, lang))}<br/>"
             f"{esc(contact)}",
             st["contact"],
         )
@@ -992,20 +963,19 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
         story.append(header_table)
     else:
         story.append(Paragraph(esc(personal.get("name", "")), st["name"]))
-        story.append(Paragraph(esc(_headline(job, match, lang, tailoring=tailoring)), st["headline"]))
+        story.append(Paragraph(esc(_headline(job, match, lang)), st["headline"]))
         story.append(Paragraph(esc(contact), st["contact"]))
     story.append(Spacer(1, 5 * mm))
 
     # Profil
     _section(story, st, "Profile" if is_en else "Profil", accent)
-    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang, tailoring), st["body"]))
+    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
     story.append(Spacer(1, 4 * mm))
 
     # Berufserfahrung
     _section(story, st, "Work Experience" if is_en else "Berufserfahrung", accent)
-    for index, we in enumerate(_consolidate_experience(profile.work_experience)):
-        eigen = rollen.get(index, {})
-        role = tal.text(eigen, "rolle", lang) or _role_label(we, lang)
+    for we in _consolidate_experience(profile.work_experience):
+        role = _role_label(we, lang)
         employer = we.get("employer_of_record", "")
         client = we.get("client", "")
         where = f"{employer} · {client}" if client else employer
@@ -1013,8 +983,7 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
         story.append(_role_period_table(st, role, we.get("period", ""), where))
         story.append(Paragraph(esc(where), st["company"]))
         key = "bullets_en" if is_en else "bullets_de"
-        eigene_bullets = tal.items(eigen, "bullets", lang)
-        bullets = eigene_bullets or [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]
+        bullets = [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]
         for bullet in bullets:
             story.append(Paragraph(f"•  {esc(bullet)}", st["bullet"]))
         story.append(Spacer(1, 3 * mm))
@@ -1032,45 +1001,11 @@ def _cv_story_classic(profile: Profile, job: dict, match: dict, config: dict, la
 
     # Fachkenntnisse & Software (2-Spalten)
     _section(story, st, "Skills & Software" if is_en else "Fachkenntnisse & Software", accent)
-    story.append(_skills_two_columns(profile, st, lang, match, tailoring))
+    story.append(_skills_two_columns(profile, st, lang, match))
     story.append(Spacer(1, 3 * mm))
 
     # Sprachen & Zertifizierung
     _section(story, st, "Languages & Certification" if is_en else "Sprachen & Zertifizierung", accent)
-    eigene_sprachen = tal.text(tailoring, "sprachen", lang)
-    if eigene_sprachen:
-        story.append(Paragraph(esc(eigene_sprachen), st["body"]))
-    else:
-        langs = []
-        for entry in profile.languages:
-            if isinstance(entry, dict):
-                sprache = _translate(entry.get("sprache", ""), _LANGUAGE_TRANSLATIONS_EN, lang)
-                niveau = _translate(entry.get("niveau", ""), _LANGUAGE_LEVEL_TRANSLATIONS_EN, lang)
-                langs.append(f"{sprache} ({niveau})")
-            else:
-                langs.append(_translate(str(entry), _LANGUAGE_TRANSLATIONS_EN, lang))
-        story.append(Paragraph(esc(" · ".join(langs)), st["body"]))
-    for cert in profile.certifications:
-        story.append(Paragraph(f"<b>{esc(_translate(cert, _CERTIFICATION_TRANSLATIONS_EN, lang))}</b>", st["body"]))
-    story.append(Spacer(1, 4 * mm))
-
-    # Kernkompetenzen auf einen Blick
-    story.append(_key_competencies(story, st, lang, tailoring))
-    return story, accent
-
-
-# --------------------------------------------------------------------------
-# Gemeinsame Bausteine für die alternativen Lebenslauf-Vorlagen
-# --------------------------------------------------------------------------
-
-def _section_functional(story: list, st: dict, title: str, accent) -> None:
-    """Sektionsüberschrift im funktionalen Stil: kurze, kräftige Akzentlinie links."""
-    story.append(Paragraph(f"<b>{esc(title.upper())}</b>", st["sectionmarker"]))
-    story.append(HRFlowable(width=26 * mm, thickness=1.4, color=accent,
-                            hAlign="LEFT", spaceAfter=1.5 * mm))
-
-
-def _languages_line(profile: Profile, lang: str) -> str:
     langs = []
     for entry in profile.languages:
         if isinstance(entry, dict):
@@ -1079,57 +1014,19 @@ def _languages_line(profile: Profile, lang: str) -> str:
             langs.append(f"{sprache} ({niveau})")
         else:
             langs.append(_translate(str(entry), _LANGUAGE_TRANSLATIONS_EN, lang))
-    return " · ".join(langs)
+    story.append(Paragraph(esc(" · ".join(langs)), st["body"]))
+    for cert in profile.certifications:
+        story.append(Paragraph(f"<b>{esc(_translate(cert, _CERTIFICATION_TRANSLATIONS_EN, lang))}</b>", st["body"]))
+    story.append(Spacer(1, 4 * mm))
+
+    # Kernkompetenzen auf einen Blick
+    story.append(_key_competencies(story, st, lang))
+    return story, accent
 
 
-def _contact_string(personal: dict) -> str:
-    return " · ".join(x for x in [
-        personal.get("address"), personal.get("phone"), personal.get("email"), LINKEDIN_URL
-    ] if x)
-
-
-def _split_name(personal: dict) -> tuple[str, str]:
-    """Teilt den vollen Namen in Vor- und Nachname (für zweifarbige Namenszeilen)."""
-    name = (personal.get("name") or "").strip()
-    if " " in name:
-        first, last = name.rsplit(" ", 1)
-        return first, last
-    return name, ""
-
-
-def _contact_lines(personal: dict) -> list[str]:
-    return [x for x in [
-        personal.get("address", ""), personal.get("phone", ""),
-        personal.get("email", ""), LINKEDIN_URL,
-    ] if x]
-
-
-def _dated_line(st: dict, left: str, right: str, left_w: float = 125 * mm) -> Table:
-    """Zweispaltige Zeile: links fett, rechts (Zeitraum) ausgerichtet."""
-    t = Table([[Paragraph(left, st["role"]), Paragraph(right, st["period"])]],
-              colWidths=[left_w, 166 * mm - left_w])
-    t.setStyle(_role_period_table_style())
-    return t
-
-
-def _role_period_table_style() -> TableStyle:
-    return TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ])
-
-
-def _cv_entry_two_rows(st: dict, title: str, right1: str, subtitle: str, right2: str) -> Table:
-    """Zweizeiliger Eintrag (devcelio/„clean"-Stil): Titel|Ort, Rolle|Zeitraum."""
-    t = Table([
-        [Paragraph(f"<b>{esc(title)}</b>", st["role"]), Paragraph(esc(right1), st["period"])],
-        [Paragraph(f"<i>{esc(subtitle)}</i>", st["meta"]), Paragraph(f"<i>{esc(right2)}</i>", st["period"])],
-    ], colWidths=[116 * mm, 50 * mm])
-    t.setStyle(_role_period_table_style())
-    return t
+# --------------------------------------------------------------------------
+# Gemeinsame Bausteine für die alternativen Lebenslauf-Vorlagen
+# --------------------------------------------------------------------------
 
 
 # Obergrenzen für die Fachkenntnisse-Darstellung im Lebenslauf: Das Profil enthält
@@ -1140,34 +1037,15 @@ _MAX_SKILLS_PER_GROUP = 6
 _MAX_CV_OVERFLOW_SHOWN = 12
 
 
-def _curate_skill_groups(profile: Profile, match: dict | None, lang: str,
-                         tailoring: dict | None = None):
+def _curate_skill_groups(profile: Profile, match: dict | None, lang: str):
     """Kürzt die Fachkenntnisse auf die relevantesten Einträge.
 
     Pro Gruppe werden stellenrelevante (gematchte) Skills zuerst gezeigt, danach
     die restlichen in Original-Reihenfolge. Die Gesamtzahl wird auf
     ``_MAX_CV_SKILLS`` begrenzt; der Rest landet in ``overflow`` (kompakte
     „Weitere"-Zeile). Das zugrunde liegende Profil bleibt unverändert.
-
-    Liegt ein Tailoring mit expliziten Gruppen vor, gilt dessen Auswahl und
-    Reihenfolge — die Hervorhebung gematchter Skills bleibt.
     """
-    from . import tailoring as tal
-
     matched_norm = {normalize(s) for s in (match or {}).get("matched_skills", [])}
-    eigene = tal.skill_groups(tailoring, lang)
-    if eigene:
-        # Die Einträge im Tailoring-File stehen auf Deutsch (Quelle: Profil).
-        # Für den englischen Lebenslauf müssen sie durch dieselbe Tabelle wie
-        # die Profil-Einträge — sonst steht „Python (erweiterte Grundkenntnisse)"
-        # im englischen CV.
-        groups = [(label,
-                   [(_translate(entry, _SKILL_TRANSLATIONS_EN, lang),
-                     any(normalize(entry) == m or m in normalize(entry)
-                         for m in matched_norm if m))
-                    for entry in entries])
-                  for label, entries in eigene]
-        return groups, tal.extra_skills(tailoring, lang)
 
     labels = _SKILL_LABELS_EN if lang == "en" else _SKILL_LABELS
     matched_norm = {normalize(s) for s in (match or {}).get("matched_skills", [])}
@@ -1228,115 +1106,6 @@ def _overflow_paragraph(overflow: list[str], st: dict, lang: str) -> Paragraph |
     )
 
 
-def _skill_group_blocks(profile: Profile, st: dict, lang: str, match: dict | None = None) -> list[list]:
-    """Fähigkeitsgruppen als einzelne Blöcke (eine Gruppe pro Element)."""
-    groups, overflow = _curate_skill_groups(profile, match, lang)
-    out: list[list] = []
-    for label, items in groups:
-        parts = []
-        for display, hit in items:
-            parts.append(f"<b>{esc(display)}</b>" if hit else esc(display))
-        out.append([Paragraph(f"<b>{esc(label)}</b><br/>{' · '.join(parts)}", st["body"])])
-    extra = _overflow_paragraph(overflow, st, lang)
-    if extra is not None:
-        out.append([extra])
-    return out
-
-
-def _skills_stacked(profile: Profile, st: dict, lang: str, match: dict | None = None) -> list:
-    """Fähigkeitsgruppen als gestapelte Blöcke (für schmale/kompetenzorientierte Layouts)."""
-    out: list = []
-    for block in _skill_group_blocks(profile, st, lang, match):
-        out.extend(block)
-        out.append(Spacer(1, 1.5 * mm))
-    return out
-
-
-def _experience_entries(profile: Profile, st: dict, lang: str,
-                        width: float = 166 * mm) -> list[list]:
-    """Berufserfahrung als Liste von Einträgen (ein Eintrag pro Element)."""
-    is_en = lang == "en"
-    entries: list[list] = []
-    for we in _consolidate_experience(profile.work_experience):
-        role = _role_label(we, lang)
-        employer = we.get("employer_of_record", "")
-        client = we.get("client", "")
-        where = f"{employer} · {client}" if client else employer
-        where = _en_place(where, lang)
-        cell: list = [_role_period_table(st, role, we.get("period", ""), where, width=width)]
-        cell.append(Paragraph(esc(where), st["company"]))
-        key = "bullets_en" if is_en else "bullets_de"
-        for bullet in [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]:
-            cell.append(Paragraph(f"•  {esc(bullet)}", st["bullet"]))
-        cell.append(Spacer(1, 3 * mm))
-        entries.append(cell)
-    return entries
-
-
-def _experience_blocks(profile: Profile, st: dict, lang: str,
-                       width: float = 166 * mm) -> list:
-    """Berufserfahrung als Flussliste (gemeinsam für moderne/funktionale Vorlagen)."""
-    out: list = []
-    for cell in _experience_entries(profile, st, lang, width=width):
-        out.extend(cell)
-    return out
-
-
-def _education_entries(profile: Profile, st: dict, lang: str,
-                       width: float = 166 * mm) -> list[list]:
-    is_en = lang == "en"
-    entries: list[list] = []
-    for edu in profile.education:
-        title = edu.get("title_en" if is_en else "title_de", "")
-        detail = edu.get("detail_en" if is_en else "detail_de", "")
-        cell: list = [_role_period_table(st, title, edu.get("period", ""), "", width=width)]
-        if detail:
-            cell.append(Paragraph(esc(detail), st["meta"]))
-        cell.append(Spacer(1, 1.5 * mm))
-        entries.append(cell)
-    return entries
-
-
-def _education_blocks(profile: Profile, st: dict, lang: str,
-                      width: float = 166 * mm) -> list:
-    out: list = []
-    for cell in _education_entries(profile, st, lang, width=width):
-        out.extend(cell)
-    return out
-
-
-def _modern_sidebar(profile: Profile, job: dict, match: dict, st: dict, lang: str) -> list:
-    """Seitenleiste der modernen Vorlage: Kontakt, Kompetenzen, Sprachen, Zertifikate."""
-    is_en = lang == "en"
-    personal = profile.personal
-    out: list = []
-
-    def block(title: str, body: list) -> None:
-        out.append(Paragraph(f"<b>{esc(title.upper())}</b>", st["sectionmarker"]))
-        out.extend(body)
-        out.append(Spacer(1, 3 * mm))
-
-    contact_lines = [x for x in [
-        personal.get("address", ""), personal.get("phone", ""),
-        personal.get("email", ""), LINKEDIN_URL,
-    ] if x]
-    block("Kontakt" if not is_en else "Contact",
-          [Paragraph("<br/>".join(esc(x) for x in contact_lines), st["meta"])])
-
-    skills = _summary_skills(profile, job, match, lang, n=6)
-    block("Kernkompetenzen" if not is_en else "Core Skills",
-          [Paragraph("•  " + esc(s), st["bullet"]) for s in skills])
-
-    block("Sprachen" if not is_en else "Languages",
-          [Paragraph(esc(_languages_line(profile, lang)), st["meta"])])
-
-    if profile.certifications:
-        block("Zertifizierungen" if not is_en else "Certifications",
-              [Paragraph(esc(_translate(c, _CERTIFICATION_TRANSLATIONS_EN, lang)), st["meta"])
-               for c in profile.certifications])
-    return out
-
-
 # --------------------------------------------------------------------------
 # GitHub-inspirierte Lebenslauf-Vorlagen (originalgetreue ReportLab-Ports)
 # --------------------------------------------------------------------------
@@ -1348,514 +1117,22 @@ _HEADINGS_GRAY = HexColor("#6A6A6A")
 _LIGHT_GRAY = HexColor("#999999")
 
 
-def _accent_hex(color) -> str:
-    return f"#{int(color.red * 255):02X}{int(color.green * 255):02X}{int(color.blue * 255):02X}"
-
-
-def _languages_blocks(profile: Profile, st: dict, lang: str) -> list:
-    """Sprachen + Zertifikate als Flussliste."""
-    out: list = [Paragraph(esc(_languages_line(profile, lang)), st["body"])]
-    for cert in profile.certifications:
-        out.append(Paragraph(
-            f"<b>{esc(_translate(cert, _CERTIFICATION_TRANSLATIONS_EN, lang))}</b>",
-            st["body"],
-        ))
-    return out
-
-
-def _section_awesome(story: list, st: dict, title: str, accent) -> None:
-    """Awesome-CV: erste 3 Zeichen in Akzentfarbe, graue Trennlinie darunter."""
-    t = title.upper()
-    if len(t) > 3:
-        html = (f'<font color="{_accent_hex(accent)}"><b>{esc(t[:3])}</b></font>'
-                f'<b>{esc(t[3:])}</b>')
-    else:
-        html = f'<font color="{_accent_hex(accent)}"><b>{esc(t)}</b></font>'
-    story.append(Paragraph(html, ParagraphStyle("asec", parent=st["sectionmarker"],
-                                                 fontSize=15, leading=18)))
-    story.append(HRFlowable(width="100%", thickness=0.9, color=_NAME_GRAY,
-                            spaceAfter=2 * mm))
-
-
-def _section_mcdowell(story: list, st: dict, title: str) -> None:
-    """McDowell: fette Serifen-Kapitälchen + volle Trennlinie."""
-    p = ParagraphStyle("msec", parent=st["sectionmarker"], fontName="Times-Bold", fontSize=12)
-    story.append(Paragraph(esc(title.upper()), p))
-    story.append(HRFlowable(width="100%", thickness=0.6, color=TEXT_DARK,
-                            spaceAfter=1.5 * mm))
-
-
-def _section_deedy(story: list, st: dict, title: str) -> None:
-    """Deedy: graue Kapitälchen, linksbündig."""
-    p = ParagraphStyle("dsec", parent=st["sectionmarker"], fontSize=12, leading=15,
-                       textColor=_HEADINGS_GRAY)
-    story.append(Paragraph(f"<b>{esc(title.upper())}</b>", p))
-
-
-def _section_billryan(story: list, st: dict, title: str, accent) -> None:
-    """billryan: Marker + Titel (FontAwesome-Ersatz), dünne Trennlinie."""
-    story.append(Paragraph(
-        f'<font color="{_accent_hex(accent)}">›</font>  <b>{esc(title)}</b>',
-        st["sectionmarker"]))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=LINE, spaceAfter=1.5 * mm))
-
-
-def _section_clean(story: list, st: dict, title: str) -> None:
-    """devcelio/„clean": fetter Titel + volle Trennlinie (titlerule)."""
-    p = ParagraphStyle("csec", parent=st["sectionmarker"], fontSize=12.5)
-    story.append(Paragraph(f"<b>{esc(title)}</b>", p))
-    story.append(HRFlowable(width="100%", thickness=0.7, color=TEXT_DARK,
-                            spaceAfter=1.5 * mm))
-
-
-def _three_col_row(st: dict, left: str, center: str, right: str,
-                   widths: list[float]) -> Table:
-    """Dreispaltige Zeile (McDowell-Unterabschnitt: Rolle|Firma|Zeitraum)."""
-    t = Table([
-        [Paragraph(f"<b>{esc(left)}</b>", st["role"]),
-         Paragraph(esc(center), st["meta"]),
-         Paragraph(esc(right), st["period"])],
-    ], colWidths=list(widths))
-    t.setStyle(_role_period_table_style())
-    return t
-
-
-def _section_band(story: list, st: dict, title: str, accent,
-                  width: float = _FULL_WIDTH) -> None:
-    """Vollbreiter, akzentfarbener Sektionsbalken (latexcv-Stil)."""
-    p = Paragraph(
-        f'<font color="#FFFFFF"><b>{esc(title.upper())}</b></font>',
-        ParagraphStyle("band", parent=st["sectionmarker"], leading=13,
-                       textColor=HexColor("#FFFFFF")),
-    )
-    t = Table([[p]], colWidths=[width])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), accent),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
-    story.append(t)
-    story.append(Spacer(1, 2 * mm))
-
-
 # --- Awesome-CV (posquit0/Awesome-CV, ~29k Stars) --------------------------
-
-def _cv_story_awesome(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
-    st = _styles()
-    personal = profile.personal
-    accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
-    is_en = lang == "en"
-    first, last = _split_name(personal)
-
-    story: list = []
-    name_html = (f'<font color="#5D5D5D">{esc(first)}</font> '
-                 f'<font color="#333333"><b>{esc(last)}</b></font>') if last else \
-                f'<font color="#333333"><b>{esc(first)}</b></font>'
-    story.append(Paragraph(name_html, ParagraphStyle("aname", parent=st["name"],
-                                                     fontSize=24, leading=28)))
-    story.append(Paragraph(esc(_headline(job, match, lang)),
-                           ParagraphStyle("apos", parent=st["headline"],
-                                          textColor=accent, fontSize=10, leading=13)))
-    story.append(Spacer(1, 1.5 * mm))
-    story.append(Paragraph(esc(personal.get("address", "")),
-                           ParagraphStyle("aaddr", parent=st["contact"],
-                                          textColor=_LIGHT_GRAY)))
-    story.append(Paragraph(esc(" · ".join(x for x in [
-        personal.get("phone", ""), personal.get("email", ""), LINKEDIN_URL] if x)),
-        ParagraphStyle("asoc", parent=st["contact"], fontSize=8, leading=11)))
-    story.append(Spacer(1, 4 * mm))
-
-    _section_awesome(story, st, "Profile" if is_en else "Profil", accent)
-    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_awesome(story, st, "Work Experience" if is_en else "Berufserfahrung", accent)
-    story.extend(_experience_blocks(profile, st, lang))
-
-    _section_awesome(story, st, "Education" if is_en else "Ausbildung", accent)
-    story.extend(_education_blocks(profile, st, lang))
-    story.append(Spacer(1, 2 * mm))
-
-    _section_awesome(story, st, "Skills & Software" if is_en else "Fachkenntnisse & Software", accent)
-    story.append(_skills_two_columns(profile, st, lang, match))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_awesome(story, st, "Languages & Certification" if is_en else "Sprachen & Zertifizierung", accent)
-    story.extend(_languages_blocks(profile, st, lang))
-    story.append(Spacer(1, 3 * mm))
-    return story, accent
 
 
 # --- Deedy-Resume (deedy/Deedy-Resume, ~5k Stars) --------------------------
 
-def _stacked_entry(st: dict, heading: str, descriptor: str, meta: str) -> list:
-    """Vertikal gestapelter Eintrag (Deedy-Stil): fette Überschrift, darunter Grau-Zeilen."""
-    cell: list = [Paragraph(
-        f"<b>{esc(heading.upper())}</b>",
-        ParagraphStyle("dh", parent=st["role"], fontSize=10.5, leading=13,
-                       textColor=_DARK))]
-    if descriptor:
-        cell.append(Paragraph(esc(descriptor),
-                              ParagraphStyle("dd", parent=st["meta"], leading=12)))
-    if meta:
-        cell.append(Paragraph(esc(meta),
-                              ParagraphStyle("dm", parent=st["meta"], fontSize=8.5,
-                                             leading=11, textColor=_HEADINGS_GRAY)))
-    return cell
-
-
-def _deedy_experience_entries(profile: Profile, st: dict, lang: str) -> list[list]:
-    is_en = lang == "en"
-    out: list[list] = []
-    for we in _consolidate_experience(profile.work_experience):
-        role = _role_label(we, lang)
-        employer = we.get("employer_of_record", "")
-        client = we.get("client", "")
-        meta = " | ".join(x for x in [we.get("period", ""), client] if x)
-        cell = _stacked_entry(st, employer, role, meta)
-        key = "bullets_en" if is_en else "bullets_de"
-        for bullet in [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]:
-            cell.append(Paragraph("•  " + esc(bullet), st["bullet"]))
-        cell.append(Spacer(1, 2.5 * mm))
-        out.append(cell)
-    return out
-
-
-def _deedy_education_entries(profile: Profile, st: dict, lang: str) -> list[list]:
-    is_en = lang == "en"
-    out: list[list] = []
-    for edu in profile.education:
-        title = edu.get("title_en" if is_en else "title_de", "")
-        detail = edu.get("detail_en" if is_en else "detail_de", "")
-        cell = _stacked_entry(st, title, detail, edu.get("period", ""))
-        cell.append(Spacer(1, 1 * mm))
-        out.append(cell)
-    return out
-
-
-def _cv_story_deedy(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
-    st = _styles()
-    personal = profile.personal
-    accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
-    is_en = lang == "en"
-    left_w, right_w = 52 * mm, 114 * mm
-
-    story: list = []
-    story.append(Paragraph(esc(personal.get("name", "")),
-                           ParagraphStyle("dname", parent=st["name"], fontSize=26,
-                                          leading=30, alignment=TA_CENTER)))
-    story.append(Paragraph(esc(_headline(job, match, lang)),
-                           ParagraphStyle("dhead", parent=st["headline"],
-                                          alignment=TA_CENTER, textColor=_HEADINGS_GRAY)))
-    story.append(Paragraph(esc(_contact_string(personal)),
-                           ParagraphStyle("dcont", parent=st["contact"],
-                                          alignment=TA_CENTER, textColor=_HEADINGS_GRAY)))
-    story.append(Spacer(1, 1 * mm))
-    story.append(HRFlowable(width="100%", thickness=0.6, color=_HEADINGS_GRAY,
-                            spaceAfter=3 * mm))
-
-    # Linke Spalte in drei kurze Blöcke aufteilen (je Zeile einer), damit
-    # ReportLab sauber umbrechen kann.
-    edu_cell: list = []
-    _section_deedy(edu_cell, st, "Education" if is_en else "Ausbildung")
-    for cell in _deedy_education_entries(profile, st, lang):
-        edu_cell.extend(cell)
-
-    skills_cell: list = []
-    _section_deedy(skills_cell, st, "Skills" if is_en else "Fachkenntnisse")
-    for s in _summary_skills(profile, job, match, lang, n=8):
-        skills_cell.append(Paragraph("•  " + esc(s), st["bullet"]))
-
-    langs_cell: list = []
-    _section_deedy(langs_cell, st, "Languages" if is_en else "Sprachen")
-    langs_cell.append(Paragraph(esc(_languages_line(profile, lang)), st["meta"]))
-
-    profile_cell: list = []
-    _section_deedy(profile_cell, st, "Profile" if is_en else "Profil")
-    profile_cell.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
-    profile_cell.append(Spacer(1, 3 * mm))
-
-    exp_cells = _deedy_experience_entries(profile, st, lang)
-
-    exp_title: list = []
-    _section_deedy(exp_title, st, "Experience" if is_en else "Erfahrung")
-
-    rows: list = [[edu_cell, profile_cell]]
-    rows.append([skills_cell, exp_title + (exp_cells[0] if exp_cells else [])])
-    rows.append([langs_cell, exp_cells[1] if len(exp_cells) > 1 else []])
-    for cell in exp_cells[2:]:
-        rows.append([[], cell])
-
-    body = Table(rows, colWidths=[left_w, right_w])
-    body.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (0, 0), 8),
-        ("RIGHTPADDING", (1, 0), (1, 0), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    story.append(body)
-    return story, accent
-
 
 # --- McDowell CV (dnl-blkv/mcdowell-cv, ~2.7k Stars) -----------------------
-
-def _cv_story_mcdowell(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
-    st = _styles()
-    personal = profile.personal
-    accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
-    is_en = lang == "en"
-
-    story: list = []
-    addr = personal.get("address", "")
-    contacts = " · ".join(x for x in [personal.get("phone", ""), personal.get("email", "")] if x)
-    name_p = Paragraph(esc(personal.get("name", "").upper()),
-                       ParagraphStyle("mname", parent=st["name"], fontName="Times-Bold",
-                                      fontSize=15, alignment=TA_CENTER))
-    header = Table([
-        [Paragraph(esc(addr), st["meta"]),
-         name_p,
-         Paragraph(esc(contacts), ParagraphStyle("mcont", parent=st["meta"], alignment=TA_RIGHT))],
-    ], colWidths=[48 * mm, 69 * mm, 48 * mm])
-    header.setStyle(_role_period_table_style())
-    story.append(header)
-    story.append(Spacer(1, 3 * mm))
-
-    _section_mcdowell(story, st, "Profile" if is_en else "Profil")
-    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_mcdowell(story, st, "Work Experience" if is_en else "Berufserfahrung")
-    for we in _consolidate_experience(profile.work_experience):
-        role = _role_label(we, lang)
-        employer = we.get("employer_of_record", "")
-        client = we.get("client", "")
-        where = (f"{employer} · {client}" if client else employer)
-        where = _en_place(where, lang)
-        story.append(_three_col_row(st, role, where, we.get("period", ""),
-                                    [90 * mm, 40 * mm, 35 * mm]))
-        key = "bullets_en" if is_en else "bullets_de"
-        for bullet in [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]:
-            story.append(Paragraph(f"•  {esc(bullet)}", st["bullet"]))
-        story.append(Spacer(1, 2.5 * mm))
-
-    _section_mcdowell(story, st, "Education" if is_en else "Ausbildung")
-    for edu in profile.education:
-        title = edu.get("title_en" if is_en else "title_de", "")
-        detail = edu.get("detail_en" if is_en else "detail_de", "")
-        story.append(_three_col_row(st, title, detail, edu.get("period", ""),
-                                    [90 * mm, 40 * mm, 35 * mm]))
-        story.append(Spacer(1, 1 * mm))
-    story.append(Spacer(1, 2 * mm))
-
-    _section_mcdowell(story, st, "Skills & Software" if is_en else "Fachkenntnisse & Software")
-    story.append(_skills_two_columns(profile, st, lang, match))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_mcdowell(story, st, "Languages & Certification" if is_en else "Sprachen & Zertifizierung")
-    story.extend(_languages_blocks(profile, st, lang))
-    story.append(Spacer(1, 3 * mm))
-    return story, accent
 
 
 # --- latexcv „sidebar" (jankapunkt/latexcv, ~3.4k Stars) -------------------
 
-def _dark_sidebar(profile: Profile, job: dict, match: dict, st: dict, lang: str) -> list:
-    is_en = lang == "en"
-    personal = profile.personal
-    out: list = []
-
-    def dark_para(text: str, style_name: str, parent: ParagraphStyle, **kw) -> Paragraph:
-        ps = ParagraphStyle(style_name, parent=parent, textColor=HexColor("#FFFFFF"), **kw)
-        return Paragraph(text, ps)
-
-    photo = _photo_image(profile, width_mm=30.0)
-    if photo:
-        out.append(photo)
-        out.append(Spacer(1, 3 * mm))
-
-    out.append(dark_para(f"<b>{esc(personal.get('name', ''))}</b>", "sname",
-                         st["name"], fontSize=13, leading=16))
-    out.append(Paragraph(esc(_headline(job, match, lang)),
-                         ParagraphStyle("shead", parent=st["headline"],
-                                        textColor=HexColor("#D7E6F2"))))
-    out.append(Spacer(1, 3 * mm))
-
-    out.append(dark_para(f"<b>{esc('Contact' if is_en else 'Kontakt').upper()}</b>",
-                         "sc1", st["sectionmarker"], fontSize=11, leading=13))
-    out.append(Paragraph("<br/>".join(esc(x) for x in _contact_lines(personal)),
-                         ParagraphStyle("smeta", parent=st["meta"],
-                                        textColor=HexColor("#EAF2F8"))))
-    out.append(Spacer(1, 3 * mm))
-
-    out.append(dark_para(f"<b>{esc('Skills' if is_en else 'Fachkenntnisse').upper()}</b>",
-                         "sc2", st["sectionmarker"], fontSize=11, leading=13))
-    for s in _summary_skills(profile, job, match, lang, n=8):
-        out.append(Paragraph("•  " + esc(s),
-                             ParagraphStyle("sbullet", parent=st["bullet"],
-                                            textColor=HexColor("#FFFFFF"))))
-    out.append(Spacer(1, 3 * mm))
-
-    out.append(dark_para(f"<b>{esc('Languages' if is_en else 'Sprachen').upper()}</b>",
-                         "sc3", st["sectionmarker"], fontSize=11, leading=13))
-    out.append(Paragraph(esc(_languages_line(profile, lang)),
-                         ParagraphStyle("slang", parent=st["meta"],
-                                        textColor=HexColor("#EAF2F8"))))
-    return out
-
-
-def _cv_story_sidebar(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
-    st = _styles()
-    accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
-    is_en = lang == "en"
-    left_w, right_w = 52 * mm, 113 * mm
-
-    story: list = []
-
-    profile_col: list = []
-    _section_band(profile_col, st, "Profile" if is_en else "Profil", accent, width=right_w)
-    profile_col.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
-    profile_col.append(Spacer(1, 3 * mm))
-
-    rows: list = [[_dark_sidebar(profile, job, match, st, lang), profile_col]]
-
-    exp_title: list = []
-    _section_band(exp_title, st, "Work Experience" if is_en else "Berufserfahrung", accent, width=right_w)
-    rows.append([[], exp_title])
-    for cell in _experience_entries(profile, st, lang, width=right_w):
-        rows.append([[], cell])
-
-    edu_title: list = []
-    _section_band(edu_title, st, "Education" if is_en else "Ausbildung", accent, width=right_w)
-    rows.append([[], edu_title])
-    for cell in _education_entries(profile, st, lang, width=right_w):
-        rows.append([[], cell])
-
-    cert_title: list = []
-    _section_band(cert_title, st, "Languages & Certification" if is_en else "Sprachen & Zertifizierung", accent, width=right_w)
-    rows.append([[], cert_title + _languages_blocks(profile, st, lang)])
-
-    body = Table(rows, colWidths=[left_w, right_w])
-    body.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (0, 0), 8),
-        ("RIGHTPADDING", (1, 0), (1, 0), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("BACKGROUND", (0, 0), (0, -1), accent),
-    ]))
-    story.append(body)
-    return story, accent
-
 
 # --- billryan/resume (~11.5k Stars) ----------------------------------------
 
-def _cv_story_elegant(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
-    st = _styles()
-    personal = profile.personal
-    accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
-    is_en = lang == "en"
-
-    story: list = []
-    story.append(Paragraph(esc(personal.get("name", "")),
-                           ParagraphStyle("bname", parent=st["name"], alignment=TA_CENTER)))
-    story.append(Paragraph(esc(_headline(job, match, lang)),
-                           ParagraphStyle("bhead", parent=st["headline"], alignment=TA_CENTER)))
-    story.append(Paragraph(esc(_contact_string(personal)),
-                           ParagraphStyle("bcont", parent=st["contact"], alignment=TA_CENTER)))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_billryan(story, st, "Profile" if is_en else "Profil", accent)
-    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_billryan(story, st, "Experience" if is_en else "Berufserfahrung", accent)
-    for we in _consolidate_experience(profile.work_experience):
-        role = _role_label(we, lang)
-        employer = we.get("employer_of_record", "")
-        client = we.get("client", "")
-        where = (f"{employer} · {client}" if client else employer)
-        where = _en_place(where, lang)
-        story.append(_dated_line(st, f"<b>{esc(where)}</b>", we.get("period", "")))
-        story.append(Paragraph(f"<i>{esc(role)}</i>", st["meta"]))
-        key = "bullets_en" if is_en else "bullets_de"
-        for bullet in [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]:
-            story.append(Paragraph(f"•  {esc(bullet)}", st["bullet"]))
-        story.append(Spacer(1, 2.5 * mm))
-
-    _section_billryan(story, st, "Education" if is_en else "Ausbildung", accent)
-    for edu in profile.education:
-        title = edu.get("title_en" if is_en else "title_de", "")
-        detail = edu.get("detail_en" if is_en else "detail_de", "")
-        story.append(_dated_line(st, f"<b>{esc(title)}</b>", edu.get("period", "")))
-        if detail:
-            story.append(Paragraph(esc(detail), st["meta"]))
-        story.append(Spacer(1, 1 * mm))
-    story.append(Spacer(1, 2 * mm))
-
-    _section_billryan(story, st, "Skills & Software" if is_en else "Fachkenntnisse & Software", accent)
-    story.append(_skills_two_columns(profile, st, lang, match))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_billryan(story, st, "Languages & Certification" if is_en else "Sprachen & Zertifizierung", accent)
-    story.extend(_languages_blocks(profile, st, lang))
-    story.append(Spacer(1, 3 * mm))
-    return story, accent
-
 
 # --- devcelio/resume-template (1721 Stars, „clean"-Trend) ------------------
-
-def _cv_story_clean(profile: Profile, job: dict, match: dict, config: dict, lang: str) -> list:
-    st = _styles()
-    personal = profile.personal
-    accent = HexColor(config["documents"].get("accent_color", "#0B3D5C"))
-    is_en = lang == "en"
-
-    story: list = []
-    story.append(Paragraph(f"<b>{esc(personal.get('name', ''))}</b>",
-                           ParagraphStyle("clname", parent=st["name"], fontSize=15,
-                                          alignment=TA_CENTER)))
-    story.append(Paragraph(esc(_contact_string(personal)),
-                           ParagraphStyle("clcont", parent=st["contact"], alignment=TA_CENTER)))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_clean(story, st, "Profile" if is_en else "Profil")
-    story.append(Paragraph(_cv_profile_summary(profile, job, match, lang), st["body"]))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_clean(story, st, "Experience" if is_en else "Berufserfahrung")
-    for we in _consolidate_experience(profile.work_experience):
-        role = _role_label(we, lang)
-        employer = we.get("employer_of_record", "")
-        client = we.get("client", "")
-        where = (f"{employer} · {client}" if client else employer)
-        where = _en_place(where, lang)
-        story.append(_cv_entry_two_rows(st, employer, client or "", role, we.get("period", "")))
-        key = "bullets_en" if is_en else "bullets_de"
-        for bullet in [b for b in we.get(key, []) if not _is_filler_bullet(b)][:5]:
-            story.append(Paragraph(f"•  {esc(bullet)}", st["bullet"]))
-        story.append(Spacer(1, 2.5 * mm))
-
-    _section_clean(story, st, "Education" if is_en else "Ausbildung")
-    for edu in profile.education:
-        title = edu.get("title_en" if is_en else "title_de", "")
-        detail = edu.get("detail_en" if is_en else "detail_de", "")
-        story.append(_cv_entry_two_rows(st, title, "", detail, edu.get("period", "")))
-        story.append(Spacer(1, 1 * mm))
-    story.append(Spacer(1, 2 * mm))
-
-    _section_clean(story, st, "Skills & Software" if is_en else "Fachkenntnisse & Software")
-    story.append(_skills_two_columns(profile, st, lang, match))
-    story.append(Spacer(1, 3 * mm))
-
-    _section_clean(story, st, "Languages & Certification" if is_en else "Sprachen & Zertifizierung")
-    story.extend(_languages_blocks(profile, st, lang))
-    story.append(Spacer(1, 3 * mm))
-    return story, accent
 
 
 # --------------------------------------------------------------------------
@@ -1867,74 +1144,35 @@ CV_TEMPLATES: dict[str, dict] = {
         "label": "Klassisch",
         "description": "Einspaltig mit klaren Sektionen und Akzentlinien — ATS-freundlich und zurückhaltend.",
     },
-    "awesome": {
-        "label": "Awesome",
-        "description": "Zweifarbiger Name, akzentfarbene Sektionstitel (Awesome-CV, ~29k Stars).",
-    },
-    "deedy": {
-        "label": "Deedy",
-        "description": "Großer zentrierter Name, zwei Spalten mit linker Spalte (Deedy-Resume).",
-    },
-    "mcdowell": {
-        "label": "McDowell",
-        "description": "Serifen-Typografie, zentrierter Name, 3-spaltige Einträge (mcdowell-cv).",
-    },
-    "sidebar": {
-        "label": "Sidebar",
-        "description": "Dunkle Seitenleiste mit Foto/Kontakt/Skills (latexcv-Sidebar).",
-    },
-    "elegant": {
-        "label": "Elegant",
-        "description": "Zentrierter Kopf, datierte Einträge (billryan/resume, ~11k Stars).",
-    },
-    "clean": {
-        "label": "Clean",
-        "description": "Minimaler Einspalter mit Titel-Regeln und 2-Zeilen-Einträgen (devcelio, 1.7k Stars).",
-    },
 }
 
 DEFAULT_CV_TEMPLATE = "classic"
 
 _CV_BUILDERS = {
     "classic": _cv_story_classic,
-    "awesome": _cv_story_awesome,
-    "deedy": _cv_story_deedy,
-    "mcdowell": _cv_story_mcdowell,
-    "sidebar": _cv_story_sidebar,
-    "elegant": _cv_story_elegant,
-    "clean": _cv_story_clean,
 }
 
 
-
 def _cv_story(profile: Profile, job: dict, match: dict, config: dict, lang: str,
-              template: str = DEFAULT_CV_TEMPLATE, tailoring: dict | None = None) -> list:
+              template: str = DEFAULT_CV_TEMPLATE) -> list:
     builder = _CV_BUILDERS.get(template)
     if builder is None:
         raise ValueError(
             f"Unbekannte Lebenslauf-Vorlage: {template!r} "
             f"(verfügbar: {', '.join(CV_TEMPLATES)})"
         )
-    if _supports_tailoring(builder):
-        return builder(profile, job, match, config, lang, tailoring)
     return builder(profile, job, match, config, lang)
 
 
-@cache
-def _supports_tailoring(builder) -> bool:
-    """True, wenn der Vorlagen-Builder einen ``tailoring``-Parameter hat."""
-    return "tailoring" in inspect.signature(builder).parameters
-
-
-def _skills_two_columns(profile: Profile, st: dict, lang: str, match: dict | None = None,
-                        tailoring: dict | None = None) -> Table:
+def _skills_two_columns(profile: Profile, st: dict, lang: str,
+                        match: dict | None = None) -> Table:
     """Fähigkeitsgruppen in zwei Spalten (Vorlagen-Layout).
 
     Passende Skills (aus ``match['matched_skills']``) werden hervorgehoben. Die
     Menge wird über ``_curate_skill_groups`` begrenzt; überzählige Einträge
     erscheinen als kompakte „Weitere"-Zeile unterhalb der Spalten.
     """
-    groups, overflow = _curate_skill_groups(profile, match, lang, tailoring)
+    groups, overflow = _curate_skill_groups(profile, match, lang)
 
     blocks: list[tuple[int, str]] = []
     for label, items in groups:
@@ -1979,12 +1217,10 @@ def _skills_two_columns(profile: Profile, st: dict, lang: str, match: dict | Non
     return t
 
 
-def _key_competencies(story, st: dict, lang: str, tailoring: dict | None = None):
+def _key_competencies(story, st: dict, lang: str):
     """Vier Kernkompetenz-Karten am CV-Ende (Vorlagen-Stil)."""
-    from . import tailoring as tal
-
     is_en = lang == "en"
-    cards = tal.competencies(tailoring, lang) or (
+    cards = (
         [
             ("10+", "years automotive", "test & integration"),
             ("HiL / XiL", "test benches, automation", "& test scripts"),
@@ -2122,25 +1358,39 @@ def _replace_profile_paragraph(doc, summary: str, lang: str) -> None:
             return
 
 
-def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None, tailoring: dict | None = None) -> str:
+_SOFFICE_ORTE = (
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+)
+
+
+def _soffice() -> str:
+    """LibreOffice-Aufruf: aus dem Suchpfad, sonst vom üblichen Windows-Installationsort.
+
+    Unter Windows liegt ``soffice`` nicht im Suchpfad. Bis zum 11.11.2026 schlug der
+    Aufruf deshalb still fehl, und jeder Lebenslauf entstand im Ersatzdesign statt
+    aus der DOCX-Vorlage.
+    """
+    import os
+    import shutil
+
+    gefunden = shutil.which("soffice")
+    if gefunden:
+        return gefunden
+    return next((p for p in _SOFFICE_ORTE if os.path.exists(p)), "soffice")
+
+
+def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None) -> str:
     """Lebenslauf aus der eigenen DOCX-Vorlage (statt ReportLab-Generierung).
 
     Kopiert die aktuelle Lebenslauf-DOCX, ersetzt nur den Profil-Absatz durch
     den auf die Stelle zugeschnittenen Text und konvertiert zu PDF (soffice).
     Fällt auf ``generate_lebenslauf`` zurück, wenn keine Vorlage konfiguriert
     ist, die Datei fehlt oder die Konvertierung scheitert.
-
-    Liegt ein Tailoring vor, wird die DOCX-Vorlage **nicht** verwendet: sie
-    erlaubt nur das Ersetzen eines Absatzes, während ein Tailoring Stationen-
-    Bullets, Fähigkeitsgruppen und Kernkompetenzen umstellt. In diesem Fall
-    entsteht der Lebenslauf direkt aus dem Profil (``generate_lebenslauf``).
     """
     def _fallback():
         return generate_lebenslauf(profile, job, match, out_path, config, lang,
-                                   template=template, tailoring=tailoring)
-
-    if tailoring:
-        return _fallback()
+                                   template=template)
 
     vorlage = (config.get("documents", {}) or {}).get("lebenslauf_vorlage") or {}
     rel = vorlage.get(lang) or vorlage.get("de")
@@ -2180,7 +1430,8 @@ def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_pa
             out_dir = tmpdir / "pdf"
             out_dir.mkdir()
             subprocess.run(
-                ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), str(work_docx)],
+                [_soffice(), "--headless", "--convert-to", "pdf", "--outdir", str(out_dir),
+                 str(work_docx)],
                 check=True, capture_output=True, timeout=180,
             )
             pdf = out_dir / "Lebenslauf.pdf"
@@ -2196,10 +1447,9 @@ def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_pa
     return str(out_path)
 
 
-def generate_lebenslauf(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None, tailoring: dict | None = None) -> str:
+def generate_lebenslauf(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None) -> str:
     template = template or (config.get("documents", {}).get("lebenslauf_template") or DEFAULT_CV_TEMPLATE)
-    story, accent = _cv_story(profile, job, match, config, lang, template=template,
-                              tailoring=tailoring)
+    story, accent = _cv_story(profile, job, match, config, lang, template=template)
     doc = SimpleDocTemplate(
         str(out_path), pagesize=A4,
         leftMargin=22 * mm, rightMargin=22 * mm, topMargin=20 * mm, bottomMargin=18 * mm,

@@ -44,6 +44,5 @@ Direktlinks:
 
 ## Sicherung (dauerhaft)
 
-- systemd-Timer `bewerbungsagent-backup.timer` — täglich 07:30
 - Chat-Verlauf → `~/backups/bewerbungsagent-chat/`
 - Agent-State → `~/backups/bewerbungsagent-state/`

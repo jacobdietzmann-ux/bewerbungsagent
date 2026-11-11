@@ -382,26 +382,6 @@ class TestAblauf:
         jobs = json.loads(config.jobs_path().read_text(encoding="utf-8"))
         assert jobs[0]["zuletzt_gesehen"] == "2026-10-01T00:00:00+01:00"
 
-    def test_pipeline_ruft_enrich_auf(self, config, monkeypatch):
-        reihenfolge: list[str] = []
-        monkeypatch.setattr(pipeline, "run_searches",
-                            lambda *_a: reihenfolge.append("suche") or {})
-        monkeypatch.setattr(pipeline, "run_fetch",
-                            lambda *_a: reihenfolge.append("fetch") or {})
-        monkeypatch.setattr(pipeline, "run_match",
-                            lambda *_a: reihenfolge.append("match") or {"matched": 0})
-        monkeypatch.setattr(pipeline, "run_enrich", lambda *_a: reihenfolge.append("enrich") or {
-            "generated": [{"id": 1}], "failed": []})
-        monkeypatch.setattr(pipeline, "run_generate", lambda *_a: reihenfolge.append("generate") or {
-            "generated": [{"id": 2}], "failed": []})
-        monkeypatch.setattr(pipeline, "run_quality",
-                            lambda *_a: reihenfolge.append("quality") or {})
-        monkeypatch.setattr(pipeline, "run_dashboard",
-                            lambda *_a: reihenfolge.append("dashboard") or {})
-        ergebnis = pipeline.run_full(config, None)
-        assert reihenfolge == ["suche", "fetch", "match", "enrich", "generate", "quality",
-                               "dashboard"]
-        assert [g["id"] for g in ergebnis["generated"]] == [1, 2]
 
 
 class TestStore:

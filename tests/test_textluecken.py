@@ -302,8 +302,8 @@ class TestAblaufErkennung:
         assert _is_expired_redirect(url) is None
 
 
-class TestPrueffallTextFehlt:
-    """Regel aus ADR-055, vom Nutzer am 08.11.2026 mit 14 Tagen Frist freigegeben."""
+class TestStellenOhneText:
+    """Stellen ohne Text sind ausgeblendet, bis der Text nachgeladen ist (11.11.2026)."""
 
     @pytest.fixture(autouse=True)
     def _offline(self, monkeypatch):
@@ -323,62 +323,14 @@ class TestPrueffallTextFehlt:
                 "titel": "Testingenieur HiL (m/w/d)", "quelle": "StepStone", "status": "neu",
                 "score": 12, "created": _vor(3), "pendelzeit_min": 20, **mehr}
 
-    def test_rollentreffer_ohne_text_bleibt_als_prueffall(self, config):
-        ergebnis, stand = self._lauf(config, self._stelle())
-        assert not stand["k1"].get("deleted")
-        assert stand["k1"]["text_fehlt"] is True
-        assert ergebnis["text_fehlt"] == 1
-        assert ergebnis["deleted_fit_under_50"] == 0
-
-    def test_frueher_ausgeblendet_kommt_als_prueffall_zurueck(self, config):
-        _e, stand = self._lauf(config, self._stelle(deleted=True, deleted_reason="FIT < 50 %"))
-        assert not stand["k1"].get("deleted")
-        assert stand["k1"]["text_fehlt"] is True
-
-    def test_nach_der_frist_ausgeblendet_mit_eigenem_grund(self, config):
-        _e, stand = self._lauf(config, self._stelle(created=_vor(auswahl.TEXT_FEHLT_TAGE + 1)))
-        assert stand["k1"]["deleted"] is True
-        assert stand["k1"]["deleted_reason"] == "Text fehlt seit über 14 Tagen"
-        assert "text_fehlt" not in stand["k1"]
-
     def test_abgelaufene_anzeige_nennt_den_grund(self, config):
         _e, stand = self._lauf(config, self._stelle(verfuegbar=False))
         assert stand["k1"]["deleted_reason"] == "Anzeige abgelaufen (ohne Text)"
-
-    @pytest.mark.parametrize("mehr", [
-        {"beschreibung": "Echter Anzeigentext"},     # bewertet, nicht mehr nur der Titel
-        {"titel": "Vertriebsleiter (m/w/d)"},       # kein Rollensignal
-    ])
-    def test_sonst_gilt_die_ausblendgrenze(self, config, mehr):
-        _e, stand = self._lauf(config, self._stelle(**mehr))
-        assert stand["k1"]["deleted_reason"] == "FIT < 50 %"
 
     def test_pendelweg_bleibt_harte_grenze(self, config):
         _e, stand = self._lauf(config, self._stelle(pendelzeit_min=120))
         assert stand["k1"]["deleted"] is True
         assert stand["k1"]["deleted_reason"].startswith("Pendelweg")
-
-    @pytest.mark.parametrize("mehr", [
-        {"beschreibung": "Echter Anzeigentext"},     # Fit ist bewertet, nicht nur der Titel
-        {"titel": "Psychologe (m/w/d)"},            # kein Rollensignal
-    ])
-    def test_pendel_wieder_frei_aber_fit_zu_schwach(self, config, mehr):
-        alt = self._stelle(deleted=True, deleted_reason="Pendelweg > 30 min",
-                           deleted_code="pendel", **mehr)
-        _e, stand = self._lauf(config, alt)
-        assert stand["k1"]["deleted"] is True
-        assert stand["k1"]["deleted_reason"] == "FIT < 50 %"
-        assert "text_fehlt" not in stand["k1"]
-
-    def test_pendel_wieder_frei_rollentreffer_ohne_text_wird_prueffall(self, config):
-        alt = self._stelle(deleted=True, deleted_reason="Pendelweg > 30 min", deleted_code="pendel")
-        _e, stand = self._lauf(config, alt)
-        assert not stand["k1"].get("deleted")
-        assert stand["k1"]["text_fehlt"] is True
-
-    def test_research_filter_laesst_den_prueffall_stehen(self, config):
-        _e, stand = self._lauf(config, self._stelle(status="research"))
-        assert not stand["k1"].get("deleted")
 
     def test_mit_text_entscheiden_wieder_die_baender(self, config):
         _e, stand = self._lauf(config, self._stelle(beschreibung="Text", score=67))
@@ -403,36 +355,3 @@ class TestPrueffallTextFehlt:
         anzeige = self._stelle("k2", firma="X GmbH", titel="Testingenieur", beschreibung="Text")
         _e, stand = self._lauf(config, lead, anzeige)
         assert stand[lead["key"]]["deleted_reason"] == USER_DELETE_REASON
-
-    def test_messgroesse_zaehlt_die_umbenennung_weiter_mit(self):
-        apps = [
-            {"deleted": True, "deleted_reason": "FIT < 50 %", "titel": "Testingenieur"},
-            {"deleted": True, "deleted_reason": "Text fehlt seit über 14 Tagen",
-             "titel": "Testingenieur"},
-            {"deleted": True, "deleted_reason": "FIT < 50 %", "titel": "Testingenieur",
-             "beschreibung": "Text"},                                   # bewertet
-            {"deleted": True, "deleted_reason": "Anzeige abgelaufen (ohne Text)",
-             "titel": "Testingenieur", "verfuegbar": False},
-            {"deleted": True, "deleted_reason": "FIT < 50 %", "titel": "Vertrieb"},
-            {"text_fehlt": True, "titel": "Testingenieur"},             # sichtbar
-        ]
-        assert auswahl.stille_rollentreffer(apps) == 2
-
-
-class TestDashboardPrueffall:
-    def test_prueffall_steht_in_eigener_liste_nicht_in_der_tabelle(self, tmp_path, monkeypatch):
-        import re
-
-        from bewerbungsagent import dashboard
-        monkeypatch.setattr(dashboard, "AGENT_ROOT", tmp_path)
-        ziel = tmp_path / "d.html"
-        app = {"key": "k", "firma": "HENSOLDT", "titel": "Testingenieur", "status": "neu",
-               "score": 8, "quelle": manual.MAIL_LEAD, "text_fehlt": True}
-        dashboard.build_dashboard({"applications": [app]}, ziel)
-        html = ziel.read_text(encoding="utf-8")
-        daten = json.loads(re.search(r"const DATA = (\[.*?\]);", html, re.S).group(1)
-                           .replace("<\\/", "</"))
-        assert daten[0]["textFehlt"] is True
-        assert daten[0]["visible"] is False
-        assert daten[0]["quelle"] == manual.MAIL_LEAD
-        assert 'id="pruefPanel"' in html and "function renderPruef" in html

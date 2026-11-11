@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
-from bewerbungsagent.absagen import (auswerten, classify, firma_passt, iso_datum, match_mail,
-                                       overlay_from_updates)
+from bewerbungsagent.absagen import (
+    auswerten,
+    classify,
+    firma_passt,
+    iso_datum,
+    match_mail,
+    overlay_from_updates,
+)
 
 ALTEN = ("Your application at ALTEN",
          "Hello Jacob, Thank you very much for your trust ... Unfortunately, we regret to "

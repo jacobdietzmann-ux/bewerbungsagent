@@ -13,10 +13,8 @@
       "jobspy",
       "ats",
       "arbeitnow",
-      "jobleads",
       "xing",
-      "indeed",
-      "labo"
+      "indeed"
     ],
     "abgelaufen_nach_tagen": 7,
     "jobspy_max_terms": 4,
@@ -120,9 +118,6 @@
     "ats_only_near_munich": true,
     "arbeitnow_pages": 3,
     "lead_url_provider": ["xing"],
-    "jobleads_searches": [],
-    "jobleads_min_salary": 0,
-    "jobleads_max_terms": 6,
     "xing_terms": [
       "Testingenieur",
       "Test Engineer",
@@ -145,7 +140,6 @@
     ],
     "xing_max_results": 25,
     "indeed_max_results": 25,
-    "labo_max_jobs": 120,
     "location": "München",
     "query_terms": [
       "Testingenieur",
@@ -176,9 +170,6 @@
   },
   "max_pendelzeit_min": 30,
   "research_filter": {
-    "enabled": true,
-    "fit_min": 65,
-    "fit_max": 70,
     "commute_grace_min": 10
   },
   "matching": {
@@ -189,31 +180,7 @@
       "product owner": "produktmanager"
     },
     "hard_gaps": ["C++"],
-    "weak_skills": ["Python"],
-    "dimensions": {
-      "gewichte": {
-        "kompetenz": 0.3,
-        "aufgaben": 0.2,
-        "senioritaet": 0.15,
-        "technologie": 0.1,
-        "gehalt": 0.1,
-        "arbeitsmodell": 0.1,
-        "entwicklung": 0.05
-      },
-      "gehalt_ziel_tsd": 65,
-      "ko_gehalt_min_tsd": 55,
-      "ko_senioritaet": [],
-      "ziel_branchen": [
-        "Automotive",
-        "Luft- und Raumfahrt",
-        "Defense",
-        "Halbleiter",
-        "Robotik",
-        "Energie",
-        "Engineering-Dienstleister"
-      ],
-      "ko_blockiert_generierung": true
-    }
+    "weak_skills": ["Python"]
   },
   "commute": {
     "home_address": "Musterstraße 1, 12345 Musterstadt",

@@ -7,7 +7,6 @@ Beispiele:
     python agent.py generate --all
     python agent.py generate --ids 1,2,3
     python agent.py dashboard
-    python agent.py pipeline     # alle Schritte aus bewerbungsagent/schritte.py
     python agent.py status
 """
 
@@ -30,9 +29,7 @@ from bewerbungsagent.pipeline import (
     load_config_and_profile,
     run_dashboard,
     run_enrich,
-    run_full,
     run_generate,
-    run_import_old,
     run_match,
     run_search,
 )
@@ -122,10 +119,7 @@ def main(argv=None) -> int:
     fetch_p = sub.add_parser("fetch", help="Vollständige Stellenbeschreibungen per Browser laden")
     fetch_p.add_argument("--limit", type=int, default=None,
                          help="höchstens N Anzeigen laden (Standard: alle ohne Text)")
-    fetch_p.add_argument("--only-unsure", action="store_true",
-                         help="nur Stellen, deren Titel allein nicht für die Triage reicht")
     sub.add_parser("match", help="Fit-Scoring gegen das Skill-Profil ausführen")
-    sub.add_parser("import-old", help="Inhalt des alten Dashboards übernehmen")
     sub.add_parser("enrich", help="Pendelweg + Gehalt + Bereinigung (FIT-Filter) + Auto-Bewerbung")
     sub.add_parser("quality", help="Erzeugte Unterlagen unabhängig prüfen (Fakten, Pflichtteile, PDF)")
     fo = sub.add_parser("followup", help="Fällige Nachfassen anzeigen (optional Texte schreiben)")
@@ -168,14 +162,6 @@ def main(argv=None) -> int:
     sl = sub.add_parser("shortlist",
                         help="Wochenauswahl: fertige, noch nicht versendete Bewerbungen nach Fit")
     sl.add_argument("--top", type=int, default=8, help="Anzahl (Standard 8)")
-    sub.add_parser("pipeline", help="Vollständigen Ablauf ausführen")
-    ablauf = sub.add_parser("ablauf", help="Ablauf als Graph ausführen (LangGraph)")
-    ablauf.add_argument("--ohne-review", action="store_true",
-                        help="Freigabe-Knoten überspringen (Bewertung erfolgt im Dashboard)")
-    ablauf.add_argument("--beschreibung", choices=["nur_unsure", "alle"],
-                        default="nur_unsure",
-                        help="Anzeigentexte nachladen: nur für unklare Titel (Standard) "
-                             "oder für alle Stellen ohne Text")
 
     gen = sub.add_parser("generate", help="Bewerbungsunterlagen erzeugen")
     gen.add_argument("--all", action="store_true", help="alle passenden Stellen (gem. min_fit)")
@@ -241,7 +227,7 @@ def main(argv=None) -> int:
 
     elif args.command == "fetch":
         from fetch_descriptions import fetch_descriptions
-        result = fetch_descriptions(config, limit=args.limit, only_unsure=args.only_unsure)
+        result = fetch_descriptions(config, limit=args.limit)
         print(f"Beschreibungen geladen: {result['fetched']} | leer: {result['skipped']} "
               f"| Fehler: {result['errors']}")
         print("Tipp: `python agent.py match` berechnet danach den präzisen Fit.")
@@ -251,13 +237,6 @@ def main(argv=None) -> int:
         print(f"Matching abgeschlossen: {result['matched']} Stelle(n) bewertet.")
         _print_job_context(result["context"])
         _print_jobs(config)
-        run_dashboard(config)
-        print(f"Dashboard aktualisiert: {config.dashboard_path}")
-
-    elif args.command == "import-old":
-        result = run_import_old(config)
-        print(f"Import abgeschlossen: {result['imported']} Einträge übernommen "
-              f"(gesamt {result['total']}).")
         run_dashboard(config)
         print(f"Dashboard aktualisiert: {config.dashboard_path}")
 
@@ -275,29 +254,22 @@ def main(argv=None) -> int:
                 flag = " (abgelaufen)" if r.get("verfuegbar") is False else ""
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Ausgeblendet (FIT < {FIT_BAND_AUSBLENDEN} %): "
-              f"{result['deleted_fit_under_50']} Stelle(n).")
-        print(f"Prüffälle (Text fehlt, Titel passt): {result.get('text_fehlt', 0)} Stelle(n); "
+              f"{result['deleted_fit']} Stelle(n); "
               f"Mail-Leads als Dublette: {result.get('lead_dubletten', 0)}.")
-        still = result.get("stille_rollentreffer") or {}
-        print(f"Ausgeblendete Rollentreffer ohne Text: {still.get('vorher', 0)} → "
-              f"{still.get('nachher', 0)}.")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         print(f"Gelöscht (Studenten-/Praktikumsstelle): "
               f"{result.get('deleted_student', 0)} Stelle(n).")
         print(f"Gelöscht (Technikerrolle): "
               f"{result.get('deleted_technician', 0)} Stelle(n).")
-        if result.get("restored_documented"):
-            print(f"Wieder sichtbar (Unterlagen vorhanden): "
-                  f"{result['restored_documented']} Stelle(n).")
-        if result.get("restored_reason"):
-            print(f"Wieder sichtbar (FIT-Grund entfallen): "
-                  f"{result['restored_reason']} Stelle(n).")
+        if result.get("restored"):
+            print(f"Wieder sichtbar (Fit oder Pendelweg passen jetzt): "
+                  f"{result['restored']} Stelle(n).")
         if result.get("restored_active"):
             print(f"Wieder sichtbar (versendet/abgeschlossen, Flag war veraltet): "
                   f"{result['restored_active']} Stelle(n).")
         for s in result.get("zurueckgenommen", []):
-            print(f"Zurück auf Research (FIT < {FIT_BAND_UNTERLAGEN} %): "
+            print(f"Zurück auf Research (FIT < {FIT_BAND_UNTERLAGEN} % oder Pendelweg zu weit): "
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")
         print(f"Automatisch beworben (FIT ≥ {FIT_BAND_UNTERLAGEN} %): "
               f"{result['generated_count']} Stelle(n).")
@@ -500,53 +472,6 @@ def main(argv=None) -> int:
                   + (f"  [{', '.join(hinweise)}]" if hinweise else ""))
             if s.get("url"):
                 print(f"      {s['url']}")
-
-    elif args.command == "pipeline":
-        result = run_full(config, profile)
-        print(f"Suche: {result['search']['count']} Stelle(n)")
-        _print_job_context(result["search"]["context"])
-        for err in result["search"]["errors"]:
-            print(f"  ! {err}")
-        f = result.get("fetch") or {}
-        print(f"Anzeigentexte: {f.get('fetched', 0)} geladen, {f.get('skipped', 0)} leer, "
-              f"{f.get('errors', 0)} Fehler")
-        print(f"Matching: {result['match']} Stelle(n)")
-        print(f"Dokumente: {len(result['generated'])} Datei(en)")
-        _print_failed(result.get("failed") or [])
-        q = result.get("quality") or {}
-        print(f"Qualität: {q.get('geprueft', 0)} geprüft, {q.get('mit_befunden', 0)} mit Befunden")
-        print(f"Dashboard: {result['dashboard']['path']}")
-        _print_schritt_fehler(result.get("fehler"))
-
-    elif args.command == "ablauf":
-        from bewerbungsagent.orchestrator import run_abo
-        review = not args.ohne_review
-        try:
-            result = run_abo(config, profile, review=review,
-                             beschreibung=args.beschreibung)
-        except (RuntimeError, ValueError) as exc:
-            print(str(exc))
-            return 1
-        print(f"Ablauf durchlaufen: {' → '.join(result.get('weg', []))}")
-        s = result.get("search") or {}
-        print(f"  Suche          : {s.get('count', 0)} Stelle(n)")
-        if s.get("triage_rejected"):
-            print(f"  Triage verworfen: {s['triage_rejected']} (Protokoll: data/triage_rejected.json)")
-        print(f"  Text nachladen  : Umfang {result.get('beschreibung_umfang', '?')}, "
-              f"offen {result.get('triage_unsure_verbleibend', 0)}, "
-              f"{result.get('beschreibung_versuche', 0)}× gelaufen")
-        print(f"  Matching        : {(result.get('match') or {}).get('matched', 0)} Stelle(n)")
-        print(f"  Dokumente       : {len((result.get('generate') or {}).get('generated', []))} Datei(en)")
-        _print_failed([*(result.get("enrich") or {}).get("failed", []),
-                       *(result.get("generate") or {}).get("failed", [])])
-        if review:
-            print("  Freigabe        : erfolgt im Dashboard (Status ändern oder Eintrag löschen)")
-        else:
-            print("  Freigabe        : übersprungen (--ohne-review)")
-        d = result.get("dashboard") or {}
-        if d.get("path"):
-            print(f"  Dashboard       : {d['path']} ({d.get('applications', 0)} relevant)")
-        _print_schritt_fehler(result.get("fehler"))
 
     return 0
 

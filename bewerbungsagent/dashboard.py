@@ -377,21 +377,6 @@ def _availability(app: dict) -> bool | None:
     return None if value is None else bool(value)
 
 
-def _dim_summary(dims: dict | None) -> dict | None:
-    """Kompakte Anzeigeform der mehrdimensionalen Bewertung (Dashboard-Tooltip)."""
-    if not isinstance(dims, dict) or dims.get("gesamt") is None:
-        return None
-    werte = dims.get("werte") or {}
-    order = ("kompetenz", "aufgaben", "senioritaet", "technologie",
-             "gehalt", "arbeitsmodell", "entwicklung")
-    detail = " · ".join(f"{k} {werte[k]}" for k in order if k in werte)
-    return {
-        "gesamt": int(dims.get("gesamt") or 0),
-        "ko": [str(k.get("grund") or "") for k in (dims.get("ko") or [])],
-        "detail": detail,
-    }
-
-
 def _quality_summary(quality: dict | None) -> dict | None:
     """Kompakte Anzeigeform der Qualitätsprüfung (P0b)."""
     if not isinstance(quality, dict):
@@ -453,7 +438,6 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         "date": _fmt_date(app),
         "status": normalize_status(app.get("status")),
         "fit": fit,
-        "dim": _dim_summary(app.get("dimensionen")),
         "quality": _quality_summary(app.get("qualitaet")),
         "followupDue": is_due(app, after_days=followup_days),
         "followupDays": (days_waiting(app) or 0) if is_due(app, after_days=followup_days) else 0,
@@ -481,8 +465,6 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         # Suchrauschen und erscheinen nicht mehr im Dashboard (``auswahl``).
         "neufundRelevant": neufund_relevant(app),
         "pendelKnapp": bool(app.get("pendel_knapp")),
-        # Prüffall „Text fehlt, Titel passt" (ADR-055): eigene Liste, nicht in der Tabelle.
-        "textFehlt": bool(app.get("text_fehlt")),
         "quelle": app.get("quelle", "") or "",
         "deleted": bool(app.get("deleted")),
     }
@@ -534,7 +516,7 @@ def build_dashboard(state: dict, output_path: Path,
         # fallen automatisch wieder aus der Tabelle, sobald ein späterer Lauf
         # andere Stellen als die neuesten markiert.
         row["visible"] = (row["id"] in visible_keys or (
-            row["neuImLauf"] and row.get("neufundRelevant", True))) and not row["textFehlt"]
+            row["neuImLauf"] and row.get("neufundRelevant", True)))
     data.sort(key=lambda r: r["fit"], reverse=True)
 
     data_json = json.dumps(data, ensure_ascii=False, indent=2).replace("</", "<\\/")
@@ -753,15 +735,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
                  color:var(--muted); cursor:pointer; }
   .chip button:hover { color:var(--red); }
   .chip-clear { background:none; border:none; color:var(--accent); font-size:11.5px; padding:2px 4px; }
-  /* ---- Prüffälle „Text fehlt, Titel passt" (ADR-055) ---- */
-  .pruef { padding:10px 14px; margin:0 0 10px; }
-  .pruef p { margin:4px 0 6px; }
-  .pruef-liste { margin:0; padding-left:18px; }
-  .pruef-liste li { margin:4px 0; overflow-wrap:anywhere; }
-  .pruef-liste a { color:var(--accent); margin-left:6px; }
-  .pruef-weg { background:none; border:1px solid var(--line); border-radius:6px; color:var(--muted);
-               font-size:11.5px; padding:1px 6px; margin-left:6px; cursor:pointer; }
-  .pruef-weg:hover { color:var(--red); }
   .chk { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); white-space:nowrap; }
   .toolbar .grow { max-width:260px; }
   .toolbar .fitsel { max-width:200px; }
@@ -870,12 +843,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <div class="chips" id="activeFilters" aria-label="Aktive Filter"></div>
 
-    <div class="card pruef" id="pruefPanel" hidden>
-      <strong>Prüffälle: Text fehlt, Titel passt</strong> <span id="pruefAnzahl" class="sub"></span>
-      <p class="sub">Der Titel passt zur Zielrolle, aber der Anzeigentext fehlt. Ohne Text bleibt der Fit unter 50 %, deshalb stehen diese Stellen nicht in der Tabelle und in keiner Kennzahl. Bitte selbst ansehen. „Verwerfen" entfernt die Stelle, nach 14 Tagen ohne Text blendet der Lauf sie aus.</p>
-      <ul class="pruef-liste" id="pruefListe"></ul>
-    </div>
-
     <div class="card">
       <div class="table-scroll">
       <table id="table-main">
@@ -903,7 +870,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
             <th class="center" data-col="5" onclick="sortTable(5)" title="Pendelweg (einfach, Auto)">Pendel <span class="arw">↕</span></th>
             <th class="center" data-col="6" onclick="sortTable(6)" title="Gefunden am">Gefunden <span class="arw">↕</span></th>
             <th class="center" data-col="7" onclick="sortTable(7)" title="Status">Status <span class="arw">↕</span></th>
-            <th class="center" data-col="8" onclick="sortTable(8)" title="Profil-Fit (Badge) und mehrdimensionale Bewertung (D)">Fit <span class="arw">↕</span></th>
+            <th class="center" data-col="8" onclick="sortTable(8)" title="Profil-Fit">Fit <span class="arw">↕</span></th>
             <th class="center" data-col="9" onclick="sortTable(9)" title="Gehalt (ca.)">Gehalt <span class="arw">↕</span></th>
             <th class="center" data-col="10" onclick="sortTable(10)" title="Stellenanzeige und Bewerbungsordner">Links <span class="arw">↕</span></th>
             <th class="center" title="Eintrag entfernen">–</th>
@@ -928,7 +895,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       <strong>„neu gefunden":</strong> Die Stelle gehört zum jüngsten Fund (blauer Balken links, Badge an der Position, Filter oben). Das bleibt stehen, bis ein Lauf neue Stellen mitbringt — ein Lauf ohne Funde löscht das Label nicht.<br>
       <strong>Pendelweg:</strong> Die Farbe zeigt die Restluft bis zur Grenze von __COMMUTE_LIMIT__ min — <span style="color:#22c55e">≤ 50 % grün</span>, <span style="color:#84cc16">≤ 75 % hellgrün</span>, <span style="color:#f59e0b">≤ 90 % gelb</span>, <span style="color:#f97316">≤ 100 % orange</span>, <span style="color:#ef4444">darüber rot</span>. Ein Tooltip nennt Minuten, Grenze und Restluft.<br>
       <strong>Profil-Fit (%):</strong> Matching-Ergebnis gegen das Skill-Profil. ≥ 80 % grün, 65–79 % gelb, &lt; 65 % rot. Neu importierte Stellen aus dem alten Dashboard behalten ihren ursprünglichen Wert; neue Web-Treffer basieren auf Titel/Firma/Ort (ohne Beschreibungstext) und liegen daher konservativ niedrig — für eine präzise Bewertung die Anzeige per Import mit Beschreibung einpflegen.<br>
-      <strong>Kompakt-Layout:</strong> Eine Zeile pro Stelle (Titel max. zwei Zeilen); Zusatzinfos stehen im Tooltip — Profil-Treffer (✓n an der Position), Qualitätsprüfung, Versanddatum und Status-Alter, Original-Homeoffice-Text, Kilometer und Restluft beim Pendelweg, mehrdimensionale Bewertung (D) und der ungekürzte Gehaltstext.<br>
+      <strong>Kompakt-Layout:</strong> Eine Zeile pro Stelle (Titel max. zwei Zeilen); Zusatzinfos stehen im Tooltip — Profil-Treffer (✓n an der Position), Qualitätsprüfung, Versanddatum und Status-Alter, Original-Homeoffice-Text, Kilometer und Restluft beim Pendelweg und der ungekürzte Gehaltstext.<br>
       <strong>Dokumente:</strong> Werden nicht mehr einzeln verlinkt. „Ordner ↗” öffnet den Bewerbungsordner im Dateimanager, der Tooltip nennt die enthaltenen Dateien; <code>⧉</code> kopiert den absoluten Pfad.<br>
       <strong>Prüfung:</strong> Qualitätsprüfung der erzeugten Unterlagen — <span style="color:#22c55e">✓ bestanden</span>, <span style="color:#fbbf24">⚠ nur Hinweise</span>, <span style="color:#fca5a5">✗ Fehler</span>. Der Tooltip nennt die Befunde (Behauptung ohne Profil-Beleg, falscher Zeitraum, fehlender Pflichtteil, PDF-Problem).<br>
       <strong>Nachfassen:</strong> <span style="color:#f59e0b">⏰ Nachfassen fällig</span> erscheint bei versendeten Bewerbungen ohne Reaktion seit ≥ __FOLLOWUP_DAYS__ Tagen (Filter oben). Die Nachfrage-Texte erzeugt <code>python agent.py followup --write</code>; versendet wird nichts automatisch.<br>
@@ -1170,16 +1137,6 @@ function fitBadge(fit) {
   const bg = f >= 80 ? "#15803d33" : (f >= 65 ? "#b4530933" : "#7f1d1d33");
   return `<span class="badge" style="background:${bg};color:${color};border:1px solid ${color}55">${f}%</span>`;
 }
-function dimBadge(d) {
-  // Mehrdimensionale Bewertung (berichtend): Gesamtwert + K.O.-Marker, in der
-  // Zeile nur als "D80" — die sieben Teilwerte stehen im Tooltip.
-  if (!d) return "";
-  const ko = (d.ko && d.ko.length)
-    ? `<span title="${esc(d.ko.join('; '))}" style="color:#fca5a5">⛔</span>`
-    : "";
-  return `<span class="micro" style="cursor:help"
-    title="Mehrdimensionale Bewertung (berichtend): ${esc(d.detail)}">${ko}D${d.gesamt}</span>`;
-}
 function qualityBadge(q) {
   // Qualitätsprüfung (P0b): ✓ bestanden, ⚠ nur Hinweise, ✗ Fehler — als Icon,
   // die Befunde stehen im Tooltip.
@@ -1314,28 +1271,8 @@ function shortDate(d) {
 // dürfen nie auseinanderlaufen — jede Änderung (Status, Löschen, Datum) muss
 // beide aktualisieren. Einzelne render*-Aufrufe an den Editierstellen hatten
 // genau das vergessen.
-function renderPruef() {
-  const panel = document.getElementById("pruefPanel");
-  if (!panel) return;
-  const faelle = state.map((r, i) => [r, i]).filter(([r]) => r.textFehlt && !r.deleted);
-  panel.hidden = !faelle.length;
-  document.getElementById("pruefAnzahl").textContent = `(${faelle.length})`;
-  document.getElementById("pruefListe").innerHTML = faelle.map(([r, i]) => {
-    // Mail-Leads haben oft keine URL: dann führt der Link zu einer Websuche.
-    const ziel = r.link || ("https://www.google.com/search?q="
-      + encodeURIComponent(`${r.company} ${r.position} Stellenanzeige`));
-    const linkText = r.link ? "Anzeige" : "Suchen";
-    const info = [r.quelle, r.date].filter(Boolean).join(" · ");
-    return `<li><strong>${esc(r.company)}</strong> – ${esc(r.position)}`
-      + (info ? ` <span class="sub">${esc(info)}</span>` : "")
-      + `<a href="${esc(ziel)}" target="_blank" rel="noopener">${linkText}</a>`
-      + `<button type="button" class="pruef-weg" data-i="${i}">Verwerfen</button></li>`;
-  }).join("");
-  panel.querySelectorAll(".pruef-weg").forEach(b => b.addEventListener("click", onDelete));
-}
 
 function refreshAllViews() {
-  renderPruef();
   renderRows();
   renderKpis();            // KPIs + Status-Verteilung + Wochenverlauf + Verteilungen
   updateStatusToggleCounts();
@@ -1747,7 +1684,7 @@ function renderRows() {
           ${(r.status === "interview" || r.status === "followup") ? `<input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)">` : ""}
         </div>
       </td>
-      <td class="center" data-label="Fit"><span class="clip1">${fitBadge(r.fit)} ${dimBadge(r.dim)}</span></td>
+      <td class="center" data-label="Fit"><span class="clip1">${fitBadge(r.fit)}</span></td>
       <td class="center" data-label="Gehalt">${salaryBadge(r.salary, r.salarySource)}</td>
       <td class="center" data-label="Links">
         <div class="linkcell">${linkBadge(r)}${folderLink ? `<span class="link-line">${folderLink}${qualityBadge(r.quality)}</span>` : ""}</div>

@@ -183,31 +183,7 @@
       "product owner": "produktmanager"
     },
     "hard_gaps": ["C++"],
-    "weak_skills": ["Python"],
-    "dimensions": {
-      "gewichte": {
-        "kompetenz": 0.3,
-        "aufgaben": 0.2,
-        "senioritaet": 0.15,
-        "technologie": 0.1,
-        "gehalt": 0.1,
-        "arbeitsmodell": 0.1,
-        "entwicklung": 0.05
-      },
-      "gehalt_ziel_tsd": 65,
-      "ko_gehalt_min_tsd": 55,
-      "ko_senioritaet": [],
-      "ziel_branchen": [
-        "Automotive",
-        "Luft- und Raumfahrt",
-        "Defense",
-        "Halbleiter",
-        "Robotik",
-        "Energie",
-        "Engineering-Dienstleister"
-      ],
-      "ko_blockiert_generierung": true
-    }
+    "weak_skills": ["Python"]
   },
   "commute": {
     "home_address": "Musterstraße 1, 12345 Musterstadt",

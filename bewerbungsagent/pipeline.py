@@ -57,7 +57,6 @@ from .profile import Profile, normalize
 from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
 from .quality import check_application
 from .salary import enrich_salary
-from .schritte import FETCH_LIMIT
 from .search import resolve_mail_leads
 from .search import run_search as _search
 from .search.manual import MAIL_LEAD, lead_passt
@@ -491,17 +490,6 @@ def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
     if restored:
         print(f"Anzeigentexte aus dem Bestand übernommen: {restored} Stelle(n).")
     return jobs
-
-
-def run_fetch(config: Config, *, nur_unsure: bool = False) -> dict:
-    """Lädt fehlende Anzeigentexte per Browser nach (höchstens ``FETCH_LIMIT``).
-
-    Der Import steht hier, weil ``fetch_descriptions`` Playwright braucht: Fehlt
-    es, scheitert nur dieser optionale Schritt.
-    """
-    from fetch_descriptions import fetch_descriptions
-
-    return fetch_descriptions(config, limit=FETCH_LIMIT, only_unsure=nur_unsure)
 
 
 def letzter_fund_meta(config: Config) -> dict:

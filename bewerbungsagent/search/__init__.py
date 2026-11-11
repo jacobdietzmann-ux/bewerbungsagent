@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from .. import triage as _triage
 from ..config import Config
+from ..matching import triage_split, triage_verdict
 from ..profile import Profile, normalize
 from ..provider_health import is_disabled
 from . import (
@@ -354,14 +354,14 @@ def run_search(config: Config, profile: Profile,
     # Sie werden nicht stillschweigend verworfen, sondern zur Nachvollziehbarkeit
     # in ``data/triage_rejected.json`` protokolliert.
     if s.get("triage", True):
-        jobs, rejected = _triage.split(jobs, config)
+        jobs, rejected = triage_split(jobs, config)
         if rejected:
             try:
                 from ..storage import load_json, save_json
                 pfad = config.data_dir / "triage_rejected.json"
                 protokoll = [{"titel": j.get("titel"), "firma": j.get("firma"),
                               "url": j.get("url"),
-                              "grund": _triage.verdict_for(j, config).reason}
+                              "grund": triage_verdict(j, config).reason}
                              for j in rejected]
                 # Weitere Suchen eines Tageslaufs ergänzen das Protokoll der
                 # Standard-Suche, statt es zu ersetzen.

@@ -1,4 +1,4 @@
-"""Tests für die Relevanz-Triage (``triage.py``).
+"""Tests für den Domänen-Vorfilter (``matching.triage_*``).
 
 Der Klassifikator entscheidet, ob eine gefundene Stelle überhaupt in den
 Bestand darf. Zwei Fehlerarten sind unterschiedlich teuer:
@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import pytest
 
-from bewerbungsagent.triage import REJECT, RELEVANT, UNSURE, classify, split, verdict_for
+from bewerbungsagent.matching import REJECT, RELEVANT, UNSURE
+from bewerbungsagent.matching import triage_classify as classify
+from bewerbungsagent.matching import triage_split as split
+from bewerbungsagent.matching import triage_verdict as verdict_for
 
 
 class TestLaermWirdAbgelehnt:
@@ -257,7 +260,7 @@ class TestNutzerentscheidung:
 
 class TestOverridesAusConfig:
     def test_liest_search_triage_reject(self):
-        from bewerbungsagent.triage import verdict_for
+        from bewerbungsagent.matching import triage_verdict as verdict_for
 
         class _Cfg:
             def __init__(self):
@@ -268,12 +271,12 @@ class TestOverridesAusConfig:
         assert v.is_reject
 
     def test_ohne_config_keine_overrides(self):
-        from bewerbungsagent.triage import verdict_for
+        from bewerbungsagent.matching import triage_verdict as verdict_for
         assert verdict_for({"titel": "Senior Test Engineer"}).label == RELEVANT
         assert verdict_for({"titel": "Teamleitung"}).label == UNSURE
 
     def test_fehlende_oder_kaputte_werte_sind_egal(self):
-        from bewerbungsagent.triage import verdict_for
+        from bewerbungsagent.matching import triage_verdict as verdict_for
         for data in ({}, {"search": {}}, {"search": {"triage_reject": "kein-liste"}},
                      {"search": {"triage_reject": None}}):
             class _Cfg:

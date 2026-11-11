@@ -14,8 +14,7 @@
       "ats",
       "arbeitnow",
       "xing",
-      "indeed",
-      "labo"
+      "indeed"
     ],
     "abgelaufen_nach_tagen": 7,
     "jobspy_max_terms": 4,
@@ -141,7 +140,6 @@
     ],
     "xing_max_results": 25,
     "indeed_max_results": 25,
-    "labo_max_jobs": 120,
     "location": "München",
     "query_terms": [
       "Testingenieur",

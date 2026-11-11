@@ -366,13 +366,6 @@ Die freie Websuche ist bewusst **pluggable**:
     (im Test 0 von 3). Der Text wird deshalb über den **Klick auf den Titel** geholt: das
     öffnet die Master-Detail-Ansicht (`…&vjk=<jk>`), die auf der Trefferliste bleibt — im
     Test 3 von 3 mit Volltext.
-- **jobs.labo.de** (`labo`) ist eine Fach-Jobbörse (Medizin/Labor/Technik) mit serverseitig
-  gerendertem HTML, kein Browser nötig. Suche über `/suchergebnis?jsjr=<Begriff>&jsjo=<Ort>`;
-  jede Anzeige ist ein `div.jwtpl-hili-item`. Drei Eigenheiten: Bei `itemCompany` stehen
-  `data-*`-Attribute **vor** `class` (ein Regex auf `class` direkt nach dem Tag-Namen findet
-  die Firma nicht), Titel enthalten weiche Trennzeichen (`&shy;`), und die Detailseite hat
-  **kein** JSON-LD — der Text steht in `div.jwtpl-jobaded-dataTextField`-Blöcken. Die
-  Folge-Seite muss über die Knopf-URL geladen werden (sie enthält eine Sitzungs-ID).
 
 - **DuckDuckGo** und **Bing** gibt es nicht mehr: live geprüft
   lieferte DuckDuckGo 0 Treffer, Bing ausschließlich `bing.com/ck/a`-Redirects zu
@@ -519,12 +512,11 @@ Alle Einstellungen stehen in [`config.json`](config.json):
   `agent.py enrich` zieht sie automatisch nach.
 - `search.query_terms` / `search.location` / `search.providers` – Suchbegriffe, Ort, Provider
   (verfügbar: `manual`, `stepstone_browser`, `jobspy`, `ats`, `arbeitnow`, `xing`,
-  `indeed`, `labo`, `glassdoor`).
+  `indeed`).
 - `search.xing_terms` / `search.indeed_terms` – eigene Begriffslisten für die beiden
   Browser-Provider (Standard: `search.query_terms`). Sinnvoll, weil jeder Begriff dort einen
   Seitenaufruf plus bis zu 25 Detailseiten kostet.
 - `search.xing_max_results` / `search.indeed_max_results` – Obergrenze je Lauf (Standard 25).
-- `search.labo_max_jobs` – Obergrenze für jobs.labo.de (Standard 120).
 - `search.ats_boards` – Karriereseiten für die ATS-Abfrage. Greenhouse/Lever/Ashby nutzen
   `board`, Workday `tenant`+`site` (optional `host`: Instanz wie `wd5` oder der ganze Hostname
   aus der URL der Karriereseite, Standard `wd3`), Eightfold `host`+`domain`, SuccessFactors „Jobs2Web" nur

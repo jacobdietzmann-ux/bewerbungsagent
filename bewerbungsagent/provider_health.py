@@ -47,7 +47,6 @@ _PROVIDER_JE_QUELLE = {
     "Glassdoor": ("jobspy",),
     "JobSpy": ("jobspy",),
     "Arbeitnow": ("arbeitnow",),
-    "Labo": ("labo",),
 }
 
 

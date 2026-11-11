@@ -95,9 +95,6 @@ DEFAULT_CONFIG: dict = {
         # ``xing_terms``/``indeed_terms`` übersteuern ``query_terms`` bei Bedarf.
         "xing_max_results": 25,
         "indeed_max_results": 25,
-        # jobs.labo.de ist serverseitig gerendert, braucht aber je Begriff eine
-        # eigene Anfrage (keine begriffsübergreifende Suche).
-        "labo_max_jobs": 120,
         # Zustand der Such-Quellen: Nach so vielen Fehlläufen in Folge wird
         # eine Quelle abgeschaltet (manuell wieder einschaltbar über
         # `agent.py providers --enable NAME`).

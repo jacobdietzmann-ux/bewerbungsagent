@@ -254,29 +254,22 @@ def main(argv=None) -> int:
                 flag = " (abgelaufen)" if r.get("verfuegbar") is False else ""
                 print(f"  - {r['firma']} — {r['titel']}: Fit {r['fit']}%{flag}")
         print(f"Ausgeblendet (FIT < {FIT_BAND_AUSBLENDEN} %): "
-              f"{result['deleted_fit_under_50']} Stelle(n).")
-        print(f"Prüffälle (Text fehlt, Titel passt): {result.get('text_fehlt', 0)} Stelle(n); "
+              f"{result['deleted_fit']} Stelle(n); "
               f"Mail-Leads als Dublette: {result.get('lead_dubletten', 0)}.")
-        still = result.get("stille_rollentreffer") or {}
-        print(f"Ausgeblendete Rollentreffer ohne Text: {still.get('vorher', 0)} → "
-              f"{still.get('nachher', 0)}.")
         print(f"Gelöscht (Pendelweg > {config.data.get('max_pendelzeit_min', MAX_COMMUTE_MINUTES)} min): "
               f"{result.get('deleted_commute', 0)} Stelle(n).")
         print(f"Gelöscht (Studenten-/Praktikumsstelle): "
               f"{result.get('deleted_student', 0)} Stelle(n).")
         print(f"Gelöscht (Technikerrolle): "
               f"{result.get('deleted_technician', 0)} Stelle(n).")
-        if result.get("restored_documented"):
-            print(f"Wieder sichtbar (Unterlagen vorhanden): "
-                  f"{result['restored_documented']} Stelle(n).")
-        if result.get("restored_reason"):
-            print(f"Wieder sichtbar (FIT-Grund entfallen): "
-                  f"{result['restored_reason']} Stelle(n).")
+        if result.get("restored"):
+            print(f"Wieder sichtbar (Fit oder Pendelweg passen jetzt): "
+                  f"{result['restored']} Stelle(n).")
         if result.get("restored_active"):
             print(f"Wieder sichtbar (versendet/abgeschlossen, Flag war veraltet): "
                   f"{result['restored_active']} Stelle(n).")
         for s in result.get("zurueckgenommen", []):
-            print(f"Zurück auf Research (FIT < {FIT_BAND_UNTERLAGEN} %): "
+            print(f"Zurück auf Research (FIT < {FIT_BAND_UNTERLAGEN} % oder Pendelweg zu weit): "
                   f"{s['firma']} — {s['titel']} ({s['fit']} %)")
         print(f"Automatisch beworben (FIT ≥ {FIT_BAND_UNTERLAGEN} %): "
               f"{result['generated_count']} Stelle(n).")

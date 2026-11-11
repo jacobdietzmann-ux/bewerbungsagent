@@ -79,7 +79,7 @@ def _run(config: Config, apps: list[dict]) -> dict:
 class TestDocumentedJobsKeepVisible:
     def test_niedriger_fit_ohne_unterlagen_wird_ausgeblendet(self, config):
         result = _run(config, [_job("ohne-unterlagen")])
-        assert result["deleted_fit_under_50"] == 1
+        assert result["deleted_fit"] == 1
 
     def test_niedriger_fit_mit_unterlagen_ohne_auftrag_wird_verborgen(self, config):
         """Unter 65 % ist kein Research-Fall — auch mit alten Dateien (ADR-036)."""
@@ -88,7 +88,7 @@ class TestDocumentedJobsKeepVisible:
         app = Store(config.db_path()).load_state()["applications"][0]
         assert app["status"] == "research"
         assert app.get("deleted") is True
-        assert str(app.get("deleted_reason", "")).startswith("research-kriterium")
+        assert str(app.get("deleted_reason", "")).startswith("FIT < 65 %")
         # Die Dateien bleiben referenziert — es wird nichts gelöscht.
         assert app["dokumente"]
 
@@ -103,9 +103,10 @@ class TestDocumentedJobsKeepVisible:
 
     def test_bereits_ausgeblendete_dokumentierte_werden_zurueckgeholt(self, config):
         """Einmalige Reparatur: frühere Läufe haben sie allein wegen FIT versteckt."""
-        apps = [_job("alt", deleted=True, dokumente={"de": {}}, unterlagen_gewuenscht=True)]
+        apps = [_job("alt", deleted=True, deleted_code="fit", dokumente={"de": {}},
+                     unterlagen_gewuenscht=True)]
         result = _run(config, apps)
-        assert result["restored_documented"] == 1
+        assert result["restored"] == 1
         state = Store(config.db_path()).load_state()
         assert not state["applications"][0].get("deleted")
         assert not state["applications"][0].get("deleted_reason")
@@ -117,12 +118,12 @@ class TestDocumentedJobsKeepVisible:
         state = Store(config.db_path()).load_state()
         assert state["applications"][0].get("deleted") is True
         assert "Pendelweg" in state["applications"][0].get("deleted_reason", "")
-        assert result["restored_documented"] == 0
+        assert result["restored"] == 0
 
     def test_versendete_stellen_werden_nicht_angefasst(self, config):
         apps = [_job("gesendet", status="sent", score=5)]
         result = _run(config, apps)
-        assert result["deleted_fit_under_50"] == 0
+        assert result["deleted_fit"] == 0
         state = Store(config.db_path()).load_state()
         assert not state["applications"][0].get("deleted")
 
@@ -212,22 +213,22 @@ class TestDeletedFlagIsReevaluated:
     """
 
     def test_fit_grund_entfallen_macht_wieder_sichtbar(self, config):
-        apps = [_job("alt", deleted=True, deleted_reason="FIT < 50 %", score=62)]
+        apps = [_job("alt", deleted=True, deleted_reason="FIT < 50 %", score=66)]
         result = _run(config, apps)
-        assert result["restored_reason"] == 1
+        assert result["restored"] == 1
         assert not Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
     def test_fit_grund_gilt_weiter_bleibt_ausgeblendet(self, config):
         apps = [_job("weiter", deleted=True, deleted_reason="FIT < 50 %", score=30)]
         result = _run(config, apps)
-        assert result["restored_reason"] == 0
+        assert result["restored"] == 0
         assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
     def test_weit_entfernte_stelle_bleibt_auch_mit_altem_grund_ausgeblendet(self, config):
         apps = [_job("weit", deleted=True, deleted_reason="Pendelweg > 90 min",
                      score=80, pendelzeit_min=200)]
         result = _run(config, apps)
-        assert result["restored_reason"] == 0
+        assert result["restored"] == 0
         assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
     def test_unbekannte_herkunft_bleibt_unangetastet(self, config):
@@ -248,8 +249,8 @@ class TestUserCriteriaAreUntouched:
     def test_nutzerkriterium_bleibt_auch_bei_hohem_fit(self, config, reason):
         apps = [_job("k", deleted=True, deleted_reason=reason, score=90)]
         result = _run(config, apps)
-        assert result["restored_reason"] == 0
-        assert result["restored_documented"] == 0
+        assert result["restored"] == 0
+        assert result["restored"] == 0
         assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
 
@@ -260,13 +261,13 @@ class TestStaleCommuteReason:
         apps = [_job("airbus", deleted=True, deleted_reason="Pendelweg > 90 min",
                      score=78, pendelzeit_min=25)]
         result = _run(config, apps)
-        assert result["restored_reason"] == 1
+        assert result["restored"] == 1
         assert not Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
     def test_aktuelle_grenze_bleibt_wirksam(self, config):
         apps = [_job("weit", deleted=True, deleted_reason="Pendelweg > 90 min",
                      score=78, pendelzeit_min=120)]
-        assert _run(config, apps)["restored_reason"] == 0
+        assert _run(config, apps)["restored"] == 0
         assert Store(config.db_path()).load_state()["applications"][0].get("deleted")
 
 
@@ -441,19 +442,18 @@ class TestFitBaender:
         assert Store(config.db_path()).load_state()["applications"][0]["status"] == "docs"
 
     def test_konfiguration_steuert_die_schwelle(self, config, generated_calls, monkeypatch):
-        """``min_fit_for_generation: mittel`` senkt sie wieder auf 50 %."""
+        """``min_fit_for_generation: mittel`` senkt sie auf die Ausblendgrenze (65 %)."""
         config.data["documents"]["min_fit_for_generation"] = "mittel"
-        _run(config, [_job("mittel", score=55)])
+        _run(config, [_job("mittel", score=66)])
         assert [a["titel"] for a in generated_calls] == ["Testingenieur"]
 
-    def test_unter_50_wird_ausgeblendet_nicht_research(self, config):
-        """Unter 50 % bleibt es beim Ausblenden — das ist kein Research-Fall."""
-        # Mit Anzeigentext: Ohne Text wäre es ein Prüffall „Text fehlt" (ADR-055).
+    def test_unter_65_wird_ausgeblendet_nicht_research(self, config):
+        """Unter 65 % wird ausgeblendet — das ist kein Research-Fall."""
         result = _run(config, [_job("zu wenig", score=45, beschreibung="Anzeigentext")])
-        assert result["deleted_fit_under_50"] == 1
+        assert result["deleted_fit"] == 1
         app = Store(config.db_path()).load_state()["applications"][0]
         assert app.get("deleted") is True
-        assert app["deleted_reason"] == "FIT < 50 %"
+        assert app["deleted_reason"] == "FIT < 65 %"
 
 
 class TestMengenlaufFitBand:

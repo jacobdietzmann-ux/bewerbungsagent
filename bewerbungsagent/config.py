@@ -109,12 +109,9 @@ DEFAULT_CONFIG: dict = {
     # Begründung: der Research-Bestand war mit 165 Einträgen unübersichtlich;
     # interessant sind nur Treffer knapp unter der Unterlagen-Schwelle sowie
     # Stellen, die knapp über der Pendelgrenze liegen (zweite Chance).
-    "research_filter": {
-        "enabled": True,
-        "fit_min": 65,          # Fenster „knapp unter der Unterlagen-Schwelle“ (71)
-        "fit_max": 70,
-        "commute_grace_min": 10,  # „leicht über der Pendelgrenze“ = Grenze + 10
-    },
+    # Über der Pendelgrenze bleibt eine Stelle bis zu so vielen Minuten als
+    # Research sichtbar (ab 65 % Fit, ohne automatische Unterlagen).
+    "research_filter": {"commute_grace_min": 10},
     # Nachfassen: versendete Bewerbungen ohne Reaktion werden nach N Tagen als
     # fällig markiert (Dashboard, `agent.py followup`). Versendet wird nichts
     # automatisch.

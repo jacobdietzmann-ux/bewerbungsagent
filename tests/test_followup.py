@@ -32,10 +32,16 @@ class TestDaysWaiting:
         assert days_waiting(_app(sentAt=""), HEUTE) is None
         assert days_waiting(_app(sentAt="kein datum"), HEUTE) is None
 
-    def test_followup_nutzt_statusChangedAt(self):
-        app = _app(status="followup", sentAt="2026-09-01",
-                   statusChangedAt="2026-10-10")
+    def test_nachfrage_setzt_wartezeit_neu(self):
+        app = _app(sentAt="2026-09-01", nachgefasstAm="2026-10-10")
         assert days_waiting(app, HEUTE) == 15
+
+    def test_aelteres_nachgefasst_datum_zaehlt_nicht(self):
+        app = _app(sentAt="2026-10-01", nachgefasstAm="2026-09-01")
+        assert days_waiting(app, HEUTE) == 24
+
+    def test_altstatus_followup_wird_nicht_mehr_gezaehlt(self):
+        assert days_waiting(_app(status="followup", sentAt="2026-09-01"), HEUTE) is None
 
 
 class TestIsDue:
@@ -53,10 +59,11 @@ class TestIsDue:
         assert is_due(_app(status="research", sentAt="2026-01-01"), today=HEUTE) is False
         assert is_due(_app(status="docs", sentAt=""), today=HEUTE) is False
 
-    def test_zweite_nachfrage_nach_followup(self):
-        app = _app(status="followup", sentAt="2026-09-01",
-                   statusChangedAt="2026-10-05")
-        assert is_due(app, today=HEUTE) is True
+    def test_zweite_nachfrage_erst_nach_neuer_wartezeit(self):
+        assert is_due(_app(sentAt="2026-09-01", nachgefasstAm="2026-10-05"),
+                      today=HEUTE) is True
+        assert is_due(_app(sentAt="2026-09-01", nachgefasstAm="2026-10-20"),
+                      today=HEUTE) is False
 
     def test_sortierung_nach_wartezeit(self):
         apps = [_app(firma="A", sentAt="2026-10-01"),

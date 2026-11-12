@@ -201,7 +201,7 @@ def _exceeds_dashboard_commute_limit(app: dict, limit: int = MAX_COMMUTE_MINUTES
 # weiter Pendelweg dürfen ihn nicht aus Tabelle und Statistik entfernen.
 # Vorher verschwanden 56 abgeschlossene Bewerbungen (7× sent, 49× rejected) —
 # die damalige Absagen-Quote rechnete dadurch nur auf einer Teilmenge.
-_PROGRESSED_STATUSES = {"sent", "followup", "interview", "rejected"}
+_PROGRESSED_STATUSES = {"sent", "interview", "rejected"}
 
 
 def dashboard_applications(applications: list[dict],
@@ -603,7 +603,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   :root[data-theme="light"] .s-research { color:#334155; }
   :root[data-theme="light"] .s-docs, :root[data-theme="light"] select.status-select.s-docs { color:#1d4ed8; }
   :root[data-theme="light"] .s-sent, :root[data-theme="light"] select.status-select.s-sent { color:#6d28d9; }
-  :root[data-theme="light"] .s-followup, :root[data-theme="light"] select.status-select.s-followup { color:#b45309; }
   :root[data-theme="light"] .s-interview, :root[data-theme="light"] select.status-select.s-interview { color:#15803d; }
   :root[data-theme="light"] .s-rejected, :root[data-theme="light"] select.status-select.s-rejected { color:#b91c1c; }
   :root[data-theme="light"] select.status-select.s-research { color:#334155; background:#e2e8f0; }
@@ -673,7 +672,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   select.status-select.s-research { background:#334155; color:#cbd5e1; border-color:#475569; }
   select.status-select.s-docs     { background:#1d4ed833; color:#93c5fd; border-color:#1d4ed855; }
   select.status-select.s-sent     { background:#7c3aed33; color:#c4b5fd; border-color:#7c3aed55; }
-  select.status-select.s-followup { background:#b4530933; color:#fdba74; border-color:#b4530955; }
   select.status-select.s-interview{ background:#15803d33; color:#86efac; border-color:#15803d55; }
   select.status-select.s-rejected { background:#7f1d1d33; color:#fca5a5; border-color:#7f1d1d66; }
   .linkcell { display:flex; flex-direction:column; align-items:center; gap:1px; line-height:1.15; }
@@ -691,7 +689,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .s-research { background:#334155; color:#cbd5e1; }
   .s-docs     { background:#1d4ed833; color:#93c5fd; border:1px solid #1d4ed855; }
   .s-sent     { background:#7c3aed33; color:#c4b5fd; border:1px solid #7c3aed55; }
-  .s-followup { background:#b4530933; color:#fdba74; border:1px solid #b4530955; }
   .s-interview{ background:#15803d33; color:#86efac; border:1px solid #15803d55; }
   .s-rejected { background:#7f1d1d33; color:#fca5a5; border:1px solid #7f1d1d66; }
   a.folder { color:var(--accent); text-decoration:none; font-size:11px; white-space:nowrap; }
@@ -1002,7 +999,7 @@ const ORDER = __ORDER__;
 // Filter und Diagramme nutzen weiter die vollen Labels.
 const STATUS_SHORT = {
   research: "Research", docs: "Dokumente", sent: "Versendet",
-  followup: "Follow-up", interview: "Interview", rejected: "Abgelehnt"
+  interview: "Interview", rejected: "Abgelehnt"
 };
 // Alle Status sind einblendbar. „Research" war früher ausgenommen, weil solche
 // Einträge nie sichtbar waren — als „neu gefunden" erscheinen sie jetzt aber,
@@ -1431,7 +1428,7 @@ const HOME_COLORS = {
 // sie an und entfernen sie wieder.
 const ext = { status:null, homeoffice:null, commute:null, fit:null, company:null };
 const EXT_LABEL = { status:"Status", homeoffice:"Homeoffice", commute:"Fahrzeit", fit:"Fit", company:"Firma" };
-const ACTIVE_STATUSES = ["sent", "followup", "interview"];
+const ACTIVE_STATUSES = ["sent", "interview"];
 const APPLIED_STATUSES = [...ACTIVE_STATUSES, "rejected"];
 
 function visibleRows() {
@@ -1767,7 +1764,7 @@ function renderRows() {
         <div class="status-cell">
           <select class="status-select ${STATUS[r.status].cls}" autocomplete="off" data-i="${i}" data-k="status" title="Status ändern">${statusOpts}</select>
           ${statusMicro(r)}
-          ${(r.status === "interview" || r.status === "followup") ? `<input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)">` : ""}
+          ${r.status === "interview" ? `<input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)">` : ""}
         </div>
       </td>
       <td class="center" data-label="Fit"><span class="clip1">${fitBadge(r.fit)} ${dimBadge(r.dim)}</span></td>

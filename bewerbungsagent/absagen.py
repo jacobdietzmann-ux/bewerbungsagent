@@ -30,6 +30,7 @@ from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 
 from .profile import normalize
+from .statuses import STATUS
 
 OFFENE_STATUS = ("sent", "followup", "interview")
 
@@ -575,7 +576,11 @@ def positives(mails: list[dict], apps: list[dict]) -> list[dict]:
             "titel": app.get("titel"),
             "status": status,
             "ok": ok,
-            "hinweis": "" if ok else f"Dashboard steht auf '{status}' statt 'versendet'",
+            # Den echten Status nennen: Bis 13.11.2026 stand hier im Erfolgsfall nichts,
+            # und Bericht wie Mailcheck schrieben fest „Dashboard: versendet" — auch
+            # bei einer Bewerbung, die längst auf Interview stand.
+            "hinweis": (f"Dashboard: {STATUS.get(status, {}).get('label', status)}" if ok
+                        else f"Dashboard steht auf '{status}' statt 'versendet'"),
         })
     return out
 

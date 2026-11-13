@@ -99,7 +99,7 @@ class TestPositives:
         assert len(r) == 1
         assert r[0]["key"] == APP_SENT["key"]
         assert r[0]["ok"] is True
-        assert r[0]["hinweis"] == ""
+        assert r[0]["hinweis"] == "Dashboard: Versendet"
         assert r[0]["mail_id"] == "4711"
         assert r[0]["datum"] == "2026-10-30"
 
@@ -134,3 +134,10 @@ class TestPositives:
     def test_kalender_digest_wird_ignoriert(self):
         mail = {**EINLADUNG, "from": "Google Calendar <calendar-notification@google.com>"}
         assert positives([mail], [APP_SENT]) == []
+
+
+def test_einladung_nennt_den_echten_status():
+    """SII stand auf Interview, der Bericht meldete trotzdem „versendet" (13.11.2026)."""
+    r = positives([EINLADUNG], [{**APP_SENT, "status": "interview"}])
+    assert r[0]["ok"] is True
+    assert r[0]["hinweis"] == "Dashboard: Interview"

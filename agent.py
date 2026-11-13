@@ -425,7 +425,7 @@ def main(argv=None) -> int:
         for p in pos:
             ziel = f"{p['firma']} — {p['titel']}" if p.get("key") else (p.get("betreff") or "?")
             print(f"  {'+' if p['ok'] else '!'} {p['datum']}  {ziel}  [{p['art']}]  "
-                  f"{p['hinweis'] or 'Dashboard: versendet'}")
+                  f"{p['hinweis']}")
         if args.out:
             Path(args.out).write_text(json.dumps(r["updates"], ensure_ascii=False, indent=2),
                                       encoding="utf-8")

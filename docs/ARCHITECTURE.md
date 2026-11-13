@@ -21,9 +21,8 @@ Dashboard als Lese-/Schreib-Oberfläche:
 
 Das Bild zeigt die Stufen. Die vollständige Schrittfolge steht an genau einer Stelle,
 in `bewerbungsagent/schritte.py`: `search`, `fetch`, `match`, `enrich`, `generate`,
-`quality`, `dashboard`. `run_full`, der Graph in `orchestrator.py` und
-`scripts/jobwatch.py` leiten sich daraus ab, `scripts/lauf.sh` ruft `agent.py ablauf`
-auf (ADR-056).
+`quality`, `dashboard`. Der Tageslauf `scripts/jobwatch.py` (Hermes-Cron) ruft
+jeden Schritt als `agent.py <schritt>` auf (ADR-056). Es gibt keinen zweiten Laufweg.
 
 Die JSON-Dateien `jobs.json`/`matches.json` sind nur der Zwischenstand der
 jeweiligen Stufe; gelesen und geschrieben wird der Bestand über
@@ -43,19 +42,18 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | Modul | Verantwortung | Rein? |
 |---|---|---|
 | `profile.py` | Profil laden, Keywords/Inhaltswörter extrahieren | ✅ deterministisch |
-| `matching.py` | Fit-Score (0–100) + Kategorie berechnen | ✅ deterministisch |
+| `matching.py` | Fit-Score (0–100), Titelregeln und Domänen-Vorfilter der Suche | ✅ deterministisch |
 | `industry.py` | Branche aus Provider-Metadaten oder Jobtext zuordnen | ✅ deterministisch |
 | `salary.py` | Gehalt schätzen, wenn Anzeige keine Zahl nennt | ✅ deterministisch |
 | `commute.py` | Pendelweg (Nominatim + OSRM), mit Cache; Obergrenze `max_pendelzeit_min` | ⚠️ Netzwerk |
-| `documents.py` | Anschreiben + Lebenslauf als PDF (ReportLab-Vorlagen oder eigene DOCX-Vorlage) | ✅ deterministisch |
-| `tailoring.py` | Stellenbezogene Auswahl/Formulierung für den Lebenslauf, prüft Belege gegen das Profil | ✅ deterministisch |
+| `documents.py` | Anschreiben + Lebenslauf als PDF (eigene DOCX-Vorlage, Ersatzdesign `classic`) | ✅ deterministisch |
 | `quality.py` | Prüft erzeugte Unterlagen gegen Profil, Anzeige und Datei (P0b) | ✅ deterministisch |
 | `followup.py` | Fällige Nachfassen erkennen und Texte erzeugen | ✅ deterministisch |
 | `dashboard.py` | HTML-Dashboard rendern (Template + Daten) | ✅ deterministisch |
 | `scripts/build_agent_map.py` | Agenten-Map erzeugen (Ablauf- + Geografie-Karte) | ✅ deterministisch |
-| `schritte.py` | Schrittfolge aller Laufwege (ADR-056) | ✅ deterministisch |
+| `schritte.py` | Schrittfolge des Tageslaufs (ADR-056) | ✅ deterministisch |
 | `pipeline.py` | Die Schritte als Funktionen, State-Merge | teils |
-| `search/*` | Provider (StepStone, DuckDuckGo, Bing, manuell) | ⚠️ Netzwerk |
+| `search/*` | Provider (StepStone, XING, Indeed, JobSpy, Arbeitnow, ATS-Boards, manuell) | ⚠️ Netzwerk |
 | `provider_health.py` | Erfolg/Fehler je Such-Quelle, automatische Abschaltung | ✅ deterministisch |
 | `storage.py` | JSON lesen/schreiben | ✅ |
 | `server.py` | Lokaler HTTP-Server (Dashboard + `/state`-API) | ⚠️ |
@@ -80,17 +78,9 @@ genau dafür gibt es `tests/`.
    stammt standardmäßig aus der eigenen DOCX-Vorlage
    (`documents.lebenslauf_vorlage`, Pfad relativ zum Agent-Root): die DOCX wird
    1:1 übernommen, nur der Profil-Absatz pro Stelle ersetzt und via `soffice`
-   zu PDF konvertiert. Fehlt die Vorlage, fällt der Agent auf die
-   ReportLab-Vorlagen zurück (`documents.lebenslauf_template`:
-   `classic` | `awesome` | `deedy` | `mcdowell` | `sidebar` | `elegant` |
-   `clean`), optional per CLI `--template`.
-   Liegt im Bewerbungsordner eine **`Lebenslauf-Tailoring.json`**, wird der
-   Lebenslauf daraus gebaut (ReportLab, `tailoring.py`, ADR-037): Headline, Profilabsatz,
-   Stations-Bullets, Fähigkeitsgruppen und Kernkompetenz-Karten kommen aus dem
-   File. Die DOCX-Vorlage wird dann bewusst nicht verwendet — sie erlaubt nur
-   das Ersetzen eines Absatzes. Das Tailoring wählt aus und formuliert um, es
-   erfindet nichts: `tailoring.unbacked_terms()` prüft jeden Fachbegriff gegen
-   das Profil und meldet Unbelegtes beim Erzeugen.
+   zu PDF konvertiert (LibreOffice, unter Windows am Installationsort gesucht).
+   Fehlt die Vorlage oder scheitert die Konvertierung, greift das Ersatzdesign
+   `classic` (ReportLab).
 4. **dashboard** rendert `dashboard.html` aus SQLite; Jobs ohne tatsächlich
    vorhandenes Bewerbungsdokument bleiben in der Datenbank und erscheinen nur
    nicht in der Tabelle (``visible``-Flag). Status-Verteilung und KPIs zeigen
@@ -106,29 +96,6 @@ research ──▶ docs ──▶ sent ──▶ followup ──▶ interview
 
 `sent`, `followup`, `interview`, `rejected` sind **geschützt**: Sie werden
 nie gelöscht oder neu gescored, damit die Bewerbungshistorie erhalten bleibt.
-
-## Externe CV-Vorlagen (LaTeX & Typst)
-
-Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
-**echten Open-Source-Templates** kompiliert werden — statt sie nur nachzubauen:
-
-- **Toolchains** (user-local, kein Root nötig):
-  - `tectonic` (XeTeX-Engine, einzelnes statisches Binary, lädt Pakete on demand)
-  - `typst` (einzelnes Binary, lädt Pakete aus dem Typst-Universe)
-  - Beide liegen unter `~/.local/bin/`.
-- **LaTeX-Vorlagen** (Quellen aus GitHub, kompiliert mit `tectonic`):
-  - `posquit0/Awesome-CV`, `deedy/Deedy-Resume`, `dnl-blkv/mcdowell-cv`,
-    `billryan/resume`, `jankapunkt/latexcv` (Sidebar).
-  - Font-/Paket-Anpassungen: `Times New Roman`→`Liberation Serif`,
-    `Source Sans 3`→`Noto Sans`, `Roboto`→`Fira Sans`,
-    `fontawesome6`→`fontawesome5` (fontawesome6 nicht im tectonic-Bundle),
-    `\transparent` (Paket fehlt) als No-op ersetzt.
-- **Typst-Vorlagen** (neuere Trend-Templates, kompiliert mit `typst`):
-  - `sardorml/vantage-typst`, `steadyfall/simple-technical-resume-template`,
-    `davidculemann/typst-templates` (modern/classic), `dialvarezs/neat-cv`.
-- Generatoren/Beispieldaten liegen als Session-Artefakte unter
-  `~/.copilot/session-state/…/files/cv-external/` (enthalten PII → bewusst
-  **nicht** im Repo). Ergebnis-PDFs: `output/Vorlagen-Beispiele/{LaTeX,Typst}/`.
 
 ## Design-Entscheidungen
 
@@ -199,15 +166,16 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   System“) als Substring zu sperren löschte „Embedded Systems“,
   „Echtzeitsysteme“ und ganze Rollentitel. Die Substring-Regel gilt nur für
   unterscheidungskräftige Begriffe mit Ziffer oder Bindestrich (`do-178c`).
-- **`FIT < 50 %` blendet dokumentierte Stellen nicht aus**: Für sie wurden
-  bewusst Unterlagen erzeugt — sie sind kein Suchrauschen. Die harte
-  Pendelweg-Grenze gilt weiterhin für alle.
+- **Einordnung nach drei Regeln** (`pipeline._einordnung`, ADR-059): Pendelweg über
+  der Grenze → Research bis Grenze + Kulanz und ab 65 %, sonst ausgeblendet; Fit
+  unter 65 % → ausgeblendet, außer bei ausdrücklich angeforderten Unterlagen;
+  sonst sichtbar (bis 70 % Research, ab 71 % Unterlagen). Dieselbe Funktion gilt
+  für sichtbare und ausgeblendete Stellen.
 - **Ausblende-Flags müssen neu bewertet werden**: Ein `deleted`-Flag friert den
   Zustand seines Entstehungszeitpunkts ein. Ändert sich die Grundlage, bleibt
   die Stelle sonst für immer versteckt. `run_enrich` prüft den Grund
   (`deleted_code`, ADR-056) deshalb gegen den aktuellen Zustand:
-  `fit` → gegen den heutigen Score, `pendel` → gegen
-  `_commute_blocked()`, aktive Status (`sent`/`interview`/`rejected`) → Flag
+  `fit`, `pendel` und das alte `research` → nach den drei Regeln, aktive Status (`sent`/`interview`/`rejected`) → Flag
   entfernen. **Nicht** neu bewertet werden `nutzer`, `kriterium` und `sonstig`,
   also vom Nutzer gesetzte Kriterien und Rollen-Ausschlüsse — das sind
   Entscheidungen, keine ableitbaren Zustände. Konkreter Anlass: Nach dem
@@ -237,36 +205,6 @@ Zusätzlich zum eingebauten ReportLab-Generator können Lebensläufe direkt aus
   Beratungsstelle „Lead Integration Engineer … Technology Consulting" bei 84 %
   Unterlagen (ADR-035). Der **manuelle** Auftrag (`run_generate --ids`) ist
   nicht betroffen und erzeugt weiterhin alles.
-
-### Mehrdimensionale Bewertung (`dimensions.py`, ADR-031)
-
-Der Keyword-Fit beantwortet nur „wie viel Profil-Vokabular steht in der
-Anzeige“. `dimensions.py` bewertet dieselbe Stelle zusätzlich in sieben
-Dimensionen (0–100), jeweils mit Belegen:
-
-| Dimension | Startgewicht | Grundlage |
-|---|---:|---|
-| Fachliche Kompetenz | 30 % | Profil-Keyword-Treffer (Titel doppelt gewichtet) |
-| Aufgaben/Tätigkeiten | 20 % | Tätigkeitsfamilien im Anzeigentext |
-| Seniorität/Verantwortung | 15 % | Rollenstufe (Junior … Head) vs. Profilrollen |
-| Technologie/Branche | 10 % | Branchenzuordnung (`industry.py`) |
-| Gehalt | 10 % | Anzeigen-Spanne vs. Zielgehalt (Schätzungen zählen nicht) |
-| Arbeitsmodell/Standort | 10 % | Pendelzeit / Remote / Homeoffice |
-| Entwicklungspotenzial | 5 % | Weiterbildungs-/Aufstiegssignale |
-
-**Berichtend, nicht entscheidend.** `score` bleibt unverändert. Die Dimensionen
-entstehen in `run_enrich` (dort sind Gehalt, Pendelweg und Homeoffice bekannt)
-und werden in SQLite gespeichert; das Dashboard zeigt „Dim NN %“ mit Tooltip
-unter dem Fit-Wert. Erst wenn `eval/run_dimensions_eval.py` auf den harten
-Labels einen Vorsprung zeigt, werden sie zur Bewertung (ADR-014/016,
-Baseline AUC 0,715).
-
-**Harte K.O.-Liste.** Sie ist nicht durch Teilwerte kompensierbar: ein
-Anzeigen-Gehalt, dessen **oberes** Ende unter `ko_gehalt_min_tsd` liegt
-(Standard 55 T€), und optional Titel-Muster aus `ko_senioritaet` (Standard
-leer). Eine K.O. blockiert nur die *automatische* Unterlagenerzeugung — die
-Stelle bleibt im Dashboard sichtbar und per `--ids` bedienbar. Schätzungen
-(„Xing-Schätzung“) zählen nie als Anzeigen-Gehalt.
 
 ## Qualitätsprüfung der Unterlagen (`quality.py`, ADR-032)
 

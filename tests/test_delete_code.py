@@ -28,7 +28,7 @@ from bewerbungsagent.db import (
     Store,
     delete_code_aus_text,
 )
-from bewerbungsagent.pipeline import _apply_research_filter, _flag_far_commute, run_enrich
+from bewerbungsagent.pipeline import _flag_far_commute, run_enrich
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ class TestPipelineSetztDenCode:
     """Jede Ausblendung trägt Code und Text, und beide passen zusammen."""
 
     @pytest.mark.parametrize(("felder", "code"), [
-        ({"score": 55}, DELETE_RESEARCH),   # über der Fit-Grenze, unter dem Fenster
+        ({"score": 55}, DELETE_FIT),        # unter 65 %: ein Grund für alles
         ({"score": 30}, DELETE_FIT),
         ({"score": 80, "pendelzeit_min": 90}, DELETE_PENDEL),
         ({"titel": "Werkstudent Test"}, DELETE_STUDENT),
@@ -98,12 +98,6 @@ class TestPipelineSetztDenCode:
         assert app["deleted"] is True
         assert app["deleted_code"] == code
         assert delete_code_aus_text(app["deleted_reason"]) == code
-
-    def test_research_filter(self, config):
-        apps = [_app(score=55)]
-        _apply_research_filter(config, apps)
-        assert apps[0]["deleted_code"] == DELETE_RESEARCH
-        assert delete_code_aus_text(apps[0]["deleted_reason"]) == DELETE_RESEARCH
 
     def test_pendelweg_beim_anlegen(self):
         app = _app(pendelzeit_min=90)

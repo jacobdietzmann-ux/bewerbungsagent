@@ -30,6 +30,7 @@ from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 
 from .profile import normalize
+from .statuses import STATUS
 
 OFFENE_STATUS = ("sent", "followup", "interview")
 
@@ -244,12 +245,26 @@ def firma_passt(app: dict, mail: dict) -> bool:
     domain = _sender_domain(mail.get("from"))
     plattform = any(p in domain for p in _PLATTFORM_DOMAINS)
     if not plattform:
-        dom = domain.replace("-", "").replace(".", " ")
-        if any(tok in dom.replace(" ", "") for tok in tokens[:1]):
+        # Domain in Segmente zerlegen, nicht als Zeichenkette: „man" steckt sonst
+        # in „siigermanycom" und jede MAN-Bewerbung passt auf eine SII-Mail.
+        segmente = [s for s in re.split(r"[^a-z0-9]+", domain) if s]
+        if any(tok == s or (len(tok) >= 4 and s.startswith(tok)) for tok in tokens[:1] for s in segmente):
             return True
     kopf = _norm(f"{mail.get('subject') or ''} {(mail.get('body') or '')[:1500]}").replace("-", " ")
-    # Ganze Wörter: „alten" steckt sonst in „erhalten".
+    # Ganze Wörter: „alten" steckt sonst in „erhalten". Nur kennzeichnende Wörter
+    # zählen: „Software Engineering GmbH" (token „software") und „MAN Truck & Bus"
+    # (token „man") treffen sonst jeden Anzeigentext (real: 18 statt 3 Treffer bei
+    # einer SII-Mail).
+    if tokens[0] in _FIRMA_GENERISCH:
+        return False
     return bool(re.search(rf"\b{re.escape(tokens[0])}\b", kopf))
+
+
+# Firmenwörter, die in fast jeder Mail oder Anzeige vorkommen und ohne
+# Domain-Treffer nichts belegen.
+_FIRMA_GENERISCH = {"software", "hardware", "system", "systems", "test", "tests", "data",
+                    "digital", "tech", "defence", "defense", "man", "mobility", "energy",
+                    "engineering", "consulting", "services", "solutions"}
 
 
 # Titelwörter ohne Unterscheidungskraft (kommen in fast jeder Mail vor).
@@ -276,6 +291,13 @@ def _kern_titel(titel: str | None) -> str:
     t = _GENDER.sub(" ", titel or "")
     t = re.sub(r"\(.*?\)", " ", t)
     return " ".join(_norm(t).replace("-", " ").replace("–", " ").split())
+
+
+def _kern_worte(titel: str | None) -> int:
+    """Zahl der kennzeichnenden Titelwörter (ohne Gender-Tag und Generika)."""
+    kern = _kern_titel(titel)
+    return len([w for w in re.split(r"[^a-z0-9+#]+", kern)
+                if len(w) >= 3 and w not in _TITEL_GENERISCH])
 
 
 def titel_passt(app: dict, text: str) -> bool:
@@ -360,6 +382,14 @@ def match_mail(mail: dict, apps: list[dict],
     if len(passend) == 1:
         return passend[0], "Firma + Titel"
     if len(passend) > 1:
+        # Die Mail nennt genau eine Rolle; der Eintrag, der den größten Teil des
+        # Titels erklärt, gewinnt. Real: „Software Test Engineer
+        # Verteidigungsindustrie" (SII) traf auch „Test Engineer" und „Software
+        # Test Engineer" derselben Consultancy — die Einladung blieb dadurch
+        # unzugeordnet.
+        rang = sorted(passend, key=lambda a: _kern_worte(a.get("titel")), reverse=True)
+        if _kern_worte(rang[0].get("titel")) > _kern_worte(rang[1].get("titel")):
+            return rang[0], "Firma + Titel (spezifischster Treffer)"
         return None, f"{len(passend)} offene Bewerbungen passen zum Titel"
     if len(firma) == 1 and not _nennt_titel(mail):
         # Die Mail nennt keine Stelle (z. B. „Your application at ALTEN") und es
@@ -546,7 +576,11 @@ def positives(mails: list[dict], apps: list[dict]) -> list[dict]:
             "titel": app.get("titel"),
             "status": status,
             "ok": ok,
-            "hinweis": "" if ok else f"Dashboard steht auf '{status}' statt 'versendet'",
+            # Den echten Status nennen: Bis 13.11.2026 stand hier im Erfolgsfall nichts,
+            # und Bericht wie Mailcheck schrieben fest „Dashboard: versendet" — auch
+            # bei einer Bewerbung, die längst auf Interview stand.
+            "hinweis": (f"Dashboard: {STATUS.get(status, {}).get('label', status)}" if ok
+                        else f"Dashboard steht auf '{status}' statt 'versendet'"),
         })
     return out
 

@@ -104,7 +104,7 @@ class TestPhotoImageFlowable:
 class TestGeneratedCvSize:
     """Ende-zu-Ende: der erzeugte Lebenslauf bleibt deutlich unter 1 MB."""
 
-    @pytest.mark.parametrize("template", ["classic", "sidebar"])
+    @pytest.mark.parametrize("template", ["classic"])
     def test_cv_bleibt_klein(self, tmp_path, demo_profile, monkeypatch, template):
         from bewerbungsagent import documents
         foto = _write_image(tmp_path / "foto.png", (700, 934))

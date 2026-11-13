@@ -95,9 +95,6 @@ DEFAULT_CONFIG: dict = {
         # ``xing_terms``/``indeed_terms`` übersteuern ``query_terms`` bei Bedarf.
         "xing_max_results": 25,
         "indeed_max_results": 25,
-        # jobs.labo.de ist serverseitig gerendert, braucht aber je Begriff eine
-        # eigene Anfrage (keine begriffsübergreifende Suche).
-        "labo_max_jobs": 120,
         # Zustand der Such-Quellen: Nach so vielen Fehlläufen in Folge wird
         # eine Quelle abgeschaltet (manuell wieder einschaltbar über
         # `agent.py providers --enable NAME`).
@@ -112,38 +109,9 @@ DEFAULT_CONFIG: dict = {
     # Begründung: der Research-Bestand war mit 165 Einträgen unübersichtlich;
     # interessant sind nur Treffer knapp unter der Unterlagen-Schwelle sowie
     # Stellen, die knapp über der Pendelgrenze liegen (zweite Chance).
-    "research_filter": {
-        "enabled": True,
-        "fit_min": 65,          # Fenster „knapp unter der Unterlagen-Schwelle“ (71)
-        "fit_max": 70,
-        "commute_grace_min": 10,  # „leicht über der Pendelgrenze“ = Grenze + 10
-    },
-    # Mehrdimensionale Bewertung (P0a). Läuft **berichtend**: `score` bleibt
-    # unverändert, bis die Dimensionen die Keyword-Baseline auf den harten
-    # Labels schlagen (ADR-031). Hart ist nur die K.O.-Liste — sie blockiert
-    # die automatische Unterlagenerzeugung, nicht die Anzeige.
-    "matching": {
-        "dimensions": {
-            "gewichte": {
-                "kompetenz": 0.30,
-                "aufgaben": 0.20,
-                "senioritaet": 0.15,
-                "technologie": 0.10,
-                "gehalt": 0.10,
-                "arbeitsmodell": 0.10,
-                "entwicklung": 0.05,
-            },
-            "gehalt_ziel_tsd": 65,
-            "ko_gehalt_min_tsd": 55,
-            # Leer = keine Senioritäts-K.O. Beispiel: ["head of"]
-            "ko_senioritaet": [],
-            "ziel_branchen": [
-                "Automotive", "Luft- und Raumfahrt", "Defense", "Halbleiter",
-                "Robotik", "Energie", "Engineering-Dienstleister",
-            ],
-            "ko_blockiert_generierung": True,
-        },
-    },
+    # Über der Pendelgrenze bleibt eine Stelle bis zu so vielen Minuten als
+    # Research sichtbar (ab 65 % Fit, ohne automatische Unterlagen).
+    "research_filter": {"commute_grace_min": 10},
     # Nachfassen: versendete Bewerbungen ohne Reaktion werden nach N Tagen als
     # fällig markiert (Dashboard, `agent.py followup`). Versendet wird nichts
     # automatisch.

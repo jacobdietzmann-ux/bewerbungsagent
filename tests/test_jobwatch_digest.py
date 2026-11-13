@@ -26,7 +26,33 @@ def test_zu_weite_stelle_wird_ausgeblendet():
     text = jobwatch.build_digest(JOBS, JOBS, True, 60, 5, max_commute=30)
     assert "example.org/nah" in text
     assert "example.org/weit" not in text
-    assert "über der Pendelgrenze von 30 min" in text
+
+
+def test_kulanz_stelle_ist_research_und_wird_gezaehlt():
+    jobs = [{"firma": "Knapp AG", "titel": "Testingenieur", "score": 84, "pendelzeit_min": 34,
+             "pendel_knapp": True, "url": "https://example.org/knapp"}]
+    text = jobwatch.build_digest(jobs, jobs, False, 65, 5, max_commute=30)
+    assert "[Research, Pendel 34 min]" in text
+    assert "1 davon knapp über der Pendelgrenze von 30 min" in text
+
+
+def test_etikett_folgt_dem_echten_stand():
+    """Bis 13.11.2026 stand „[Unterlagen]“ an jeder Stelle über 70 %."""
+    mit = {"titel": "Testingenieur", "score": 80, "status": "docs", "dokumente": {"de": "x"}}
+    ohne_rolle = {"titel": "Staff Computer Vision Engineer", "score": 94, "status": "neu"}
+    rolle = {"titel": "Testingenieur", "score": 80, "status": "neu"}
+    mittel = {"titel": "Testingenieur", "score": 68, "status": "neu"}
+    assert jobwatch.etikett(mit) == "Unterlagen erstellt"
+    assert jobwatch.etikett(ohne_rolle) == "Research, kein Rollentitel"
+    assert jobwatch.etikett(rolle) == "Unterlagen folgen"
+    assert jobwatch.etikett(mittel) == "Research"
+
+
+def test_bereite_unterlagen_werden_gezaehlt():
+    jobs = [{"firma": "A", "titel": "Testingenieur", "score": 80, "status": "docs",
+             "dokumente": {"de": "x"}, "pendelzeit_min": 20}]
+    text = jobwatch.build_digest(jobs, [], False, 65, 5, max_commute=30)
+    assert "Unterlagen bereit, noch nicht versendet: 1 Stelle(n)." in text
 
 
 def test_ohne_grenze_bleiben_alle_treffer():

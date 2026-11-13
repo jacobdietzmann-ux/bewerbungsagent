@@ -5,17 +5,15 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from .. import triage as _triage
 from ..config import Config
+from ..matching import triage_split, triage_verdict
 from ..profile import Profile, normalize
 from ..provider_health import is_disabled
 from . import (
     arbeitnow,
     ats,
-    glassdoor,
     indeed,
     jobspy,
-    labo,
     manual,
     stepstone_browser,
     xing,
@@ -108,7 +106,7 @@ def _existing_jobs(config: Config) -> list[dict]:
 # roher Web-Such-Treffer). Für diese entfallen Aggregator-/Lexikon-Filter — die URLs
 # von LinkedIn/Indeed/StepStone sind dort echte Anzeigen, keine Listing-Seiten.
 _DIRECT_SOURCES = {"StepStone", "Import", "LinkedIn", "Indeed", "Google Jobs",
-                   "ATS", "Arbeitnow", "JobLeads", "XING", "Labo", "Glassdoor",
+                   "ATS", "Arbeitnow", "XING", "Labo", "Glassdoor",
                    manual.MAIL_LEAD}
 
 # Provider für die Anzeigensuche zu Mail-Leads (``search.lead_url_provider``).
@@ -120,13 +118,7 @@ _LEAD_TREFFER_JE_BEGRIFF = 20
 
 # Provider, die einen echten Browser brauchen. Sie liegen in eigenen Modulen und
 # erwarten eine **Liste** von Begriffen statt einem einzelnen.
-_BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser", "glassdoor"}
-
-# Glassdoor filtert serverseitig nach Umkreis und Gehalt (``glassdoor_*`` in der
-# ``search``-Konfiguration).
-_GLASSDOOR_FILTER = {"radius": "glassdoor_radius", "min_salary": "glassdoor_min_salary",
-                     "max_salary": "glassdoor_max_salary"}
-
+_BROWSER_PROVIDERS = {"xing", "indeed", "stepstone_browser"}
 
 def _terms_for_provider(s: dict, name: str) -> list[str]:
     """Suchbegriffe für Provider ohne begriffsübergreifende Suche.
@@ -258,8 +250,7 @@ def run_search(config: Config, profile: Profile,
             provider = {"stepstone_browser": stepstone_browser,
                         "jobspy": jobspy,
                         "ats": ats, "arbeitnow": arbeitnow,
-                        "xing": xing, "indeed": indeed,
-                        "labo": labo, "glassdoor": glassdoor}.get(name)
+                        "xing": xing, "indeed": indeed}.get(name)
             if provider is None:
                 errors.append(f"Unbekannter Provider: {name}")
                 continue
@@ -283,24 +274,6 @@ def run_search(config: Config, profile: Profile,
                                           s.get("max_results_per_provider", 25)),
                         with_description=s.get(f"{name}_with_description", True),
                         **(bekannt if name in ("xing", "indeed") else {}),
-                        **({k: s[v] for k, v in _GLASSDOOR_FILTER.items() if s.get(v)}
-                           if name == "glassdoor" else {}),
-                    ):
-                        add(job)
-                except Exception as exc:
-                    errors.append(f"{name}: {exc}")
-            elif name == "labo":
-                # jobs.labo.de ist serverseitig gerendert (kein Browser nötig),
-                # hat aber wie die Browser-Portale keine begriffsübergreifende
-                # Suche: jeder Begriff ist eine eigene Anfrage.
-                terms = _terms_for_provider(s, name)
-                try:
-                    for job in provider.search(
-                        terms,
-                        location=s.get("location", "München"),
-                        user_agent=s.get("user_agent", "Mozilla/5.0"),
-                        with_description=s.get("labo_with_description", True),
-                        max_jobs=s.get("labo_max_jobs", 120),
                     ):
                         add(job)
                 except Exception as exc:
@@ -381,14 +354,14 @@ def run_search(config: Config, profile: Profile,
     # Sie werden nicht stillschweigend verworfen, sondern zur Nachvollziehbarkeit
     # in ``data/triage_rejected.json`` protokolliert.
     if s.get("triage", True):
-        jobs, rejected = _triage.split(jobs, config)
+        jobs, rejected = triage_split(jobs, config)
         if rejected:
             try:
                 from ..storage import load_json, save_json
                 pfad = config.data_dir / "triage_rejected.json"
                 protokoll = [{"titel": j.get("titel"), "firma": j.get("firma"),
                               "url": j.get("url"),
-                              "grund": _triage.verdict_for(j, config).reason}
+                              "grund": triage_verdict(j, config).reason}
                              for j in rejected]
                 # Weitere Suchen eines Tageslaufs ergänzen das Protokoll der
                 # Standard-Suche, statt es zu ersetzen.

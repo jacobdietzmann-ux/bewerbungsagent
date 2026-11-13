@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from bewerbungsagent.absagen import auswerten, classify, iso_datum, match_mail, overlay_from_updates
+from bewerbungsagent.absagen import (
+    auswerten,
+    classify,
+    firma_passt,
+    iso_datum,
+    match_mail,
+    overlay_from_updates,
+)
 
 ALTEN = ("Your application at ALTEN",
          "Hello Jacob, Thank you very much for your trust ... Unfortunately, we regret to "
@@ -264,3 +271,36 @@ def test_bereits_gebuchte_absage_wird_nicht_erneut_als_prueffall_gemeldet():
     assert r["updates"] == []
     assert r["unklar"] == []
     assert r["schon_erfasst"] == 1
+
+
+SII_EINLADUNG = (
+    "AW: Ihre Bewerbung als Software Test Engineer Verteidigungsindustrie - offene Fragen",
+    "Guten Tag Herr Dietzmann, gerne möchte KNDS mit Ihnen bzgl. obiger Stelle ein erstes "
+    "Online-Interview führen. Wäre Montag, 09.11.2026, um 15:30 Uhr per Webex möglich?")
+
+
+def test_generisches_firmenwort_matcht_nicht_auf_fremden_absender():
+    """„Software Engineering GmbH" (token „software") passte sonst auf jede Mail.
+
+    Real 10.11.2026: eine SII-Einladung zog 18 statt 3 Firmen und blieb dadurch
+    ohne Zuordnung.
+    """
+    mail = _mail(*SII_EINLADUNG, "sandra.domenighini@sii-germany.com")
+    assert firma_passt(_app("se", "Software Engineering GmbH", "Software Test Engineer (m/w/d)"), mail) is False
+
+
+def test_firmenwort_als_teilwort_der_domain_zaehlt_nicht():
+    """„man" steckt in „sii-germany.com" — Domain wird segmentweise verglichen."""
+    mail = _mail(*SII_EINLADUNG, "sandra.domenighini@sii-germany.com")
+    assert firma_passt(_app("man", "MAN Truck & Bus", "Systemingenieur"), mail) is False
+    assert firma_passt(_app("sii", "SII Consulting Services", "Software Test Engineer (m/w/x) "
+                                                             "Verteidigungsindustrie"), mail) is True
+
+
+def test_spezifischster_titel_gewinnt_bei_mehreren_treffern():
+    apps = [_app("t1", "SII Consulting Services", "Test Engineer (m/w/d)"),
+            _app("t2", "SII Consulting Services GmbH", "Software Test Engineer (m/w/d)"),
+            _app("t3", "SII Consulting Services", "Software Test Engineer (m/w/x) Verteidigungsindustrie")]
+    app, warum = match_mail(_mail(*SII_EINLADUNG, "sandra.domenighini@sii-germany.com"), apps)
+    assert app is not None and app["key"] == "t3"
+    assert "spezifischster" in warum

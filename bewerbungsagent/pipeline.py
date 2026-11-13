@@ -11,15 +11,12 @@ from .auswahl import (
     DEFAULT_COMMUTE_GRACE_MIN,
     DEFAULT_MAX_AUTO_PER_WEEK,
     DEFAULT_MAX_OFFEN_PRO_FIRMA,
-    TEXT_FEHLT_TAGE,
     TEXT_NACHLADEN_TAGE,
     apply_limits,
     juenger_als,
     ohne_text,
     rollentreffer_ohne_text,
     stelle_offen,
-    stille_rollentreffer,
-    text_fehlt_titel_passt,
     within_commute_grace,
 )
 from .commute import (
@@ -38,13 +35,11 @@ from .db import (
     DELETE_SONSTIG,
     DELETE_STUDENT,
     DELETE_TECHNIKER,
-    RESEARCH_REASON_PREFIX,
     Store,
     delete_code_aus_text,
     hebe_loeschung_auf,
     markiere_geloescht,
 )
-from .dimensions import score_dimensions
 from .documents import (
     DEFAULT_CV_TEMPLATE,
     generate_anschreiben,
@@ -52,18 +47,15 @@ from .documents import (
 )
 from .followup import DEFAULT_AFTER_DAYS
 from .homeoffice import detect_home_office
-from .importer import import_old_dashboard
 from .industry import classify_industry
 from .matching import fit_value, has_role_signal, is_student_role, is_technician_role, match_jobs
 from .profile import Profile, normalize
 from .provider_health import DEFAULT_MAX_FAILURES, DEFAULT_RETRY_HOURS, record, release_due
-from .quality import check_application, run_quality
+from .quality import check_application
 from .salary import enrich_salary
-from .schritte import FETCH_LIMIT, SCHRITT_NAMEN, fuehre_aus
 from .search import resolve_mail_leads
 from .search import run_search as _search
 from .search.manual import MAIL_LEAD, lead_passt
-from .statuses import normalize_status
 from .storage import load_json, now_iso, save_json
 
 # Fit-Bänder. Ein Wert liegt in genau einem Band, und aus dem Band folgen Status
@@ -73,7 +65,7 @@ from .storage import load_json, now_iso, save_json
 #              60–70 % plus „Pendelweg knapp drüber" als zweite Chance)
 #   > 70 %   → ``docs``: Unterlagen erzeugen
 # Ein Anschreiben für einen 55-%-Treffer kostet Zeit und geht fast nie durch.
-FIT_BAND_AUSBLENDEN = 50
+FIT_BAND_AUSBLENDEN = 65
 FIT_BAND_UNTERLAGEN = 71  # erste ganze Zahl über der Research-Obergrenze (70 %)
 
 # Namen für ``documents.min_fit_for_generation`` in der config.json.
@@ -247,20 +239,6 @@ def _fit_value(job: dict) -> int:
     return fit_value(job)
 
 
-def _dimensionen_blockieren(config: Config, dims: dict) -> bool:
-    """True, wenn eine K.O. die *automatische* Unterlagenerzeugung blockiert.
-
-    Die K.O.-Liste aus ``dimensions.py`` ist nur dann hart, wenn
-    ``matching.dimensions.ko_blockiert_generierung`` nicht ausdrücklich
-    abgeschaltet wurde. Sie löscht nichts: Die Stelle bleibt im Dashboard
-    sichtbar und kann per ``--ids`` weiterhin bewusst bedient werden.
-    """
-    if not isinstance(dims, dict) or not dims.get("blockiert"):
-        return False
-    opts = (config.data.get("matching") or {}).get("dimensions") or {}
-    return bool(opts.get("ko_blockiert_generierung", True))
-
-
 # --------------------------------------------------------------------------
 # Schritte
 # --------------------------------------------------------------------------
@@ -310,8 +288,8 @@ def run_search(config: Config, profile: Profile, definition: dict | None = None)
     """Führt eine Suche aus.
 
     Ohne ``definition`` laufen alle Tageslauf-Suchen (Standard plus
-    ``"daily": true``). Sonst bliebe eine als täglich markierte Suche in
-    ``jobwatch`` und ``agent.py ablauf`` wirkungslos, die beide hier einsteigen.
+    ``"daily": true``). Sonst bliebe eine als täglich markierte Suche im
+    Tageslauf (``jobwatch``) wirkungslos, der hier einsteigt.
     """
     if definition is None:
         return run_searches(config, profile)
@@ -443,8 +421,8 @@ def _grund_unter_ausblendgrenze(app: dict) -> str:
     """Ausblendgrund unter ``FIT_BAND_AUSBLENDEN``: sagt, warum der Fit fehlt (ADR-055)."""
     if ohne_text(app) and app.get("verfuegbar") is False:
         return "Anzeige abgelaufen (ohne Text)"
-    if rollentreffer_ohne_text(app):
-        return f"Text fehlt seit über {TEXT_FEHLT_TAGE} Tagen"
+    if ohne_text(app):
+        return f"FIT < {FIT_BAND_AUSBLENDEN} % (Text fehlt)"
     return f"FIT < {FIT_BAND_AUSBLENDEN} %"
 
 
@@ -507,17 +485,6 @@ def _preserve_descriptions(jobs: list[dict], state: dict) -> list[dict]:
     if restored:
         print(f"Anzeigentexte aus dem Bestand übernommen: {restored} Stelle(n).")
     return jobs
-
-
-def run_fetch(config: Config, *, nur_unsure: bool = False) -> dict:
-    """Lädt fehlende Anzeigentexte per Browser nach (höchstens ``FETCH_LIMIT``).
-
-    Der Import steht hier, weil ``fetch_descriptions`` Playwright braucht: Fehlt
-    es, scheitert nur dieser optionale Schritt.
-    """
-    from fetch_descriptions import fetch_descriptions
-
-    return fetch_descriptions(config, limit=FETCH_LIMIT, only_unsure=nur_unsure)
 
 
 def letzter_fund_meta(config: Config) -> dict:
@@ -598,18 +565,16 @@ def _commute_blocked(config: Config, job: dict) -> bool:
     return exceeds_commute_limit(job, limit=_commute_limit_minutes(config))
 
 
-def _commute_grace(config: Config, job: dict) -> bool:
-    """Pendelweg knapp über der Grenze bei ausreichendem Fit (siehe ``auswahl``).
+def _commute_grace_min(config: Config) -> int:
+    """Wie weit über der Pendelgrenze eine Stelle noch Research sein darf."""
+    raw = config.data.get("research_filter") or {}
+    return int(raw.get("commute_grace_min", DEFAULT_COMMUTE_GRACE_MIN))
 
-    Kulanz und Mindest-Fit kommen aus ``research_filter`` (``commute_grace_min``,
-    ``fit_min``). Ist der Research-Filter abgeschaltet, gibt es keine Kulanz.
-    """
-    settings = _research_filter_settings(config)
-    if settings is None:
-        return False
+
+def _commute_grace(config: Config, job: dict) -> bool:
+    """Pendelweg über der Grenze, aber innerhalb der Kulanz, bei ausreichendem Fit."""
     return within_commute_grace(job, _commute_limit_minutes(config),
-                                settings.get("commute_grace_min", DEFAULT_COMMUTE_GRACE_MIN),
-                                settings["fit_min"])
+                                _commute_grace_min(config), FIT_BAND_AUSBLENDEN)
 
 
 def _auto_limits(config: Config) -> tuple[int | None, int | None]:
@@ -623,98 +588,6 @@ def _auto_limits(config: Config) -> tuple[int | None, int | None]:
 def _company_key_fn(config: Config):
     aliases = (config.data.get("matching") or {}).get("company_aliases")
     return lambda name: _company_key(name, aliases)
-
-
-def _research_filter_settings(config: Config) -> dict | None:
-    """Einstellungen des Research-Filters oder ``None`` bei ``enabled: false``.
-
-    ``fit_min`` ist standardmäßig 65: Ein Fund unterhalb der Unterlagen-Schwelle
-    (71) ist nur dann eine Entscheidung wert, wenn er nah genug daran liegt.
-    60–64-%-Treffer waren der Grund, warum immer wieder schwache Stellen als
-    ``research`` im Dashboard standen (ADR-036).
-    """
-    raw = config.data.get("research_filter") or {}
-    if raw.get("enabled") is False:
-        return None
-    return {
-        "fit_min": int(raw.get("fit_min", 65)),
-        "fit_max": int(raw.get("fit_max", 70)),
-        "commute_grace_min": int(raw.get("commute_grace_min", 10)),
-    }
-
-
-def research_keep_reason(app: dict, limit: int, settings: dict) -> str:
-    """Warum eine Research-Stelle bleibt — ``""`` bedeutet: entfernen.
-
-    Zwei Gründe, einen Fund zu behalten:
-    1. Fit im Fenster ``fit_min``–``fit_max`` (knapp unter der Unterlagen-Schwelle).
-    2. Pendelweg knapp über der Grenze (bis ``limit + commute_grace_min``): eine
-       zweite Chance, falls sich Wohnung oder Grenze ändern.
-    """
-    fit = _fit_value(app)
-    if settings["fit_min"] <= fit <= settings["fit_max"]:
-        return f"Fit {fit} % im Fenster"
-    commute = app.get("pendelzeit_min")
-    if commute is not None and commute != "":
-        try:
-            minutes = float(commute)
-        except (TypeError, ValueError):
-            return ""
-        if limit < minutes <= limit + settings["commute_grace_min"]:
-            return f"Pendelweg {minutes:g} min knapp über {limit} min"
-    return ""
-
-
-def _apply_research_filter(config: Config, apps: list[dict]) -> dict:
-    """Begrenzt den ``research``-Bestand auf die behaltenswerten Funde.
-
-    Funde im Fit-Fenster (``fit_min``–``fit_max``) und „Pendelweg knapp drüber"
-    bleiben; alles darunter wird nur als ``deleted`` markiert (nichts wird
-    gelöscht). Funde **oberhalb** des Fensters sind Dokumenten-Kandidaten und
-    werden weder gelöscht noch festgehalten.
-
-    Bereits erzeugte Unterlagen schützen eine ``research``-Stelle **nicht**:
-    Wenn der Fit unter das Fenster fällt, ist der Fund zu schwach, und die
-    alten Dateien bleiben liegen, ohne im Dashboard zu erscheinen. Versendete
-    und abgeschlossene Bewerbungen sind von diesem Filter ohnehin ausgenommen.
-    """
-    settings = _research_filter_settings(config)
-    if settings is None:
-        return {"enabled": False, "kept": 0, "removed": 0, "restored": 0}
-
-    limit = _commute_limit_minutes(config)
-    kept = removed = restored = 0
-    for a in apps:
-        if normalize_status(a.get("status")) != "research" or a.get("text_fehlt"):
-            continue
-        is_filtered = a.get("deleted_code") == DELETE_RESEARCH
-
-        # Oberhalb des Research-Fensters ist ein Fund kein Research-Fall mehr,
-        # sondern ein Dokumenten-Kandidat. Der Filter löscht ihn also nicht,
-        # sondern räumt nur ein eigenes, überholtes ``research-kriterium`` auf
-        # und lässt die Dokumenterzeugung (nächster Schritt) übernehmen.
-        if _fit_value(a) > settings["fit_max"]:
-            if _commute_blocked(config, a):
-                continue  # Pendelweg bleibt harte Grenze
-            if a.get("deleted") and is_filtered:
-                hebe_loeschung_auf(a)
-                restored += 1
-            continue
-
-        keep = research_keep_reason(a, limit, settings)
-        if keep:
-            kept += 1
-            if a.get("deleted") and is_filtered:
-                # Grund gilt nicht mehr (Fit/Pendelweg haben sich geändert).
-                hebe_loeschung_auf(a)
-                restored += 1
-        elif not a.get("deleted"):
-            markiere_geloescht(a, DELETE_RESEARCH, (
-                f"{RESEARCH_REASON_PREFIX}: Fit {settings['fit_min']}–{settings['fit_max']} % "
-                f"oder Pendelweg ≤ {limit + settings['commute_grace_min']} min nötig"
-            ))
-            removed += 1
-    return {"enabled": True, "kept": kept, "removed": removed, "restored": restored}
 
 
 def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
@@ -734,7 +607,6 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     # Nur beim Mengenlauf (``--all``) wird übersprungen; ``--ids`` ist ein
     # ausdrücklicher Wunsch und erzeugt weiter neu.
     bereits_dokumentiert: set[str] = set()
-    ko_blockiert: dict[str, str] = {}
     gesperrt: set[str] = set()
     bekannte_keys: set[str] = set()
     if job_ids is None:
@@ -747,13 +619,6 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
                 gesperrt.add(key)
             if a.get("dokumente"):
                 bereits_dokumentiert.add(key)
-            # Harte K.O.-Kriterien aus der mehrdimensionalen Bewertung (P0a).
-            # Nur der Mengenlauf ist betroffen: ``--ids`` ist ein ausdrücklicher
-            # Wunsch und erzeugt weiterhin alles.
-            dims = a.get("dimensionen") or {}
-            if _dimensionen_blockieren(config, dims):
-                gruende = "; ".join(str(k.get("grund") or "") for k in dims.get("ko") or [])
-                ko_blockiert[key] = gruende or "K.O."
 
     selected = []
     skipped_commute = []
@@ -761,7 +626,6 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
     skipped_technician = []
     skipped_existing = []
     skipped_role = []
-    skipped_ko = []
     skipped_bestand = []
     for m in matches:
         # Abgelaufene Anzeigen überspringen.
@@ -793,13 +657,6 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
         # Zu weiter Pendelweg: gar nicht erst anlegen.
         if _commute_blocked(config, m):
             skipped_commute.append(m)
-            continue
-        # K.O.-Kriterium (z. B. Gehalt unter Schwelle): Ein hoher Keyword-Fit
-        # kompensiert das nicht. Nur der Mengenlauf ist betroffen.
-        if job_ids is None and ((m.get("key") or _job_key(m)) in ko_blockiert):
-            key = m.get("key") or _job_key(m)
-            skipped_ko.append({"firma": m.get("firma"), "titel": m.get("titel"),
-                               "fit": _fit_value(m), "grund": ko_blockiert[key]})
             continue
         # Wie in ``run_enrich``: ein hoher Fit entsteht auch bei Software-Rollen
         # über generische Technologie-Treffer. Beim Mengenlauf wird nur
@@ -834,8 +691,33 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
             "failed": fehlgeschlagen, "skipped_bestand": len(skipped_bestand),
             "skipped_budget": skipped_budget, "skipped_firma": skipped_firma,
             "skipped_commute": skipped_commute, "skipped_student": skipped_student,
-            "skipped_technician": skipped_technician, "skipped_ko": skipped_ko,
+            "skipped_technician": skipped_technician,
             "skipped_role": skipped_role, "skipped_existing": len(skipped_existing)}
+
+
+# Gründe, die ein Lauf neu prüft. Alle anderen (Nutzer, Kriterium, Dublette …)
+# sind Entscheidungen und bleiben stehen. ``research`` stammt aus dem früheren
+# Research-Filter und wird wie ein Fit-Grund behandelt.
+_NEU_BEWERTBAR = (DELETE_FIT, DELETE_PENDEL, DELETE_RESEARCH)
+
+
+def _einordnung(config: Config, a: dict) -> tuple[str, str] | None:
+    """Drei Regeln (Review 11.11.2026): ``None`` = sichtbar, sonst (Code, Grund).
+
+    1. Pendelweg über der Grenze: sichtbar nur innerhalb der Kulanz und ab
+       ``FIT_BAND_AUSBLENDEN`` (dann Research, keine automatischen Unterlagen).
+    2. Fit unter ``FIT_BAND_AUSBLENDEN``: ausgeblendet, außer bei ausdrücklich
+       angeforderten Unterlagen.
+    3. Sonst sichtbar: bis 70 % Research, ab 71 % Unterlagen (Schritt 5).
+
+    Stellen ohne Anzeigentext erreichen die Grenze meist nicht und sind dann
+    ausgeblendet, bis der nächste Lauf den Text nachgeladen hat (``_textluecken``).
+    """
+    if _commute_blocked(config, a) and not _commute_grace(config, a):
+        return DELETE_PENDEL, f"Pendelweg > {_commute_limit_minutes(config)} min"
+    if _fit_value(a) < FIT_BAND_AUSBLENDEN and not a.get("unterlagen_gewuenscht"):
+        return DELETE_FIT, _grund_unter_ausblendgrenze(a)
+    return None
 
 
 def run_enrich(config: Config, profile: Profile) -> dict:
@@ -870,19 +752,6 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     # 2) Gehaltsschätzung
     salary_stats = enrich_salary(apps)
 
-    # 2b) Mehrdimensionale Bewertung (berichtend — `score` bleibt unverändert,
-    #     siehe dimensions.py / ADR-031). Braucht Gehalt, Pendelweg und
-    #     Homeoffice und läuft deshalb hier, nicht im Match-Schritt. Ohne Profil
-    #     (z. B. in Tests, die nur die Filterlogik prüfen) entfällt sie.
-    dim_blockiert = 0
-    if profile is not None:
-        for a in apps:
-            # Ausgeblendete Stellen behalten ihre Bewertung; das spart rund 90 %.
-            if not a.get("deleted") or not a.get("dimensionen"):
-                a["dimensionen"] = score_dimensions(profile, a, config=config.data)
-        dim_blockiert = sum(1 for a in apps
-                            if (a.get("dimensionen") or {}).get("blockiert"))
-
     # 3) research-Stellen prüfen: Fit ist bereits gespeichert; wir protokollieren sie.
     research_checked = []
     for a in apps:
@@ -904,164 +773,75 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     #       Wunsch), sie sind also kein Suchrauschen. Der Pendelweg-Ausschluss
     #       gilt weiterhin, weil er eine harte Vorgabe ist.
     _ACTIVE_STATUSES = {"sent", "followup", "interview", "rejected"}
-    still_vorher = stille_rollentreffer(apps)
     lead_dubletten = _lead_dubletten(apps)
-    text_fehlt = 0
     deleted_count = 0
     deleted_commute = 0
     deleted_student = 0
     deleted_technician = 0
-    restored_documented = 0
-    restored_reason = 0
+    restored = 0
     restored_active = 0
     for a in apps:
-        # Der Prüffall wird in jedem Lauf neu abgeleitet (ADR-055).
-        a.pop("text_fehlt", None)
-        # Im Dashboard gelöscht: das ist eine Entscheidung des Nutzers, keine
-        # ableitbare Bewertung. Der Lauf darf sie nicht wieder einblenden.
+        a.pop("text_fehlt", None)            # Altlast des früheren Prüffalls
+        # Im Dashboard gelöscht: eine Entscheidung des Nutzers, kein Lauf blendet ein.
         if a.get("deleted_code") == DELETE_NUTZER:
             continue
-        # Harte Ausschlussregel (oberste Priorität): Studenten-/Praktikums-/
-        # Ausbildungsstellen sind für einen Vollzeit-Ingenieur kategorisch
-        # irrelevant — unabhängig von Status, Fit oder bereits erzeugten
-        # Unterlagen. Auch ein abgeschlossener „rejected“-Eintrag ist hier
-        # kein wertvoller Verlauf, sondern fehladressiertes Rauschen.
+        # Studenten-/Praktikumsstellen sind nie relevant, auch nicht als Verlauf.
         if is_student_role(a.get("titel")):
             markiere_geloescht(a, DELETE_STUDENT,
                                "Studenten-/Praktikumsstelle (keine Vollzeit-Ingenieurrolle)")
             deleted_student += 1
             continue
+        # Versendete und abgeschlossene Bewerbungen bleiben immer sichtbar.
         if a.get("status") in _ACTIVE_STATUSES:
-            # Versendete/abgeschlossene Bewerbungen dokumentieren echte
-            # Aktivität und werden hier nie ausgeblendet. Ein noch vorhandenes
-            # Flag stammt dann aus einem älteren Lauf und ist ungültig —
-            # 3 verschickte Bewerbungen (u. a. AIRBUS mit 78 %) waren dadurch
-            # im Dashboard unsichtbar.
             if a.get("deleted"):
                 hebe_loeschung_auf(a)
                 restored_active += 1
             continue
-        # Techniker-/Facharbeiterrollen sind keine Ingenieursstellen. Der Check
-        # steht NACH dem Schutz aktiver Bewerbungen: eine abgeschlossene
-        # Bewerbung auf eine Technikerstelle ist echter Verlauf und bleibt
-        # sichtbar (z. B. „Test System Technician", rejected).
         if is_technician_role(a.get("titel")):
             if not a.get("deleted") or a.get("deleted_code") != DELETE_TECHNIKER:
                 markiere_geloescht(a, DELETE_TECHNIKER, "Technikerrolle (keine Ingenieursstelle)")
                 deleted_technician += 1
             continue
-        if a.get("deleted"):
-            # Ein ausgeblendeter Datensatz wird *neu bewertet*: Der Grund muss
-            # noch gelten. Sonst bleibt eine Stelle für immer versteckt, weil
-            # sich ihre Datengrundlage geändert hat. Genau das passierte beim
-            # Nachladen der Anzeigentexte: 14 Stellen waren unter „FIT < 50 %"
-            # gelöscht worden, als sie mangels Text maximal 38 % erreichen
-            # konnten, und lagen danach bei 50–68 %. Ebenso waren 2 Stellen unter
-            # „Pendelzeit über 30 Minuten" gelöscht — damals galt 90 min, heute
-            # 30 (eine davon mit 78 % Fit).
-            knapp = _commute_grace(config, a)
-            if knapp:
-                a["pendel_knapp"] = True
-            else:
-                a.pop("pendel_knapp", None)
-            if _commute_blocked(config, a) and not knapp:
-                continue                     # harte Grenze: bleibt ausgeblendet
-            # Für dokumentierte Stellen wurden bewusst Unterlagen erzeugt — sie
-            # bleiben sichtbar, unabhängig von der Begründung. Ausnahme: eine
-            # ``research``-Stelle unter dem Research-Fenster ist ein zu
-            # schwacher Fund; dort entscheidet der Research-Filter, nicht die
-            # Existenz alter Dateien (sonst bleiben 10–58-%-Treffer für immer
-            # sichtbar).
-            research = _research_filter_settings(config)
-            if a.get("dokumente") and not (
-                research
-                and normalize_status(a.get("status")) == "research"
-                and _fit_value(a) < research["fit_min"]
-            ):
-                hebe_loeschung_auf(a)
-                restored_documented += 1
-                continue
-            # Neu bewertet werden nur Fit und Pendelweg. Alles andere ist eine
-            # bewusste Entscheidung, kein ableitbarer Zustand; den Research-Filter
-            # bewertet ``_apply_research_filter`` selbst.
-            code = a.get("deleted_code")
-            if code == DELETE_FIT:
-                if _fit_value(a) < FIT_BAND_AUSBLENDEN and not text_fehlt_titel_passt(a):
-                    a["deleted_reason"] = _grund_unter_ausblendgrenze(a)
-                    continue                 # Grund gilt weiter
-            elif code != DELETE_PENDEL:      # Pendelweg ist oben schon geprüft
-                continue
-            elif _fit_value(a) < FIT_BAND_AUSBLENDEN and not text_fehlt_titel_passt(a):
-                # Der Pendelweg passt jetzt, der Fit aber nicht: neuer Grund statt
-                # Prüffall. Am 10.11.2026 kamen nach der Anhebung auf 35 min so
-                # 31 schwache Stellen mit Text als „Text fehlt" ins Dashboard.
-                markiere_geloescht(a, DELETE_FIT, _grund_unter_ausblendgrenze(a))
-                deleted_count += 1
-                continue
-            hebe_loeschung_auf(a)
-            restored_reason += 1
-            if _fit_value(a) < FIT_BAND_AUSBLENDEN:
-                a["text_fehlt"] = True       # Prüffall „Text fehlt, Titel passt"
-                text_fehlt += 1
+        if a.get("deleted") and a.get("deleted_code") not in _NEU_BEWERTBAR:
             continue
         if _commute_grace(config, a):
-            # Knapp über der Grenze, aber starker Treffer: bleibt als Research
-            # sichtbar (keine automatischen Unterlagen, siehe Schritt 5).
             a["pendel_knapp"] = True
         else:
             a.pop("pendel_knapp", None)
-            if _commute_blocked(config, a):
-                markiere_geloescht(a, DELETE_PENDEL,
-                                   f"Pendelweg > {_commute_limit_minutes(config)} min")
-                deleted_commute += 1
-                continue
-        if _fit_value(a) < FIT_BAND_AUSBLENDEN and not a.get("dokumente"):
-            # Ohne Text kann ein Rollentreffer die 50 % nicht erreichen (ADR-055).
-            # Er bleibt als Prüffall sichtbar, statt still zu verschwinden.
-            if text_fehlt_titel_passt(a):
-                a["text_fehlt"] = True
-                text_fehlt += 1
-                continue
-            markiere_geloescht(a, DELETE_FIT, _grund_unter_ausblendgrenze(a))
+        ergebnis = _einordnung(config, a)
+        if ergebnis is None:
+            if a.get("deleted"):
+                hebe_loeschung_auf(a)
+                restored += 1
+            continue
+        code, grund = ergebnis
+        if a.get("deleted") and a.get("deleted_code") == code:
+            a["deleted_reason"] = grund
+            continue
+        markiere_geloescht(a, code, grund)
+        if code == DELETE_PENDEL:
+            deleted_commute += 1
+        else:
             deleted_count += 1
 
-    # 4b) Research-Pool begrenzen: nur Funde im Fit-Fenster, mit sehr hohem Fit
-    #     oder knapp über der Pendelgrenze bleiben. Hält den Bestand
-    #     entscheidbar, statt jede Suchspur zu sammeln.
-    research_stats = _apply_research_filter(config, apps)
-
-    # 6) Unterlagen im Mittelband zurücknehmen: ein 55-%-Treffer bekommt keine
-    #    Bewerbung. Die Dateien bleiben liegen (nichts wird gelöscht), nur der
-    #    Status wird ehrlich — ``docs`` heißt „hier liegt eine Bewerbung".
-    #
-    #    Ausnahme: ``unterlagen_gewuenscht``. Wer für eine Research-Stelle
-    #    ausdrücklich Unterlagen anfordert, will sie behalten — ohne diese Sperre
-    #    setzte der nächste Lauf den Status still auf ``research`` zurück und die
-    #    Anforderung wäre nach einem Tag wieder aufgehoben.
+    # 6) Unterlagen zurücknehmen, wenn die Stelle nicht mehr ins Unterlagen-Band
+    #    fällt (Fit unter der Schwelle oder Pendelweg über der Grenze). Die Dateien
+    #    bleiben liegen, nur der Status wird ehrlich. Ausdrücklich angeforderte
+    #    Unterlagen (``unterlagen_gewuenscht``) bleiben stehen.
     schwellenwert = _fit_fuer_unterlagen(config)
     zurueckgenommen = []
     for a in apps:
-        if a.get("deleted") or a.get("status") != "docs" or not a.get("dokumente"):
+        # Auch ausgeblendete Stellen: Eine Stelle unter 65 % ist ausgeblendet *und*
+        # keine Bewerbung mehr; ``docs`` würde sie in Kennzahlen weiterzählen.
+        if a.get("status") != "docs" or not a.get("dokumente"):
             continue
-        if a.get("sentAt") or a.get("interviewDate"):
-            continue                     # echte Aktivität, nicht anfassen
-        if a.get("unterlagen_gewuenscht"):
-            continue                     # ausdrücklicher Wunsch, bleibt stehen
-        # Über der Pendelgrenze ist eine Stelle Research, auch mit hohem Fit
-        # (Vorgabe vom 10.11.2026). Ohne diese Regel behielten Stellen ihre
-        # Unterlagen, die unter einer früheren, weiteren Grenze entstanden.
+        if a.get("deleted") and a.get("deleted_code") not in _NEU_BEWERTBAR:
+            continue                     # Nutzer-, Studenten-, Technikergrund: nicht anfassen
+        if a.get("sentAt") or a.get("interviewDate") or a.get("unterlagen_gewuenscht"):
+            continue
         if _fit_value(a) >= schwellenwert and not _commute_blocked(config, a):
             continue
         a["status"] = "research"
-        # Ein zurückgenommener Fund ist nur dann ein Research-Fall, wenn er im
-        # Research-Fenster liegt. Alles darunter wird noch im selben Lauf
-        # verborgen — sonst stünde die Stelle bis zum nächsten Lauf sichtbar
-        # als „Research“ im Dashboard (ADR-036).
-        research = _research_filter_settings(config)
-        if research and _fit_value(a) < research["fit_min"]:
-            markiere_geloescht(a, DELETE_RESEARCH,
-                               f"{RESEARCH_REASON_PREFIX}: FIT {int(_fit_value(a))} "
-                               f"< {research['fit_min']} %")
         zurueckgenommen.append({"firma": a.get("firma"), "titel": a.get("titel"),
                                 "fit": _fit_value(a)})
 
@@ -1118,19 +898,14 @@ def run_enrich(config: Config, profile: Profile) -> dict:
     return {
         "commute": commute_stats,
         "salary": salary_stats,
-        "dimensionen_ko": dim_blockiert,
         "research_checked": research_checked,
-        "deleted_fit_under_50": deleted_count,
-        "text_fehlt": text_fehlt,
+        "deleted_fit": deleted_count,
         "lead_dubletten": lead_dubletten,
-        "stille_rollentreffer": {"vorher": still_vorher, "nachher": stille_rollentreffer(apps)},
         "deleted_commute": deleted_commute,
         "deleted_student": deleted_student,
         "deleted_technician": deleted_technician,
-        "restored_documented": restored_documented,
-        "restored_reason": restored_reason,
+        "restored": restored,
         "restored_active": restored_active,
-        "research_filter": research_stats,
         "generated": generated,
         "generated_count": len(generated),
         "failed": fehlgeschlagen,
@@ -1143,23 +918,6 @@ def run_enrich(config: Config, profile: Profile) -> dict:
         "zurueckgenommen": zurueckgenommen,
         "total": len(apps),
     }
-
-
-def run_import_old(config: Config) -> dict:
-    """Importiert den Inhalt des alten Dashboards (MD + State) als Anwendungen."""
-    apps = import_old_dashboard(config)
-    store = _store(config)
-    state = store.load_state()
-    existing_keys = {a.get("key") for a in state.get("applications", [])}
-    merged = state.get("applications", [])
-    for app in apps:
-        if app["key"] not in existing_keys:
-            merged.append(app)
-            existing_keys.add(app["key"])
-    state["applications"] = merged
-    state["updated"] = now_iso()
-    _persist_state(config, store, state)
-    return {"imported": len(apps), "total": len(merged)}
 
 
 def abgelaufen_kwargs(config: Config) -> dict:
@@ -1217,30 +975,6 @@ def run_dashboard(config: Config) -> dict:
     }
 
 
-def run_full(config: Config, profile: Profile) -> dict:
-    """Führt alle Schritte aus ``schritte.SCHRITTE`` nacheinander aus.
-
-    Dieselbe Folge wie der Graph, nur ohne dessen Verzweigung. ``fetch`` lädt hier
-    alle fehlenden Texte: ohne sie bewertet ``match`` nur den Titel (ADR-050).
-    """
-    aufrufe = {
-        "search": lambda: run_search(config, profile),
-        "fetch": lambda: run_fetch(config),
-        "match": lambda: run_match(config, profile),
-        "enrich": lambda: run_enrich(config, profile),
-        "generate": lambda: run_generate(config, profile),
-        "quality": lambda: run_quality(config),
-        "dashboard": lambda: run_dashboard(config),
-    }
-    fehler: dict[str, str] = {}
-    r = {name: fuehre_aus(name, aufrufe[name], fehler) for name in SCHRITT_NAMEN}
-    return {"search": r["search"], "fetch": r["fetch"], "match": r["match"]["matched"],
-            "enrich": r["enrich"],
-            "generated": [*r["enrich"]["generated"], *r["generate"]["generated"]],
-            "failed": [*r["enrich"]["failed"], *r["generate"]["failed"]],
-            "quality": r["quality"], "dashboard": r["dashboard"], "fehler": fehler}
-
-
 # --------------------------------------------------------------------------
 # Interna
 # --------------------------------------------------------------------------
@@ -1285,7 +1019,7 @@ def _merge_state(existing: dict, matches: list[dict],
                     "beschreibung",
                     "verfuegbar", "branche", "branche_quelle", "pendel_modus",
                     "pendelzeit_min", "pendeldistanz_km", "homeoffice",
-                    "dimensionen", "qualitaet")
+                    "qualitaet")
 
     result = []
     seen: set[str] = set()
@@ -1418,14 +1152,6 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     folder = config.bewerbungen_dir / safe_name(f"{job.get('firma', '')} - {job.get('titel', '')}")
     folder.mkdir(parents=True, exist_ok=True)
 
-    # Stellenbezogenes Tailoring (falls im Ordner abgelegt, siehe tailoring.py).
-    from . import tailoring as tal
-    eigene = tal.for_application(folder)
-    if eigene:
-        offen = tal.unbacked_terms(eigene, profile)
-        if offen:
-            print(f"Tailoring {folder.name}: nicht im Profil belegt → {', '.join(offen)}")
-
     template = template or (config.data["documents"].get("lebenslauf_template") or DEFAULT_CV_TEMPLATE)
     languages = config.data["documents"].get("languages", ["de"])
     files: dict[str, str] = {}
@@ -1441,7 +1167,7 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
         # Eigene DOCX-Vorlage bevorzugen (mit pro-Stelle angepasstem Profil-Absatz);
         # bei fehlender Vorlage fällt die Funktion intern auf ReportLab zurück.
         cv = generate_lebenslauf_vorlage(profile, job, match, folder / names["lebenslauf"], config.data, lang,
-                                         template=template, tailoring=eigene)
+                                         template=template)
         pdfs[f"lebenslauf_{lang}"] = Path(cv)
         files[f"anschreiben_{lang}"] = _rel(ans)
         files[f"lebenslauf_{lang}"] = _rel(cv)

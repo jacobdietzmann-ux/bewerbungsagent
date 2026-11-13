@@ -147,15 +147,6 @@ def leads_verknuepfen(path: Path, anzeigen: list[dict], heute: date | None = Non
     return gefunden
 
 
-def saubere_lead_url(url: str | None) -> str:
-    """Öffentliche Anzeigen-URL eines Mail-Leads — derzeit keine.
-
-    Links aus Job-Mails tragen Nutzer-Kennungen, und XING meldet Recruitern den
-    Klick. Die einzige bisher übernommene Seite (JobLeads) ist entfallen.
-    """
-    return ""
-
-
 # Herkunft, die nicht mehr in den Import kommt (Quelle wurde entfernt).
 GESPERRTE_HERKUNFT = frozenset({"jobleads"})
 
@@ -182,28 +173,20 @@ def merge_mail_leads(path: Path, leads: list[dict], heute: date | None = None,
                     and not _gesperrt(j.get("herkunft")))]
     bekannt = {_identity(j.get("firma"), j.get("titel")): j for j in behalten}
     neu = 0
-    url_ergaenzt = False
     for lead in leads:
         firma, titel = (lead.get("firma") or "").strip(), (lead.get("titel") or "").strip()
         if _gesperrt(lead.get("quelle")):
             continue
         ident = _identity(firma, titel)
-        url = saubere_lead_url(lead.get("url"))
-        vorhanden = bekannt.get(ident)
-        if vorhanden is not None:
-            if url and vorhanden.get("quelle") == MAIL_LEAD and not vorhanden.get("url"):
-                vorhanden["url"] = url
-                url_ergaenzt = True
-            continue
-        if not firma or not titel:
+        if ident in bekannt or not firma or not titel:
             continue
         eintrag = {"firma": firma, "titel": titel, "ort": lead.get("ort") or "",
-                   "url": url, "beschreibung": "", "quelle": MAIL_LEAD,
+                   "url": "", "beschreibung": "", "quelle": MAIL_LEAD,
                    "herkunft": lead.get("quelle") or "", "gefunden": heute.isoformat()}
         bekannt[ident] = eintrag
         behalten.append(eintrag)
         neu += 1
-    if neu or url_ergaenzt or len(behalten) != len(bestehend):
+    if neu or len(behalten) != len(bestehend):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(behalten, ensure_ascii=False, indent=2), encoding="utf-8")
     return neu

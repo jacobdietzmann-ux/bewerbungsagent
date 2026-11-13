@@ -745,7 +745,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .card.pad { padding:14px 16px; }
   .card-title { font-size:12px; color:var(--text); font-weight:600; margin-bottom:2px; }
   .card-sub { font-size:11px; color:var(--muted); margin-bottom:10px; }
-  .stats-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; margin-bottom:16px; }
+  .stats-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:16px; margin-bottom:16px; }
   .stackbar { display:flex; height:18px; border-radius:6px; overflow:hidden; background:var(--panel-2); margin-bottom:12px; }
   .stackbar > div { height:100%; cursor:pointer; min-width:2px; }
   .stage-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; }
@@ -756,7 +756,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .stage .dot { width:9px; height:9px; border-radius:2px; display:inline-block; }
   .stage .s-n { font-size:18px; font-weight:700; }
   .stage .s-n small { font-size:11px; color:var(--muted); font-weight:400; }
-  .week-chart { display:flex; align-items:flex-end; gap:10px; overflow-x:auto; padding:4px 2px 6px; }
+  .week-chart { display:flex; align-items:flex-end; gap:5px; overflow-x:auto; padding:4px 2px 6px; }
   .week-legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; font-size:11px; color:var(--muted); }
   .dist-row.click { cursor:pointer; border-radius:5px; }
   .dist-row.click:hover { background:var(--hover); }
@@ -1622,9 +1622,9 @@ function renderTimeChart() {
     const d = new Date(b.monday);
     const label = `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.`;
     return `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:34px" title="Woche ab ${label}: ${total} Bewerbung${total===1?"":"en"}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:22px" title="Woche ab ${label}: ${total} Bewerbung${total===1?"":"en"}">
         <div style="font-size:10px;color:var(--muted)">${total || ""}</div>
-        <div style="display:flex;flex-direction:column-reverse;width:24px;border-radius:4px;overflow:hidden;background:var(--panel-2);height:${Math.max(4,total*scale)}px">${segs}</div>
+        <div style="display:flex;flex-direction:column-reverse;width:16px;border-radius:3px;overflow:hidden;background:var(--panel-2);height:${Math.max(4,total*scale)}px">${segs}</div>
         <div style="font-size:10px;color:var(--muted)">${label}</div>
       </div>`;
   }).join("");

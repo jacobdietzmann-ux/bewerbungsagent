@@ -22,7 +22,7 @@ from pathlib import Path
 
 from ..profile import normalize
 
-# Leads aus Job-Mails (StepStone, Xing, Instaffo …): nur Firma + Titel, ohne Anzeigentext.
+# Leads aus Job-Mails (Xing, Instaffo …; JobLeads wird nicht mehr übernommen): nur Firma + Titel, ohne Anzeigentext.
 # Sie landen im selben Import, werden aber erst nach den Web-Providern aufgenommen
 # (siehe ``run_search``) — eine vollständige Anzeige darf nicht vom Platzhalter verdrängt werden.
 MAIL_LEAD = "Mail-Lead"
@@ -147,6 +147,14 @@ def leads_verknuepfen(path: Path, anzeigen: list[dict], heute: date | None = Non
     return gefunden
 
 
+# Herkunft, die nicht mehr in den Import kommt (Quelle wurde entfernt).
+GESPERRTE_HERKUNFT = frozenset({"jobleads"})
+
+
+def _gesperrt(herkunft: str | None) -> bool:
+    return (herkunft or "").strip().lower() in GESPERRTE_HERKUNFT
+
+
 def merge_mail_leads(path: Path, leads: list[dict], heute: date | None = None,
                      max_age_days: int = MAIL_LEAD_TAGE) -> int:
     """Hängt neue Mail-Leads an den Import an; gibt die Zahl der neu aufgenommenen zurück.
@@ -160,11 +168,15 @@ def merge_mail_leads(path: Path, leads: list[dict], heute: date | None = None,
     grenze = (heute - timedelta(days=max_age_days)).isoformat()
     bestehend = load_import(path)
     behalten = [j for j in bestehend
-                if j.get("quelle") != MAIL_LEAD or str(j.get("gefunden") or "9999") >= grenze]
+                if j.get("quelle") != MAIL_LEAD
+                or (str(j.get("gefunden") or "9999") >= grenze
+                    and not _gesperrt(j.get("herkunft")))]
     bekannt = {_identity(j.get("firma"), j.get("titel")): j for j in behalten}
     neu = 0
     for lead in leads:
         firma, titel = (lead.get("firma") or "").strip(), (lead.get("titel") or "").strip()
+        if _gesperrt(lead.get("quelle")):
+            continue
         ident = _identity(firma, titel)
         if ident in bekannt or not firma or not titel:
             continue

@@ -36,6 +36,7 @@ from .auswahl import DEFAULT_ABGELAUFEN_NACH_TAGEN, neufund_relevant, vermutlich
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
+from .firmenwerte import kununu_gehalt, zufriedenheit
 from .followup import DEFAULT_AFTER_DAYS, days_waiting, is_due
 from .matching import fit_value
 from .profile import normalize
@@ -200,7 +201,7 @@ def _exceeds_dashboard_commute_limit(app: dict, limit: int = MAX_COMMUTE_MINUTES
 # weiter Pendelweg dürfen ihn nicht aus Tabelle und Statistik entfernen.
 # Vorher verschwanden 56 abgeschlossene Bewerbungen (7× sent, 49× rejected) —
 # die damalige Absagen-Quote rechnete dadurch nur auf einer Teilmenge.
-_PROGRESSED_STATUSES = {"sent", "followup", "interview", "rejected"}
+_PROGRESSED_STATUSES = {"sent", "interview", "rejected"}
 
 
 def dashboard_applications(applications: list[dict],
@@ -443,6 +444,8 @@ def _to_data(app: dict, letzter_fund: dict | None = None,
         "followupDays": (days_waiting(app) or 0) if is_due(app, after_days=followup_days) else 0,
         "salary": app.get("gehalt", "") or "",
         "salarySource": app.get("gehalt_quelle", "") or "",
+        "salarySat": zufriedenheit(app.get("firma")),
+        "salaryKununu": kununu_gehalt(app.get("firma")),
         "commute": app.get("pendelzeit_min"),
         "commuteKm": app.get("pendeldistanz_km"),
         "commuteMode": app.get("pendel_modus", "") or "",
@@ -582,7 +585,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   :root[data-theme="light"] .s-research { color:#334155; }
   :root[data-theme="light"] .s-docs, :root[data-theme="light"] select.status-select.s-docs { color:#1d4ed8; }
   :root[data-theme="light"] .s-sent, :root[data-theme="light"] select.status-select.s-sent { color:#6d28d9; }
-  :root[data-theme="light"] .s-followup, :root[data-theme="light"] select.status-select.s-followup { color:#b45309; }
   :root[data-theme="light"] .s-interview, :root[data-theme="light"] select.status-select.s-interview { color:#15803d; }
   :root[data-theme="light"] .s-rejected, :root[data-theme="light"] select.status-select.s-rejected { color:#b91c1c; }
   :root[data-theme="light"] select.status-select.s-research { color:#334155; background:#e2e8f0; }
@@ -631,6 +633,12 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   /* Geklemmter Text: clip1 = eine Zeile mit Auslassungspunkten, clip2 = zwei.
      Der volle Inhalt steht jeweils im title-Tooltip. */
   .clip1 { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sat { font-size:11px; margin-top:2px; white-space:nowrap; }
+  .sat-n { opacity:.7; }
+  .sat-k { color:#57606a; }
+  .sat-hi { color:#1a7f37; }
+  .sat-mid { color:#9a6700; }
+  .sat-lo { color:#cf222e; }
   .clip2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
            overflow:hidden; line-height:1.25; }
   .pos-line { display:flex; align-items:flex-start; gap:5px; min-width:0; }
@@ -646,7 +654,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   select.status-select.s-research { background:#334155; color:#cbd5e1; border-color:#475569; }
   select.status-select.s-docs     { background:#1d4ed833; color:#93c5fd; border-color:#1d4ed855; }
   select.status-select.s-sent     { background:#7c3aed33; color:#c4b5fd; border-color:#7c3aed55; }
-  select.status-select.s-followup { background:#b4530933; color:#fdba74; border-color:#b4530955; }
   select.status-select.s-interview{ background:#15803d33; color:#86efac; border-color:#15803d55; }
   select.status-select.s-rejected { background:#7f1d1d33; color:#fca5a5; border-color:#7f1d1d66; }
   .linkcell { display:flex; flex-direction:column; align-items:center; gap:1px; line-height:1.15; }
@@ -664,7 +671,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .s-research { background:#334155; color:#cbd5e1; }
   .s-docs     { background:#1d4ed833; color:#93c5fd; border:1px solid #1d4ed855; }
   .s-sent     { background:#7c3aed33; color:#c4b5fd; border:1px solid #7c3aed55; }
-  .s-followup { background:#b4530933; color:#fdba74; border:1px solid #b4530955; }
   .s-interview{ background:#15803d33; color:#86efac; border:1px solid #15803d55; }
   .s-rejected { background:#7f1d1d33; color:#fca5a5; border:1px solid #7f1d1d66; }
   a.folder { color:var(--accent); text-decoration:none; font-size:11px; white-space:nowrap; }
@@ -960,7 +966,7 @@ const ORDER = __ORDER__;
 // Filter und Diagramme nutzen weiter die vollen Labels.
 const STATUS_SHORT = {
   research: "Research", docs: "Dokumente", sent: "Versendet",
-  followup: "Follow-up", interview: "Interview", rejected: "Abgelehnt"
+  interview: "Interview", rejected: "Abgelehnt"
 };
 // Alle Status sind einblendbar. „Research" war früher ausgenommen, weil solche
 // Einträge nie sichtbar waren — als „neu gefunden" erscheinen sie jetzt aber,
@@ -1150,6 +1156,20 @@ function qualityBadge(q) {
   return `<span class="micro" style="color:${color};cursor:help"
     title="Qualitätsprüfung ${symbol} ${q.n} Befund(e): ${esc((q.befunde || []).join(' · '))}">${symbol}${q.n}</span>`;
 }
+// Indeed „Gehaltszufriedenheit“: Anteil der Bewerter, die ihre Bezahlung angemessen finden.
+function satLine(s) {
+  if (!s) return "";
+  const cls = s.pct >= 70 ? "sat-hi" : (s.pct >= 50 ? "sat-mid" : "sat-lo");
+  return `<div class="sat ${cls}" title="Indeed: ${s.pct} % von ${s.n} Bewertern finden ihre Bezahlung angemessen">Gehalt ${s.pct} % zufrieden <span class="sat-n">(${s.n})</span></div>`;
+}
+
+// Kununu „Gehälter“: Ø brutto/Jahr der passendsten Rolle bei dieser Firma.
+function kununuLine(k) {
+  if (!k) return "";
+  const t = k.tEuro.toFixed(1).replace(".", ",");
+  return `<div class="sat sat-k" title="Kununu: Ø ${t} T€ brutto/Jahr für ${esc(k.rolle)}, ${k.n} Gehaltsangaben">Kununu ${esc(k.rolle)} Ø ${t} T€ <span class="sat-n">(${k.n})</span></div>`;
+}
+
 function salaryBadge(s, source) {
   if (!s) return '<span class="faint">k. A.</span>';
   const raw = String(s).trim();
@@ -1345,7 +1365,7 @@ const HOME_COLORS = {
 // sie an und entfernen sie wieder.
 const ext = { status:null, homeoffice:null, commute:null, fit:null, company:null };
 const EXT_LABEL = { status:"Status", homeoffice:"Homeoffice", commute:"Fahrzeit", fit:"Fit", company:"Firma" };
-const ACTIVE_STATUSES = ["sent", "followup", "interview"];
+const ACTIVE_STATUSES = ["sent", "interview"];
 const APPLIED_STATUSES = [...ACTIVE_STATUSES, "rejected"];
 
 function visibleRows() {
@@ -1665,7 +1685,7 @@ function renderRows() {
             : "")
       : "";
     tr.innerHTML = `
-      <td class="c-company" data-label="Unternehmen"><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span></td>
+      <td class="c-company" data-label="Unternehmen"><span class="clip2" title="${esc(r.company)}">${esc(r.company)}</span>${satLine(r.salarySat)}${kununuLine(r.salaryKununu)}</td>
       <td class="c-pos" data-label="Position">
         <div class="pos-line">
           <span class="pos-title clip2" title="${esc(r.position)}">${esc(r.position)}</span>
@@ -1681,7 +1701,7 @@ function renderRows() {
         <div class="status-cell">
           <select class="status-select ${STATUS[r.status].cls}" autocomplete="off" data-i="${i}" data-k="status" title="Status ändern">${statusOpts}</select>
           ${statusMicro(r)}
-          ${(r.status === "interview" || r.status === "followup") ? `<input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)">` : ""}
+          ${r.status === "interview" ? `<input type="text" autocomplete="off" inputmode="numeric" data-i="${i}" data-k="interviewDate" value="${esc(interviewDateDisplay(r.interviewDate))}" placeholder="TT.MM.JJJJ" maxlength="10" title="Interview-Termin (TT.MM.JJJJ)">` : ""}
         </div>
       </td>
       <td class="center" data-label="Fit"><span class="clip1">${fitBadge(r.fit)}</span></td>

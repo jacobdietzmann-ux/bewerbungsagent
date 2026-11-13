@@ -7,9 +7,8 @@ beantwortet deterministisch zwei Fragen: *Welche Bewerbung ist fällig?* und
 Fällig ist:
 
 * eine Bewerbung im Status ``sent``, deren ``sentAt`` mindestens
-  ``after_days`` zurückliegt (Standard 14), oder
-* eine Bewerbung im Status ``followup``, deren ``statusChangedAt``
-  mindestens ``after_days`` zurückliegt (zweite Nachfrage).
+  ``after_days`` zurückliegt (Standard 14). Wurde nachgefasst
+  (``nachgefasstAm``), läuft die Wartezeit ab dieser Nachfrage neu.
 
 Nicht fällig sind Bewerbungen mit ``interviewDate`` (es gibt eine Reaktion),
 gelöschte Einträge und alles, was nie versendet wurde. Ein fehlendes Datum
@@ -38,12 +37,13 @@ def _parse_date(value) -> date | None:
 
 def _base_date(app: dict) -> date | None:
     """Datum, ab dem die Wartezeit läuft (Versand bzw. letzte Nachfrage)."""
-    status = (app.get("status") or "").strip()
-    if status == "followup":
-        return _parse_date(app.get("statusChangedAt"))
-    if status == "sent":
-        return _parse_date(app.get("sentAt")) or _parse_date(app.get("statusChangedAt"))
-    return None
+    if (app.get("status") or "").strip() != "sent":
+        return None
+    versand = _parse_date(app.get("sentAt")) or _parse_date(app.get("statusChangedAt"))
+    nachgefasst = _parse_date(app.get("nachgefasstAm"))
+    if versand and nachgefasst:
+        return max(versand, nachgefasst)
+    return nachgefasst or versand
 
 
 def days_waiting(app: dict, today: date | None = None) -> int | None:

@@ -58,7 +58,7 @@ REPO_URL = "https://github.com/jacobdietzmann-ux/bewerbungsagent"
 _MODULES = [
     ("search/__init__.py", "Provider auswählen und ausführen, Treffer deduplizieren, "
      "Aggregator-/Lexikon-Seiten filtern, URLs bereinigen", "teils", "Suche"),
-    ("search/ats.py", "Firmen-Karriereseiten (ATS-Boards), Arbeitnow, JobLeads, "
+    ("search/ats.py", "Firmen-Karriereseiten (ATS-Boards), Arbeitnow, "
      "Jobbörsen-Sitemaps (u. a. jobs.eon.com)", "netz", "Suche"),
     ("search/arbeitnow.py", "Arbeitnow-API (viele Treffer, Firmenname teils ohne Leerzeichen)", "netz", "Suche"),
     ("search/manual.py", "Manuell gepflegte Anzeigen aus data/import_jobs.json", "io", "Suche"),

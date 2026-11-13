@@ -560,6 +560,41 @@ def _route_driving(home: dict, dest: dict,
     return round(route["distance"] / 1000.0, 1), round(route["duration"] / 60.0)
 
 
+# Beschriftungen, hinter denen Anzeigen den Arbeitsort nennen („Standort: München“,
+# „Stadt/Region München (Deutschland)“). Nur beschriftete Stellen zählen: ein
+# Ortsname irgendwo im Fließtext ist oft der Firmensitz oder ein Kunde.
+_ORT_LABEL_RE = re.compile(
+    r"(?:Standort|Arbeitsort|Einsatzort|Dienstort|Stadt/Region|Location|Ort)\s*:?\s*"
+    r"([A-ZÄÖÜ][A-Za-zÄÖÜäöüß.\-]+)")
+# Ortsnamen, die mit einem zweiten Wort beginnen („Bad Tölz“, „St. Georgen“).
+_ORT_PRAEFIX = {"bad", "sankt", "st.", "neu", "alt", "groß", "gross", "klein"}
+_ORT_STOP = {"remote", "hybrid", "vollzeit", "teilzeit", "deutschland", "germany",
+             "bundesweit", "home", "homeoffice", "flexibel", "mobil", "onsite", "on"}
+
+
+def ort_aus_text(text: str | None) -> str:
+    """Arbeitsort aus einer beschrifteten Stelle im Anzeigentext, sonst ``""``.
+
+    Gedacht für Anzeigen ohne Ortsfeld (Mail-Leads, Aggregatoren). Es wird nur
+    übernommen, was hinter „Standort:“, „Einsatzort:“, „Stadt/Region“ o. Ä.
+    steht; Schlagworte wie „Remote“ oder „Vollzeit“ gelten nicht als Ort.
+    """
+    if not text:
+        return ""
+    kopf = str(text)[:3000]
+    for m in _ORT_LABEL_RE.finditer(kopf):
+        wort = m.group(1).rstrip(".,;:-")
+        if len(wort) < 3 or wort.lower() in _ORT_STOP:
+            continue
+        if wort.lower() in _ORT_PRAEFIX:
+            nach = re.match(r"\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß.\-]+)", kopf[m.end():])
+            if not nach:
+                continue
+            wort = f"{wort} {nach.group(1).rstrip('.,;:-')}"
+        return wort
+    return ""
+
+
 def enrich_commute(apps: list[dict], data_dir: Path,
                    home_address: str | None = None,
                    contact_email: str | None = None,
@@ -615,6 +650,11 @@ def enrich_commute(apps: list[dict], data_dir: Path,
             a["ort"] = override
 
         ort = a.get("ort") or ""
+        if not ort.strip():
+            gefunden = ort_aus_text(a.get("beschreibung"))
+            if gefunden:
+                a["ort"] = ort = gefunden
+                a["ort_quelle"] = "Anzeigentext"
         if is_remote(ort):
             a["pendel_modus"] = "Remote"
             a["pendelzeit_min"] = None

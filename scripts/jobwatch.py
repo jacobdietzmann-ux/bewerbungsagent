@@ -4,7 +4,7 @@
 Ablauf pro Lauf:
   1. optional: alle Schritte aus bewerbungsagent/schritte.py über agent.py (venv-Python)
   2. Vergleich der aktuellen Stellen mit dem Snapshot des letzten Laufs
-  3. Digest der neuen Stellen (Fit-Band 60-70 % = Research, > 70 % = Unterlagen bauen)
+  3. Digest der neuen Stellen mit ihrem echten Stand (Unterlagen, Research, ohne Rollentitel)
      und der Quellen, deren Zustand sich seit der letzten Meldung geändert hat
   4. Versand an Telegram (config.json in ~/telegram-bot) + Protokoll in data/watch_runs.json
 
@@ -12,7 +12,7 @@ Nutzung:
     python scripts/jobwatch.py                  # voller Lauf inkl. Suche
     python scripts/jobwatch.py --no-search      # nur auswerten, was schon in data/ liegt
     python scripts/jobwatch.py --dry-run        # nichts senden, Digest nur ausgeben
-    python scripts/jobwatch.py --min-fit 60 --top 12
+    python scripts/jobwatch.py --min-fit 65 --top 12
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ CODE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(CODE_DIR))
 
 from bewerbungsagent.config import AGENT_ROOT  # noqa: E402
+from bewerbungsagent.matching import fit_value, has_role_signal  # noqa: E402
 from bewerbungsagent.schritte import SCHRITT_NAMEN, SCHRITTE  # noqa: E402
 
 # Datenordner (``BEWERBUNGSAGENT_HOME``, sonst der Code-Ort, ADR-057).
@@ -46,6 +47,9 @@ MAX_TG_LEN = 3800
 # Fällt das Netz aus, sind alle Quellen betroffen: Der Digest bleibt trotzdem kurz.
 MAX_QUELLEN = 8
 MAX_GRUND = 160
+# Bänder wie in ``pipeline`` (ADR-059): ab 65 % sichtbar, ab 71 % Unterlagen.
+FIT_SICHTBAR = 65
+FIT_UNTERLAGEN = 71
 
 
 def _log(msg: str) -> None:
@@ -133,12 +137,22 @@ def job_key(job: dict) -> str:
     return f"{(job.get('url') or '').strip()}|{(job.get('titel') or '').strip()}"
 
 
-def fit_band(score: int | float) -> str:
-    if score > 70:
-        return "Unterlagen"
-    if score >= 60:
-        return "Research"
-    return ""
+def etikett(job: dict) -> str:
+    """Stand einer Stelle, wie ihn das Dashboard zeigt — nicht nur das Fit-Band.
+
+    Bis 13.11.2026 hing ``[Unterlagen]`` allein am Fit über 70 %. Gemeldet wurden so
+    auch Stellen ohne Unterlagen und ohne passenden Rollentitel (Se3 „Staff Computer
+    Vision Engineer", 94 %), für die der Lauf bewusst keine Unterlagen erzeugt.
+    """
+    if job.get("dokumente") and job.get("status") == "docs":
+        return "Unterlagen erstellt"
+    if job.get("pendel_knapp"):
+        return f"Research, Pendel {job.get('pendelzeit_min')} min"
+    if not has_role_signal(job.get("titel")):
+        return "Research, kein Rollentitel"
+    if fit_value(job) >= FIT_UNTERLAGEN:
+        return "Unterlagen folgen"
+    return "Research"
 
 
 def quellen_zeilen(aenderungen: dict) -> list[str]:
@@ -183,16 +197,15 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
     today = datetime.now().strftime("%d.%m.%Y")
 
     def nah(job: dict) -> bool:
-        """Pendelgrenze wie im Dashboard: zu weit = kein Vorschlag."""
-        if max_commute is None:
+        """Pendelgrenze wie im Dashboard; Stellen in der Kulanz sind Research."""
+        if max_commute is None or job.get("pendel_knapp"):
             return True
         minuten = job.get("pendelzeit_min")
         return minuten is None or int(minuten) <= max_commute
 
-    alle_passend = [j for j in jobs if (j.get("score") or 0) >= min_fit]
-    zu_weit = [j for j in alle_passend if not nah(j)]
-    relevant = [j for j in alle_passend if nah(j)]
-    stark = [j for j in relevant if (j.get("score") or 0) > 70]
+    relevant = [j for j in jobs if fit_value(j) >= min_fit and nah(j)]
+    knapp = [j for j in relevant if j.get("pendel_knapp")]
+    bereit = [j for j in jobs if j.get("status") == "docs" and j.get("dokumente")]
 
     lines: list[str] = []
     if baseline_created:
@@ -200,9 +213,11 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
         lines.append(f"Erster Lauf: {len(jobs)} Stellen erfasst, {len(relevant)} mit Fit ≥ {min_fit} %.")
     else:
         lines.append(f"Bewerbungs-Watch — {today}")
-        lines.append(f"Bestand: {len(jobs)} · davon Fit ≥ {min_fit} %: {len(relevant)} · NEU in diesem Lauf: {len(new_jobs)}")
-    if zu_weit and max_commute is not None:
-        lines.append(f"  ({len(zu_weit)} Stelle(n) über der Pendelgrenze von {max_commute} min ausgeblendet.)")
+        lines.append(f"Offen: {len(jobs)} · davon Fit ≥ {min_fit} %: {len(relevant)} · "
+                     f"NEU in diesem Lauf: {len(new_jobs)}")
+    if knapp and max_commute is not None:
+        lines.append(f"  ({len(knapp)} davon knapp über der Pendelgrenze von {max_commute} min,"
+                     " als Research.)")
 
     if warnings:
         lines.append("")
@@ -214,30 +229,29 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
         lines.extend(quellen)
 
     picks = [j for j in (relevant if baseline_created else new_jobs)
-             if (j.get("score") or 0) >= min_fit and nah(j)]
-    picks.sort(key=lambda j: (j.get("score") or 0), reverse=True)
+             if fit_value(j) >= min_fit and nah(j)]
+    picks.sort(key=fit_value, reverse=True)
 
     if not picks:
         lines.append("")
-        lines.append("Keine neuen Stellen im Fit-Band. Nichts zu tun.")
+        lines.append("Keine neuen passenden Stellen. Nichts zu tun.")
     else:
         lines.append("")
         for job in picks[:top]:
-            score = int(job.get("score") or 0)
-            band = fit_band(score)
             commute = job.get("pendelzeit_min")
             commute_txt = f", {commute} min Pendel" if commute else ""
             ort = (job.get("ort") or "").split(",")[0][:28]
-            lines.append(f"• {score} % [{band}] {job.get('firma') or '?'} — {(job.get('titel') or '?')[:70]}")
+            lines.append(f"• {fit_value(job)} % [{etikett(job)}] {job.get('firma') or '?'} — "
+                         f"{(job.get('titel') or '?')[:70]}")
             lines.append(f"  {ort}{commute_txt}")
             if job.get("url"):
                 lines.append(f"  {job['url']}")
         if len(picks) > top:
             lines.append(f"… und {len(picks) - top} weitere (>= {min_fit} %).")
 
-    if not baseline_created and stark:
+    if not baseline_created and bereit:
         lines.append("")
-        lines.append(f"Hinweis: {len(stark)} Stelle(n) über 70 % — dort lohnt ein Bewerbungsdokument.")
+        lines.append(f"Unterlagen bereit, noch nicht versendet: {len(bereit)} Stelle(n).")
 
     text = "\n".join(lines)
     return text[:MAX_TG_LEN]
@@ -292,7 +306,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Neue Stellen finden und per Telegram melden.")
     parser.add_argument("--no-search", action="store_true", help="keine neue Websuche, nur data/ auswerten")
     parser.add_argument("--dry-run", action="store_true", help="nicht senden, nur ausgeben")
-    parser.add_argument("--min-fit", type=int, default=60, help="Fit-Schwelle für den Digest (Standard 60)")
+    parser.add_argument("--min-fit", type=int, default=FIT_SICHTBAR,
+                        help=f"Fit-Schwelle für den Digest (Standard {FIT_SICHTBAR})")
     parser.add_argument("--top", type=int, default=12, help="maximale Anzahl Stellen im Digest")
     parser.add_argument("--max-pendel", type=int, default=None,
                         help="Pendelgrenze in Minuten (Standard: max_pendelzeit_min aus config.json)")
@@ -375,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
         "bestand": len(jobs),
         "neu": len(new_jobs),
         "digest_stellen": min(args.top, len([j for j in (jobs if baseline_created else new_jobs)
-                                             if (j.get("score") or 0) >= args.min_fit])),
+                                             if fit_value(j) >= args.min_fit])),
         "telegram": sent,
         "dry_run": args.dry_run,
         "baseline_angelegt": baseline_created,

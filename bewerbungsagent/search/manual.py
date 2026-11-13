@@ -22,7 +22,7 @@ from pathlib import Path
 
 from ..profile import normalize
 
-# Leads aus Job-Mails (JobLeads, Xing, Instaffo …): nur Firma + Titel, ohne Anzeigentext.
+# Leads aus Job-Mails (Xing, Instaffo …; JobLeads wird nicht mehr übernommen): nur Firma + Titel, ohne Anzeigentext.
 # Sie landen im selben Import, werden aber erst nach den Web-Providern aufgenommen
 # (siehe ``run_search``) — eine vollständige Anzeige darf nicht vom Platzhalter verdrängt werden.
 MAIL_LEAD = "Mail-Lead"
@@ -148,14 +148,20 @@ def leads_verknuepfen(path: Path, anzeigen: list[dict], heute: date | None = Non
 
 
 def saubere_lead_url(url: str | None) -> str:
-    """Öffentliche Anzeigen-URL eines Mail-Leads, sonst ``""``.
+    """Öffentliche Anzeigen-URL eines Mail-Leads — derzeit keine.
 
     Links aus Job-Mails tragen Nutzer-Kennungen, und XING meldet Recruitern den
-    Klick. Übernommen wird deshalb nur die JobLeads-Detailseite, ohne Query:
-    Sie öffnet ohne Anmeldung und enthält den Anzeigentext.
+    Klick. Die einzige bisher übernommene Seite (JobLeads) ist entfallen.
     """
-    treffer = re.match(r"https://www\.jobleads\.com/de/job/[^?#\s]+", (url or "").strip())
-    return treffer.group(0) if treffer else ""
+    return ""
+
+
+# Herkunft, die nicht mehr in den Import kommt (Quelle wurde entfernt).
+GESPERRTE_HERKUNFT = frozenset({"jobleads"})
+
+
+def _gesperrt(herkunft: str | None) -> bool:
+    return (herkunft or "").strip().lower() in GESPERRTE_HERKUNFT
 
 
 def merge_mail_leads(path: Path, leads: list[dict], heute: date | None = None,
@@ -171,12 +177,16 @@ def merge_mail_leads(path: Path, leads: list[dict], heute: date | None = None,
     grenze = (heute - timedelta(days=max_age_days)).isoformat()
     bestehend = load_import(path)
     behalten = [j for j in bestehend
-                if j.get("quelle") != MAIL_LEAD or str(j.get("gefunden") or "9999") >= grenze]
+                if j.get("quelle") != MAIL_LEAD
+                or (str(j.get("gefunden") or "9999") >= grenze
+                    and not _gesperrt(j.get("herkunft")))]
     bekannt = {_identity(j.get("firma"), j.get("titel")): j for j in behalten}
     neu = 0
     url_ergaenzt = False
     for lead in leads:
         firma, titel = (lead.get("firma") or "").strip(), (lead.get("titel") or "").strip()
+        if _gesperrt(lead.get("quelle")):
+            continue
         ident = _identity(firma, titel)
         url = saubere_lead_url(lead.get("url"))
         vorhanden = bekannt.get(ident)

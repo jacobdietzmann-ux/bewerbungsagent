@@ -21,40 +21,51 @@ class TestMergeMailLeads:
     def test_neue_leads_werden_aufgenommen(self, tmp_path):
         pfad = tmp_path / "import_jobs.json"
         neu = manual.merge_mail_leads(
-            pfad, [{"firma": "Expleo", "titel": "Testarchitekt (m/w/d)", "quelle": "JobLeads"}],
+            pfad, [{"firma": "Expleo", "titel": "Testarchitekt (m/w/d)", "quelle": "Xing"}],
             heute=date(2026, 11, 5))
         assert neu == 1
         eintrag = _lese(pfad)[0]
         assert eintrag["quelle"] == manual.MAIL_LEAD
-        assert eintrag["herkunft"] == "JobLeads"
+        assert eintrag["herkunft"] == "Xing"
         assert eintrag["gefunden"] == "2026-11-05"
         assert eintrag["url"] == ""  # nie Tracking-/SSO-Links aus Mails übernehmen
 
-    def test_jobleads_url_wird_ohne_tracking_uebernommen(self, tmp_path):
+    def test_jobleads_leads_werden_nicht_mehr_aufgenommen(self, tmp_path):
         pfad = tmp_path / "import_jobs.json"
-        manual.merge_mail_leads(pfad, [{
-            "firma": "Expleo", "titel": "Testarchitekt (m/w/d)",
-            "url": "https://www.jobleads.com/de/job/testarchitekt--munchen--eabc?kuuid=x&u=1"}],
-            heute=date(2026, 11, 5))
-        assert _lese(pfad)[0]["url"] == "https://www.jobleads.com/de/job/testarchitekt--munchen--eabc"
+        neu = manual.merge_mail_leads(pfad, [
+            {"firma": "Expleo", "titel": "Testarchitekt (m/w/d)", "quelle": "JobLeads"},
+            {"firma": "Zeta", "titel": "Test Engineer", "quelle": "Xing"},
+        ], heute=date(2026, 11, 5))
+        assert neu == 1
+        assert [j["firma"] for j in _lese(pfad)] == ["Zeta"]
+
+    def test_alte_jobleads_leads_im_import_werden_entfernt(self, tmp_path):
+        pfad = tmp_path / "import_jobs.json"
+        pfad.write_text(json.dumps([
+            {"firma": "Alt", "titel": "Tester", "quelle": manual.MAIL_LEAD,
+             "herkunft": "JobLeads", "gefunden": "2026-11-04"},
+            {"firma": "Hand", "titel": "Tester", "quelle": "Import"},
+        ]), encoding="utf-8")
+        manual.merge_mail_leads(pfad, [], heute=date(2026, 11, 5))
+        assert [j["firma"] for j in _lese(pfad)] == ["Hand"]
 
     def test_andere_mail_links_werden_verworfen(self, tmp_path):
         pfad = tmp_path / "import_jobs.json"
         manual.merge_mail_leads(pfad, [
             {"firma": "A", "titel": "Test A", "url": "https://www.xing.com/m/eM0ojA8V6AZmcpUBi8zLgP"},
             {"firma": "B", "titel": "Test B", "url": "https://click.stepstone.de/f/a/abc~~/def"},
-            {"firma": "C", "titel": "Test C", "url": "https://www.jobleads.com/de/jobs?kuuid=x"},
+            {"firma": "C", "titel": "Test C", "url": "https://www.jobleads.com/de/job/x?kuuid=x"},
         ], heute=date(2026, 11, 5))
         assert [j["url"] for j in _lese(pfad)] == ["", "", ""]
 
-    def test_bekannter_lead_bekommt_url_nachgetragen(self, tmp_path):
+    def test_bekannter_lead_bekommt_keine_fremde_url(self, tmp_path):
         pfad = tmp_path / "import_jobs.json"
         lead = {"firma": "Expleo", "titel": "Testarchitekt (m/w/d)"}
         manual.merge_mail_leads(pfad, [lead], heute=date(2026, 11, 5))
-        url = "https://www.jobleads.com/de/job/testarchitekt--munchen--eabc"
+        url = "https://www.xing.com/m/abc"
         assert manual.merge_mail_leads(pfad, [{**lead, "url": url}], heute=date(2026, 11, 6)) == 0
         eintrag = _lese(pfad)[0]
-        assert eintrag["url"] == url
+        assert eintrag["url"] == ""  # keine übernommene URL mehr
         assert eintrag["gefunden"] == "2026-11-05"
 
     def test_doppelte_und_unvollstaendige_werden_uebersprungen(self, tmp_path):

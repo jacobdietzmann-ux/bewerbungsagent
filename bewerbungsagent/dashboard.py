@@ -745,7 +745,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .card.pad { padding:14px 16px; }
   .card-title { font-size:12px; color:var(--text); font-weight:600; margin-bottom:2px; }
   .card-sub { font-size:11px; color:var(--muted); margin-bottom:10px; }
-  .stats-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:16px; margin-bottom:16px; }
+  .stats-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.35fr); gap:16px; margin-bottom:16px; }
   .stackbar { display:flex; height:18px; border-radius:6px; overflow:hidden; background:var(--panel-2); margin-bottom:12px; }
   .stackbar > div { height:100%; cursor:pointer; min-width:2px; }
   .stage-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; }

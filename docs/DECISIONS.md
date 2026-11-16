@@ -1551,7 +1551,7 @@ leeren Datenbank. Der Lauf wäre „grün" und trotzdem falsch. Die Unit setzt d
 `WorkingDirectory`, `BEWERBUNGSAGENT_HOME` und `PYTHONPATH` explizit. Die installierte
 Unit unter `~/.config/systemd/user/` muss aus `docs/systemd/` neu kopiert werden.
 
-**Offen: zwei Läufe gleichzeitig.** Am 16.11. liefen zwei `jobwatch --dry-run`
+**Offen: zwei Läufe gleichzeitig.** (Die Sync-Konflikte löst ADR-061.) Am 16.11. liefen zwei `jobwatch --dry-run`
 parallel auf derselben `jobs.db` und überschrieben gegenseitig
 `watch_last_run.log`. `jobwatch` hat keine Sperre. Ebenfalls offen: Auch ein
 `--dry-run` schreibt den Snapshot fort, seine neuen Stellen fehlen dann im nächsten
@@ -1569,3 +1569,39 @@ und ein Ende-zu-Ende-Lauf, der prüft, dass der gewählte Pfad im Aufruf landet.
 ein gelöschtes Skript und setzt `BEWERBUNGSAGENT_HOME`.
 `tests/test_commute_failures.py` (3): Störung → Pendelweg übersprungen nach drei
 Versuchen, zweiter Versuch reicht, unbekannte Adresse bleibt ein Fehler.
+
+
+## ADR-061 – Snapshot und Laufprotokoll pro Rechner
+
+**Ausgangslage.** Am 16.11.2026 meldete Telegram 80 von 81 Stellen als neu, das
+Dashboard zeigte 6. Der Bestand in `watch_runs.json` sprang von Lauf zu Lauf
+(81 → 43 → 40 → 34 → 81). Ursache: Jeder Rechner hat seine eigene `jobs.db` (sie ist
+vom Drive-Sync ausgenommen; unter Windows liegt sie über `BEWERBUNGSAGENT_DB`
+außerhalb von Drive). `data/` selbst wird aber synchronisiert, also auch
+`watch_snapshot.json`. Jeder Rechner verglich seinen Bestand mit dem des anderen.
+Dazu benannte rclone-bisync `watch_last_run.log` während laufender Läufe in
+`.conflict1`/`.conflict2` um, weil beide Rechner die Datei schrieben.
+
+**Entscheidung.** `jobwatch` hängt den Rechnernamen an alle drei Dateien:
+`watch_snapshot.<rechner>.json`, `watch_runs.<rechner>.json` und
+`watch_last_run.<rechner>.log`. Der Name kommt aus `platform.node()` (klein, nur
+`a-z0-9_-`); `JOBWATCH_RECHNER` überschreibt ihn, etwa wenn ein Rechner umbenannt
+wird. Jeder Rechner schreibt nur noch seine eigenen Dateien; Sync-Konflikte
+entfallen, ohne die Ausschlussliste von rclone anzufassen.
+
+**Umstellung ohne Meldeflut.** Fehlt der eigene Snapshot, liegt aber noch der alte
+gemeinsame, gilt der aktuelle Bestand als bekannt: kein Digest neuer Stellen, nur
+`gemeldete_quellen` wird übernommen. Die alten Schlüssel stammen womöglich vom
+anderen Rechner und taugen nicht zum Vergleich. Ohne alten Snapshot bleibt der
+gewohnte Erstlauf mit Baseline-Meldung. Der alte `watch_snapshot.json` wird nie
+geschrieben und kann gelöscht werden, sobald beide Rechner umgestellt haben.
+
+**Verworfen.** *Snapshot neben die Datenbank legen:* setzt voraus, dass jeder
+Rechner `BEWERBUNGSAGENT_DB` außerhalb von Drive setzt; unter Linux liegt die
+Datenbank in `data/`. *Nur die rclone-Ausschlussliste ändern:* liegt außerhalb des
+Repos, und der Windows-Client synchronisiert unabhängig davon.
+
+**Tests.** `TestSnapshotProRechner` in `tests/test_schritte.py` (6): dateitauglicher
+Rechnername, Dateinamen tragen den Rechner, stille Umstellung samt übernommener
+Quellenmeldungen, danach nur echte Neuzugänge, zwei Rechner im selben `data/`,
+Erstlauf ohne alten Snapshot wie bisher.

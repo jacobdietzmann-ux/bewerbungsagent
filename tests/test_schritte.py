@@ -7,8 +7,10 @@ schlagen an, sobald der Lauf wieder eine eigene Schrittliste führt.
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -204,3 +206,96 @@ class TestSystemdUnit:
         text = self.UNIT.read_text(encoding="utf-8")
         assert "Environment=BEWERBUNGSAGENT_HOME=" in text
         assert "WorkingDirectory=" in text
+
+
+class TestSnapshotProRechner:
+    """Jeder Rechner hat seine eigene ``jobs.db``, ``data/`` wird aber synchronisiert.
+
+    Mit einem gemeinsamen ``watch_snapshot.json`` verglich jeder Rechner seinen
+    Bestand mit dem des anderen; am 16.11.2026 meldete Telegram 80 von 81 Stellen
+    als neu, das Dashboard 6 (ADR-061).
+    """
+
+    JOBS: ClassVar[list] = [{"url": f"https://example.com/{i}", "titel": f"Stelle {i}", "fit": 90}
+            for i in range(3)]
+
+    def _umlenken(self, monkeypatch, daten: Path, rechner: str = "linux-pc") -> list[str]:
+        monkeypatch.setattr(jobwatch, "RECHNER", rechner)
+        monkeypatch.setattr(jobwatch, "DATA", daten)
+        monkeypatch.setattr(jobwatch, "SNAPSHOT", daten / f"watch_snapshot.{rechner}.json")
+        monkeypatch.setattr(jobwatch, "RUN_LOG", daten / f"watch_runs.{rechner}.json")
+        monkeypatch.setattr(jobwatch, "RUN_OUTPUT", daten / f"watch_last_run.{rechner}.log")
+        monkeypatch.setattr(jobwatch, "load_jobs", lambda: list(self.JOBS))
+        monkeypatch.setattr(jobwatch, "quellen_aenderungen", lambda gemeldet: (gemeldet, []))
+        gesendet: list[str] = []
+        monkeypatch.setattr(jobwatch, "send_telegram", lambda text: gesendet.append(text) or True)
+        return gesendet
+
+    def test_rechnername_ist_dateitauglich(self, monkeypatch):
+        monkeypatch.setenv("JOBWATCH_RECHNER", "DESKTOP-AB12 (Büro)")
+        assert jobwatch._rechnername() == "desktop-ab12-b-ro"
+        monkeypatch.setenv("JOBWATCH_RECHNER", "")
+        monkeypatch.setattr(jobwatch.platform, "node", lambda: "")
+        assert jobwatch._rechnername() == "unbekannt"
+
+    def test_dateinamen_tragen_den_rechner(self):
+        for pfad in (jobwatch.SNAPSHOT, jobwatch.RUN_LOG, jobwatch.RUN_OUTPUT):
+            assert f".{jobwatch.RECHNER}." in pfad.name
+
+    def test_umstellung_meldet_den_bestand_nicht_als_neu(self, monkeypatch, tmp_path):
+        """Alter gemeinsamer Snapshot (vom anderen Rechner) → stiller Ausgangsstand."""
+        daten = tmp_path / "data"
+        daten.mkdir()
+        (daten / "watch_snapshot.json").write_text(json.dumps({
+            "quelle": "db-v1", "count": 1, "keys": ["fremd|x"],
+            "gemeldete_quellen": {"stepstone": "ok"},
+        }), encoding="utf-8")
+        gesendet = self._umlenken(monkeypatch, daten)
+
+        assert jobwatch.main(["--no-search"]) == 0
+
+        assert gesendet == []
+        eigen = json.loads((daten / "watch_snapshot.linux-pc.json").read_text(encoding="utf-8"))
+        assert eigen["count"] == 3
+        assert eigen["gemeldete_quellen"] == {"stepstone": "ok"}
+        # Der alte Snapshot bleibt unberührt: der andere Rechner stellt selbst um.
+        alt = json.loads((daten / "watch_snapshot.json").read_text(encoding="utf-8"))
+        assert alt["keys"] == ["fremd|x"]
+
+    def test_danach_wird_nur_wirklich_neues_gemeldet(self, monkeypatch, tmp_path):
+        daten = tmp_path / "data"
+        daten.mkdir()
+        (daten / "watch_snapshot.json").write_text("{}", encoding="utf-8")
+        gesendet = self._umlenken(monkeypatch, daten)
+        jobwatch.main(["--no-search"])
+
+        self.JOBS = [*self.JOBS, {"url": "https://example.com/neu", "titel": "Neu", "fit": 90}]
+        jobwatch.main(["--no-search"])
+
+        assert len(gesendet) == 1
+        lauf = json.loads((daten / "watch_runs.linux-pc.json").read_text(encoding="utf-8"))[-1]
+        assert lauf["neu"] == 1
+
+    def test_zwei_rechner_stoeren_sich_nicht(self, monkeypatch, tmp_path):
+        """Jeder Rechner vergleicht nur mit seinem eigenen Stand."""
+        daten = tmp_path / "data"
+        daten.mkdir()
+        self._umlenken(monkeypatch, daten, "linux-pc")
+        jobwatch.main(["--no-search"])
+        gesendet = self._umlenken(monkeypatch, daten, "windows-pc")
+        self.JOBS = self.JOBS[:1]           # anderer Rechner, kleinerer Bestand
+        jobwatch.main(["--no-search"])
+
+        linux = json.loads((daten / "watch_snapshot.linux-pc.json").read_text(encoding="utf-8"))
+        windows = json.loads((daten / "watch_snapshot.windows-pc.json").read_text(encoding="utf-8"))
+        assert (linux["count"], windows["count"]) == (3, 1)
+        # Erstlauf ohne alten Snapshot: gewohnte Baseline, kein „Bestand gefallen".
+        assert len(gesendet) == 1
+        assert "Bestand gefallen" not in gesendet[0]
+
+    def test_ohne_alten_snapshot_bleibt_der_erstlauf_wie_bisher(self, monkeypatch, tmp_path):
+        daten = tmp_path / "data"
+        daten.mkdir()
+        gesendet = self._umlenken(monkeypatch, daten)
+        jobwatch.main(["--no-search"])
+        assert len(gesendet) == 1           # Baseline wird gemeldet

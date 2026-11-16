@@ -70,6 +70,35 @@ def _pendelgrenze(default: int = 30) -> int:
         return default
 
 
+def _venv_python() -> Path:
+    """Interpreter der Projekt-venv — auf beiden Plattformen.
+
+    Windows legt ihn unter ``Scripts/python.exe`` ab, Linux/macOS unter
+    ``bin/python``. Ein fest verdrahteter ``Scripts/python.exe``-Pfad ließ den
+    Lauf unter Linux bei jedem Schritt scheitern.
+    """
+    venv_dir = Path.home() / ".venvs" / "bewerbungsagent"
+    kandidaten = (
+        venv_dir / "Scripts" / "python.exe",   # Windows
+        venv_dir / "bin" / "python",           # Linux/macOS
+    )
+    return next((p for p in kandidaten if p.is_file()), venv_dir / "bin" / "python")
+
+
+def _python_fuer_schritte(env: dict) -> str:
+    """Interpreter für die Schrittprozesse.
+
+    Reihenfolge: ``JOBWATCH_PYTHON`` → Projekt-venv → laufender Interpreter.
+    Die venv kommt vor ``sys.executable``: wurde ``jobwatch.py`` mit dem
+    System-Python gestartet, fehlen diesem die Abhängigkeiten (SQLAlchemy,
+    Playwright, reportlab) — die Schritte brächen dann alle ab.
+    """
+    if env.get("JOBWATCH_PYTHON"):
+        return env["JOBWATCH_PYTHON"]
+    venv = _venv_python()
+    return str(venv) if venv.is_file() else sys.executable
+
+
 def run_pipeline(timeout: int = 3600) -> bool:
     """Führt jeden Schritt aus ``schritte.SCHRITTE`` als eigenen Prozess aus.
 
@@ -79,7 +108,8 @@ def run_pipeline(timeout: int = 3600) -> bool:
     """
     env = dict(os.environ)
     env["PYTHONPATH"] = str(CODE_DIR)
-    python = env.get("JOBWATCH_PYTHON") or str(Path.home() / ".venvs" / "bewerbungsagent" / "Scripts" / "python.exe")
+    python = _python_fuer_schritte(env)
+    RUN_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     ok = True
     with RUN_OUTPUT.open("w", encoding="utf-8", errors="replace") as log:
         for schritt in SCHRITTE:
@@ -317,6 +347,11 @@ def main(argv: list[str] | None = None) -> int:
 
     with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    # Ein frischer Datenordner (neuer Rechner, neuer BEWERBUNGSAGENT_HOME) hat
+    # noch kein ``data/``. Ohne den Ordner scheiterten Protokoll und Snapshot
+    # mit FileNotFoundError, bevor der erste Schritt lief.
+    DATA.mkdir(parents=True, exist_ok=True)
 
     if not args.no_search:
         _log(f"Pipeline startet ({' -> '.join(SCHRITT_NAMEN)}) …")

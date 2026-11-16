@@ -595,6 +595,33 @@ def ort_aus_text(text: str | None) -> str:
     return ""
 
 
+# Pausen vor dem zweiten und dritten Versuch, die Wohnadresse aufzulösen (s).
+_HOME_RETRY_PAUSEN = (5, 20)
+
+
+def _wohnort(geocoder: _Geocoder, home_address: str) -> dict | None:
+    """Wohnadresse auflösen, bei einer Störung mit Wiederholung.
+
+    ``None`` heißt: Nominatim war nicht erreichbar. Kennt Nominatim die Adresse
+    dagegen nicht (leere Antwort, im Cache als ``None`` vermerkt), ist das ein
+    Konfigurationsfehler — dann hilft kein zweiter Versuch, und es gibt einen
+    klaren Fehler statt eines Laufs ohne Pendelwege.
+    """
+    key = normalize(home_address)
+    for pause in (0, *_HOME_RETRY_PAUSEN):
+        if pause:
+            time.sleep(pause)
+        home = geocoder.geocode(home_address)
+        if home:
+            return home
+        if key in geocoder.cache:
+            raise RuntimeError(
+                f"Wohnadresse nicht gefunden: {home_address}. Bitte "
+                "`commute.home_address` in der config.json prüfen."
+            )
+    return None
+
+
 def enrich_commute(apps: list[dict], data_dir: Path,
                    home_address: str | None = None,
                    contact_email: str | None = None,
@@ -628,9 +655,17 @@ def enrich_commute(apps: list[dict], data_dir: Path,
         except (json.JSONDecodeError, OSError):
             route_cache = {}
 
-    home = geocoder.geocode(home_address)
+    home = _wohnort(geocoder, home_address)
     if not home:
-        raise RuntimeError(f"Wohnadresse nicht geokodierbar: {home_address}")
+        # Nominatim war nicht erreichbar (Netz kurz nach dem Hochfahren,
+        # Rate-Limit). Der Pendelweg fehlt dann für diesen Lauf; die Stellen
+        # behalten ihre Werte, und der nächste Lauf rechnet nach. Früher brach
+        # hier der ganze Tageslauf ab (20.10. und 16.11.2026).
+        print(f"WARNUNG: Wohnadresse nicht geokodierbar ({home_address}) — "
+              "Nominatim nicht erreichbar; Pendelweg in diesem Lauf übersprungen.",
+              flush=True)
+        return {"total": len(apps), "remote": 0, "routed": 0, "cached": 0,
+                "failed": 0, "address_resolved": 0, "home_unavailable": True}
 
     office_cache_path = data_dir / "office_cache.json"
     office_cache: dict = {}

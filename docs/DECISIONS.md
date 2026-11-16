@@ -1374,9 +1374,9 @@ automatische Fit-Ausblendung.
    `review`; beide tun keine Arbeit.
 5. **`jobwatch` führt jetzt auch `generate` und `quality` aus.** Je Schritt bleibt es
    ein eigener Prozess, damit ein Browser-Absturz nicht den Digest trifft.
-6. **Die Shell-Skripte haben keine eigene Liste.** `tageslauf.sh` und `wochenlauf.sh`
-   waren bis auf den Namen gleich und rufen nun `scripts/lauf.sh`, das
-   `agent.py ablauf` startet.
+6. **Ein Laufweg für alle.** `tageslauf.sh` und `wochenlauf.sh` waren bis auf den
+   Namen gleich. Beide sind entfernt; `scripts/jobwatch.py` ist der einzige Weg und
+   ruft jeden Schritt aus `schritte.py` auf (ADR-060).
 7. **`deleted_code` steuert die Logik, `deleted_reason` bleibt Anzeigetext.** Werte:
    `nutzer`, `kriterium`, `fit`, `pendel`, `research`, `student`, `techniker`,
    `sonstig`. Neu bewertet werden nur `fit`, `pendel` und `research`. Das Feld liegt
@@ -1398,7 +1398,7 @@ Pendelweg und Dokumenterzeugung waren dabei ersetzt. Die Codes verteilten sich a
 16 `kriterium` und 4 `sonstig`. `eval/` liest weiter den Text, weil es Altdaten
 auswertet. Ein laufender Dashboard-Server braucht nach dem Einspielen einen Neustart;
 bis dahin erhält eine Löschung dort ihren Code erst beim nächsten Schreiben. Ohne
-LangGraph scheitert `agent.py ablauf` und damit `lauf.sh` weiterhin mit klarer
+LangGraph scheitert `agent.py ablauf` und damit jeden Starter weiterhin mit klarer
 Meldung, `agent.py pipeline` läuft auch ohne.
 
 
@@ -1418,10 +1418,10 @@ Der Vorschlag in `docs/PLAN-LIVE-ORDNER.md` stellte drei Varianten zur Wahl.
    bisher aus dem Ordner über dem Paket. Weil `04_Agent` bleibt, gelten die relativen
    Pfade der `config.json` und die 1.560 Dokumentpfade im Bestand weiter. Der Code-Ort
    heißt `CODE_ROOT`.
-3. **Server, `jobwatch`, `lauf.sh` und `eval/` trennen Code und Daten.** Der Server
-   sperrt den Datenordner auch unter seinem tatsächlichen Namen. `lauf.sh` nimmt die
-   Code-Kopie im Datenordner, solange es sie gibt; der Wechsel geschieht beim Umzug
-   von selbst.
+3. **Server, `jobwatch` und `eval/` trennen Code und Daten.** Der Server
+   sperrt den Datenordner auch unter seinem tatsächlichen Namen. Ein eigenes
+   Startskript `lauf.sh` war geplant, wurde aber nie angelegt — seit `fcd9d8d`
+   ist `jobwatch` der einzige Laufweg (siehe ADR-056 und ADR-060).
 4. **`pyproject.toml` nennt `agent`, `server` und `fetch_descriptions` als
    `py-modules`.** Eine editierbare Installation fand sie vorher nicht.
 5. **`glassdoor.py` ist im Repo** und als Provider `glassdoor` angebunden. In der
@@ -1507,3 +1507,101 @@ noch berichtend, wurden nie genutzt oder hatten keinen Nutzen mehr.
 
 Punkt 8 (Dashboard) folgt in einem eigenen Sparring.
 
+
+## ADR-060 – Derselbe Lauf unter Windows und Linux
+
+**Ausgangslage.** Auf dem Linux-Rechner lief der systemd-Timer zuletzt am 19.10.2026
+erfolgreich. Am 20.10. (12:04) und am 16.11. (08:00) endete er nach 21 bzw. 69 s mit
+`status=1/FAILURE`; dazwischen lief der Rechner zur Timerzeit nicht.
+
+**Tatsächliche Ursache der beiden Abbrüche: die Wohnadresse.** Beide Läufe liefen
+noch mit dem alten Checkout und `scripts/tageslauf.sh`, das die venv korrekt fand
+(`data/tageslauf.log`: „Interpreter: …/bin/python"). Abgebrochen sind sie in
+`enrich_commute` mit „Wohnadresse nicht geokodierbar". Beide Läufe fielen auf einen
+Rechnerstart; Nominatim war offenbar kurz nicht erreichbar. Ein fehlgeschlagener
+Abruf wird nicht gecacht, ein einziger Netzaussetzer beendete also den ganzen Lauf.
+*Fix:* `_wohnort` versucht es dreimal (Pausen 5 s und 20 s). Bleibt Nominatim
+unerreichbar, überspringt `enrich_commute` den Pendelweg für diesen Lauf
+(`home_unavailable` in den Stats, Warnung im Protokoll); die Stellen behalten ihre
+Werte. Kennt Nominatim die Adresse dagegen nicht (leere Antwort, im Cache als `None`),
+bleibt es ein klarer Fehler — das ist eine falsche `config.json`, kein Netzproblem.
+
+**Drei Fehler, die erst mit `git pull` vom 16.11. (09:43) wirksam wurden.** Der Pull
+brachte `fcd9d8d` (nur noch `jobwatch` als Laufweg) auf den Rechner. Ab dann wäre
+jeder Timer-Lauf an einem dieser Punkte gescheitert:
+
+1. **Verweis auf ein Skript, das es nicht mehr gibt.** Die Unit rief
+   `scripts/tageslauf.sh`. `fcd9d8d` hat es entfernt, `scripts/lauf.sh` aus ADR-057
+   wurde nie angelegt.
+   *Fix:* Die Unit ruft jetzt direkt `jobwatch.py` — denselben Weg wie unter Windows.
+2. **Fester Windows-Interpreterpfad.** `run_pipeline` nahm
+   `~/.venvs/bewerbungsagent/Scripts/python.exe`. Den gibt es unter Linux nicht
+   (`bin/python`), also wäre jeder Schritt gescheitert.
+   *Fix:* `JOBWATCH_PYTHON` → Projekt-venv (beide Ablageorte) → `sys.executable`.
+   Die venv steht bewusst **vor** `sys.executable`: Wird `jobwatch.py` mit dem
+   System-Python gestartet, fehlen diesem SQLAlchemy, Playwright und reportlab.
+3. **`data/` wurde nicht angelegt.** `jobwatch` schrieb Protokoll und Snapshot
+   nach `data/`, ohne den Ordner zu erzeugen. In einem frischen Datenordner
+   endete der Lauf mit `FileNotFoundError`, bevor ein Schritt lief.
+   *Fix:* `main` und `run_pipeline` legen `data/` an.
+
+**`BEWERBUNGSAGENT_HOME` gehört in die Unit.** Ohne die Variable nimmt das Paket
+seinen eigenen Ordner als Datenordner (`CODE_ROOT`) und arbeitet auf einer zweiten,
+leeren Datenbank. Der Lauf wäre „grün" und trotzdem falsch. Die Unit setzt deshalb
+`WorkingDirectory`, `BEWERBUNGSAGENT_HOME` und `PYTHONPATH` explizit. Die installierte
+Unit unter `~/.config/systemd/user/` muss aus `docs/systemd/` neu kopiert werden.
+
+**Offen: zwei Läufe gleichzeitig.** (Die Sync-Konflikte löst ADR-061.) Am 16.11. liefen zwei `jobwatch --dry-run`
+parallel auf derselben `jobs.db` und überschrieben gegenseitig
+`watch_last_run.log`. `jobwatch` hat keine Sperre. Ebenfalls offen: Auch ein
+`--dry-run` schreibt den Snapshot fort, seine neuen Stellen fehlen dann im nächsten
+echten Digest.
+
+**Nicht angefasst: der Zeitplan.** Der Timer bleibt bei 12:00, obwohl README und der
+Cron auf dem anderen Rechner 07:00 nennen. Beide Rechner schreiben in denselben
+Drive-Ordner; zwei Läufe am Tag sind kein Fehler, aber die Zuständigkeit ist offen.
+
+**Testabdeckung.** `TestInterpreterWahl` in `tests/test_schritte.py` (6): beide
+venv-Ablagen, Vorrang von `JOBWATCH_PYTHON`, Reihenfolge venv vor `sys.executable`,
+und ein Ende-zu-Ende-Lauf, der prüft, dass der gewählte Pfad im Aufruf landet.
+`TestDatenordner` (2): `run_pipeline` und `main` legen `data/` an.
+`TestSystemdUnit` (3): Die Unit-Vorlage zeigt auf `jobwatch.py` statt auf
+ein gelöschtes Skript und setzt `BEWERBUNGSAGENT_HOME`.
+`tests/test_commute_failures.py` (3): Störung → Pendelweg übersprungen nach drei
+Versuchen, zweiter Versuch reicht, unbekannte Adresse bleibt ein Fehler.
+
+
+## ADR-061 – Snapshot und Laufprotokoll pro Rechner
+
+**Ausgangslage.** Am 16.11.2026 meldete Telegram 80 von 81 Stellen als neu, das
+Dashboard zeigte 6. Der Bestand in `watch_runs.json` sprang von Lauf zu Lauf
+(81 → 43 → 40 → 34 → 81). Ursache: Jeder Rechner hat seine eigene `jobs.db` (sie ist
+vom Drive-Sync ausgenommen; unter Windows liegt sie über `BEWERBUNGSAGENT_DB`
+außerhalb von Drive). `data/` selbst wird aber synchronisiert, also auch
+`watch_snapshot.json`. Jeder Rechner verglich seinen Bestand mit dem des anderen.
+Dazu benannte rclone-bisync `watch_last_run.log` während laufender Läufe in
+`.conflict1`/`.conflict2` um, weil beide Rechner die Datei schrieben.
+
+**Entscheidung.** `jobwatch` hängt den Rechnernamen an alle drei Dateien:
+`watch_snapshot.<rechner>.json`, `watch_runs.<rechner>.json` und
+`watch_last_run.<rechner>.log`. Der Name kommt aus `platform.node()` (klein, nur
+`a-z0-9_-`); `JOBWATCH_RECHNER` überschreibt ihn, etwa wenn ein Rechner umbenannt
+wird. Jeder Rechner schreibt nur noch seine eigenen Dateien; Sync-Konflikte
+entfallen, ohne die Ausschlussliste von rclone anzufassen.
+
+**Umstellung ohne Meldeflut.** Fehlt der eigene Snapshot, liegt aber noch der alte
+gemeinsame, gilt der aktuelle Bestand als bekannt: kein Digest neuer Stellen, nur
+`gemeldete_quellen` wird übernommen. Die alten Schlüssel stammen womöglich vom
+anderen Rechner und taugen nicht zum Vergleich. Ohne alten Snapshot bleibt der
+gewohnte Erstlauf mit Baseline-Meldung. Der alte `watch_snapshot.json` wird nie
+geschrieben und kann gelöscht werden, sobald beide Rechner umgestellt haben.
+
+**Verworfen.** *Snapshot neben die Datenbank legen:* setzt voraus, dass jeder
+Rechner `BEWERBUNGSAGENT_DB` außerhalb von Drive setzt; unter Linux liegt die
+Datenbank in `data/`. *Nur die rclone-Ausschlussliste ändern:* liegt außerhalb des
+Repos, und der Windows-Client synchronisiert unabhängig davon.
+
+**Tests.** `TestSnapshotProRechner` in `tests/test_schritte.py` (6): dateitauglicher
+Rechnername, Dateinamen tragen den Rechner, stille Umstellung samt übernommener
+Quellenmeldungen, danach nur echte Neuzugänge, zwei Rechner im selben `data/`,
+Erstlauf ohne alten Snapshot wie bisher.

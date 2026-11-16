@@ -7,11 +7,17 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Arbeitsverzeichnis = Datenordner (config.json, data/). Den Code nimmt
-# lauf.sh aus diesem Ordner, solange dort agent.py liegt, sonst aus dem
-# Checkout unter ~/git/bewerbungsagent (ADR-057).
+# Arbeitsverzeichnis = Datenordner (config.json, data/, output/). Der Code liegt
+# im Checkout; BEWERBUNGSAGENT_HOME sagt dem Paket, wo die Daten liegen
+# (ADR-057). Ohne diese Variable nähme es seinen eigenen Ordner als Datenordner
+# und schriebe in eine zweite, leere Datenbank.
 WorkingDirectory=%h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
-ExecStart=%h/git/bewerbungsagent/scripts/tageslauf.sh %h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
+Environment=BEWERBUNGSAGENT_HOME=%h/GoogleDrive/DOKUMENTE/Job/Bewerbung/2026/04_Agent
+Environment=PYTHONPATH=%h/git/bewerbungsagent
+Environment=PYTHONUNBUFFERED=1
+# Der einzige Laufweg seit ADR-057. Er ruft jeden Schritt als eigenen Prozess
+# auf (`agent.py <schritt>`), damit ein Browser-Absturz nicht den Digest trifft.
+ExecStart=%h/.venvs/bewerbungsagent/bin/python -u %h/git/bewerbungsagent/scripts/jobwatch.py
 # Der Lauf dauert (Browser-Fetches) — großzügig bemessen, damit systemd nicht
 # abbricht, während noch gearbeitet wird.
 TimeoutStartSec=3600

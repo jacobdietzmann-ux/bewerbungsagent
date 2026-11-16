@@ -6,7 +6,8 @@ Ablauf pro Lauf:
   2. Vergleich der aktuellen Stellen mit dem Snapshot des letzten Laufs
   3. Digest der neuen Stellen mit ihrem echten Stand (Unterlagen, Research, ohne Rollentitel)
      und der Quellen, deren Zustand sich seit der letzten Meldung geändert hat
-  4. Versand an Telegram (config.json in ~/telegram-bot) + Protokoll in data/watch_runs.json
+  4. Versand an Telegram (config.json in ~/telegram-bot) + Protokoll in
+     data/watch_runs.<rechner>.json (Snapshot und Protokoll gelten pro Rechner, ADR-061)
 
 Nutzung:
     python scripts/jobwatch.py                  # voller Lauf inkl. Suche
@@ -21,6 +22,8 @@ import argparse
 import contextlib
 import json
 import os
+import platform
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -39,9 +42,24 @@ from bewerbungsagent.schritte import SCHRITT_NAMEN, SCHRITTE  # noqa: E402
 # Datenordner (``BEWERBUNGSAGENT_HOME``, sonst der Code-Ort, ADR-057).
 AGENT_DIR = AGENT_ROOT
 DATA = AGENT_DIR / "data"
-SNAPSHOT = DATA / "watch_snapshot.json"
-RUN_LOG = DATA / "watch_runs.json"
-RUN_OUTPUT = DATA / "watch_last_run.log"
+
+
+def _rechnername() -> str:
+    """Kurzname dieses Rechners für Dateinamen (``JOBWATCH_RECHNER`` überschreibt)."""
+    roh = os.environ.get("JOBWATCH_RECHNER") or platform.node() or ""
+    return re.sub(r"[^a-z0-9_-]+", "-", roh.lower()).strip("-") or "unbekannt"
+
+
+# Snapshot, Laufliste und Laufausgabe gelten **pro Rechner** (ADR-061). Jeder
+# Rechner hat seine eigene ``jobs.db`` (vom Drive-Sync ausgenommen), der Ordner
+# ``data/`` wird aber synchronisiert. Mit einem gemeinsamen Snapshot verglich
+# jeder Rechner seinen Bestand mit dem des anderen: 80 von 81 Stellen „neu".
+RECHNER = _rechnername()
+SNAPSHOT = DATA / f"watch_snapshot.{RECHNER}.json"
+RUN_LOG = DATA / f"watch_runs.{RECHNER}.json"
+RUN_OUTPUT = DATA / f"watch_last_run.{RECHNER}.log"
+# Früherer, gemeinsamer Snapshot. Nur für die Umstellung gelesen, nie geschrieben.
+ALT_SNAPSHOT_NAME = "watch_snapshot.json"
 NOTIFY_CONFIG = Path(os.environ.get("NOTIFY_CONFIG", Path.home() / "telegram-bot" / "config.json"))
 MAX_TG_LEN = 3800
 # Fällt das Netz aus, sind alle Quellen betroffen: Der Digest bleibt trotzdem kurz.
@@ -70,6 +88,35 @@ def _pendelgrenze(default: int = 30) -> int:
         return default
 
 
+def _venv_python() -> Path:
+    """Interpreter der Projekt-venv — auf beiden Plattformen.
+
+    Windows legt ihn unter ``Scripts/python.exe`` ab, Linux/macOS unter
+    ``bin/python``. Ein fest verdrahteter ``Scripts/python.exe``-Pfad ließ den
+    Lauf unter Linux bei jedem Schritt scheitern.
+    """
+    venv_dir = Path.home() / ".venvs" / "bewerbungsagent"
+    kandidaten = (
+        venv_dir / "Scripts" / "python.exe",   # Windows
+        venv_dir / "bin" / "python",           # Linux/macOS
+    )
+    return next((p for p in kandidaten if p.is_file()), venv_dir / "bin" / "python")
+
+
+def _python_fuer_schritte(env: dict) -> str:
+    """Interpreter für die Schrittprozesse.
+
+    Reihenfolge: ``JOBWATCH_PYTHON`` → Projekt-venv → laufender Interpreter.
+    Die venv kommt vor ``sys.executable``: wurde ``jobwatch.py`` mit dem
+    System-Python gestartet, fehlen diesem die Abhängigkeiten (SQLAlchemy,
+    Playwright, reportlab) — die Schritte brächen dann alle ab.
+    """
+    if env.get("JOBWATCH_PYTHON"):
+        return env["JOBWATCH_PYTHON"]
+    venv = _venv_python()
+    return str(venv) if venv.is_file() else sys.executable
+
+
 def run_pipeline(timeout: int = 3600) -> bool:
     """Führt jeden Schritt aus ``schritte.SCHRITTE`` als eigenen Prozess aus.
 
@@ -79,7 +126,8 @@ def run_pipeline(timeout: int = 3600) -> bool:
     """
     env = dict(os.environ)
     env["PYTHONPATH"] = str(CODE_DIR)
-    python = env.get("JOBWATCH_PYTHON") or str(Path.home() / ".venvs" / "bewerbungsagent" / "Scripts" / "python.exe")
+    python = _python_fuer_schritte(env)
+    RUN_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     ok = True
     with RUN_OUTPUT.open("w", encoding="utf-8", errors="replace") as log:
         for schritt in SCHRITTE:
@@ -302,6 +350,28 @@ def send_telegram(text: str) -> bool:
     return ok
 
 
+def _umstellung_auf_rechner_snapshot(jobs: list[dict], quelle: str) -> dict:
+    """Erster Lauf nach ADR-061: Ausgangsstand ohne Meldung.
+
+    Gibt es noch den gemeinsamen ``watch_snapshot.json``, lief der Watch hier
+    schon. Dessen Schlüssel stammen aber womöglich vom anderen Rechner und
+    taugen nicht zum Vergleich. Der aktuelle Bestand gilt deshalb als bekannt;
+    nur die schon gemeldeten Quellenänderungen werden übernommen. Ohne alten
+    Snapshot bleibt es beim gewohnten Erstlauf (Baseline wird gemeldet).
+    """
+    alt = SNAPSHOT.parent / ALT_SNAPSHOT_NAME
+    if alt == SNAPSHOT or not alt.exists():
+        return {}
+    try:
+        gemeldet = json.loads(alt.read_text(encoding="utf-8")).get("gemeldete_quellen") or {}
+    except Exception:
+        gemeldet = {}
+    _log(f"Eigener Snapshot für Rechner '{RECHNER}' angelegt — aktueller Bestand "
+         f"({len(jobs)}) gilt als bekannt, keine Meldung neuer Stellen.")
+    return {"quelle": quelle, "count": len(jobs), "keys": [job_key(j) for j in jobs],
+            "gemeldete_quellen": gemeldet}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Neue Stellen finden und per Telegram melden.")
     parser.add_argument("--no-search", action="store_true", help="keine neue Websuche, nur data/ auswerten")
@@ -318,22 +388,29 @@ def main(argv: list[str] | None = None) -> int:
     with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+    # Ein frischer Datenordner (neuer Rechner, neuer BEWERBUNGSAGENT_HOME) hat
+    # noch kein ``data/``. Ohne den Ordner scheiterten Protokoll und Snapshot
+    # mit FileNotFoundError, bevor der erste Schritt lief.
+    DATA.mkdir(parents=True, exist_ok=True)
+
     if not args.no_search:
         _log(f"Pipeline startet ({' -> '.join(SCHRITT_NAMEN)}) …")
         if not run_pipeline():
             _log("Pipeline unvollständig — Digest wird aus dem vorhandenen Stand gebaut.")
 
     jobs = load_jobs()
+    quelle = "db-v1"
     previous: dict = {}
     if SNAPSHOT.exists():
         try:
             previous = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         except Exception:
             previous = {}
+    else:
+        previous = _umstellung_auf_rechner_snapshot(jobs, quelle)
     # Der Digest liest seit 04.11. die Datenbank statt ``matches.json``. Alte
     # Snapshots enthalten die Roh-Treffer (662 statt 24) und würden einen
     # falschen „Bestand gefallen"-Alarm auslösen. Quelle wechselt → Baseline.
-    quelle = "db-v1"
     quellenwechsel = bool(previous) and previous.get("quelle") != quelle
     known = set() if quellenwechsel else set(previous.get("keys") or [])
     baseline_created = not known

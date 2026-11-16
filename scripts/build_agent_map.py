@@ -264,8 +264,8 @@ _TOOL_NODES = {
     "tool-8": {"title": "jobwatch.py (Cron am PC)",
                "body": "Läuft als Hermes-Cronjob auf dem PC (täglich 07:00): search, match, "
                        "enrich, dashboard, danach Vergleich mit "
-                       "<code>data/watch_snapshot.json</code> und Telegram-Digest nur bei "
-                       "neuen Stellen. Protokoll in <code>data/watch_runs.json</code>, "
+                       "<code>data/watch_snapshot.<rechner>.json</code> und Telegram-Digest nur bei "
+                       "neuen Stellen. Protokoll in <code>data/watch_runs.<rechner>.json</code>, "
                        "Zugangsdaten aus <code>~/telegram-bot/config.json</code>. Meldet auch, "
                        "wenn der Bestand schrumpft, und nennt die ausgefallene Quelle.",
                "in": "neue Stellen", "out": "Digest"},

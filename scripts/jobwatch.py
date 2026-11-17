@@ -203,15 +203,31 @@ def etikett(job: dict) -> str:
     return "Research"
 
 
+_SYMBOL = {"Unterlagen erstellt": "✅", "Unterlagen folgen": "📝", "Research": "🔎",
+           "Research, kein Rollentitel": "❔"}
+
+
+def symbol(job: dict) -> str:
+    """Kurzform von :func:`etikett` für Telegram (17.11.2026: Nachrichten waren zu lang)."""
+    text = etikett(job)
+    if text.startswith("Research, Pendel"):
+        return f"🚗{job.get('pendelzeit_min')}′"
+    return _SYMBOL.get(text, "🔎")
+
+
+def _kurz(text: str | None, n: int) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
 def quellen_zeilen(aenderungen: dict) -> list[str]:
-    """Digest-Zeilen zu den geänderten Quellen (leer, wenn sich nichts geändert hat)."""
+    """Eine Zeile je Art der Änderung, nur Namen (der Fehlertext steht im Protokoll)."""
     zeilen: list[str] = []
     for schluessel, kopf in (("neu", "⚠️ Neu ausgefallen"), ("abgeschaltet", "⛔ Abgeschaltet")):
-        eintraege = aenderungen.get(schluessel) or []
-        for name, grund in eintraege[:MAX_QUELLEN]:
-            zeilen.append(f"{kopf}: {name}" + (f" ({grund[:MAX_GRUND]})" if grund else ""))
-        if len(eintraege) > MAX_QUELLEN:
-            zeilen.append(f"… und {len(eintraege) - MAX_QUELLEN} weitere.")
+        namen = [name for name, _grund in (aenderungen.get(schluessel) or [])]
+        if namen:
+            rest = f" +{len(namen) - MAX_QUELLEN}" if len(namen) > MAX_QUELLEN else ""
+            zeilen.append(f"{kopf}: {', '.join(namen[:MAX_QUELLEN])}{rest}")
     if aenderungen.get("wieder_da"):
         zeilen.append(f"✅ Wieder da: {', '.join(aenderungen['wieder_da'])}")
     return zeilen
@@ -230,8 +246,15 @@ def quellen_aenderungen(gemeldet: dict) -> tuple[dict, list[str]]:
         from bewerbungsagent.db import Store
         from bewerbungsagent.provider_health import aenderungen_seit, stoerungen
 
-        store = Store(Config(AGENT_DIR / "config.json").db_path())
-        aktuell = stoerungen(store.get_meta("provider_health"), store.get_meta("board_health"))
+        config = Config(AGENT_DIR / "config.json")
+        store = Store(config.db_path())
+        health = store.get_meta("provider_health") or {}
+        # Entfernte Quellen (glassdoor, jobleads) behalten ihre alten Einträge in der
+        # Historie und tauchten am 17.11.2026 als „neu ausgefallen" wieder auf.
+        aktiv = set((config.data.get("search") or {}).get("providers") or [])
+        if aktiv:
+            health = {name: e for name, e in health.items() if name in aktiv}
+        aktuell = stoerungen(health, store.get_meta("board_health"))
     except Exception as exc:
         _log(f"Quellen-Historie nicht lesbar ({exc}) — keine Quellenmeldung in diesem Lauf.")
         return gemeldet, []
@@ -242,7 +265,12 @@ def quellen_aenderungen(gemeldet: dict) -> tuple[dict, list[str]]:
 def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
                  min_fit: int, top: int, warnings: list[str] | None = None,
                  max_commute: int | None = None, quellen: list[str] | None = None) -> str:
-    today = datetime.now().strftime("%d.%m.%Y")
+    """Kurzer Telegram-Digest: Kopfzeile, neue Stellen, eine Fußzeile.
+
+    Symbole: ✅ Unterlagen erstellt · 📝 Unterlagen folgen · 🔎 Research ·
+    ❔ Research ohne passenden Rollentitel · 🚗 Research wegen Pendelweg (Minuten).
+    """
+    today = datetime.now().strftime("%d.%m.")
 
     def nah(job: dict) -> bool:
         """Pendelgrenze wie im Dashboard; Stellen in der Kulanz sind Research."""
@@ -252,57 +280,34 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
         return minuten is None or int(minuten) <= max_commute
 
     relevant = [j for j in jobs if fit_value(j) >= min_fit and nah(j)]
-    knapp = [j for j in relevant if j.get("pendel_knapp")]
     bereit = [j for j in jobs if j.get("status") == "docs" and j.get("dokumente")]
+    # Passende Rollen zuerst, dann nach Fit: Sonst standen oben nur ❔-Stellen, deren
+    # hoher Fit aus allgemeinen Begriffen kommt (17.11.2026).
+    picks = sorted((j for j in (relevant if baseline_created else new_jobs)
+                    if fit_value(j) >= min_fit and nah(j)),
+                   key=lambda j: (symbol(j) != "❔", fit_value(j)), reverse=True)
 
-    lines: list[str] = []
+    kopf = f"💼 Bewerbung {today}"
     if baseline_created:
-        lines.append(f"Bewerbungs-Watch — Baseline {today}")
-        lines.append(f"Erster Lauf: {len(jobs)} Stellen erfasst, {len(relevant)} mit Fit ≥ {min_fit} %.")
-    else:
-        lines.append(f"Bewerbungs-Watch — {today}")
-        lines.append(f"Offen: {len(jobs)} · davon Fit ≥ {min_fit} %: {len(relevant)} · "
-                     f"NEU in diesem Lauf: {len(new_jobs)}")
-    if knapp and max_commute is not None:
-        lines.append(f"  ({len(knapp)} davon knapp über der Pendelgrenze von {max_commute} min,"
-                     " als Research.)")
-
-    if warnings:
-        lines.append("")
-        lines.extend(f"⚠️ {w}" for w in warnings)
-
-    if quellen:
-        lines.append("")
-        lines.append("Quellen:")
-        lines.extend(quellen)
-
-    picks = [j for j in (relevant if baseline_created else new_jobs)
-             if fit_value(j) >= min_fit and nah(j)]
-    picks.sort(key=fit_value, reverse=True)
-
-    if not picks:
-        lines.append("")
-        lines.append("Keine neuen passenden Stellen. Nichts zu tun.")
-    else:
-        lines.append("")
-        for job in picks[:top]:
-            commute = job.get("pendelzeit_min")
-            commute_txt = f", {commute} min Pendel" if commute else ""
-            ort = (job.get("ort") or "").split(",")[0][:28]
-            lines.append(f"• {fit_value(job)} % [{etikett(job)}] {job.get('firma') or '?'} — "
-                         f"{(job.get('titel') or '?')[:70]}")
-            lines.append(f"  {ort}{commute_txt}")
-            if job.get("url"):
-                lines.append(f"  {job['url']}")
-        if len(picks) > top:
-            lines.append(f"… und {len(picks) - top} weitere (>= {min_fit} %).")
-
-    if not baseline_created and bereit:
-        lines.append("")
-        lines.append(f"Unterlagen bereit, noch nicht versendet: {len(bereit)} Stelle(n).")
-
-    text = "\n".join(lines)
-    return text[:MAX_TG_LEN]
+        kopf += f" · Start: {len(relevant)} Stellen ab {min_fit} %"
+    elif picks:
+        kopf += f" · {len(picks)} neu"
+    lines = [kopf]
+    lines.extend(f"⚠️ {w}" for w in warnings or [])
+    for job in picks[:top]:
+        lines.append(f"{symbol(job)} {fit_value(job)} % {_kurz(job.get('firma') or '?', 25)} – "
+                     f"{_kurz(job.get('titel') or '?', 55)}")
+        if job.get("url"):
+            lines.append(f"   {job['url']}")
+    fuss = []
+    if len(picks) > top:
+        fuss.append(f"+{len(picks) - top} weitere")
+    if bereit and not baseline_created:
+        fuss.append(f"📄 {len(bereit)} Unterlagen bereit")
+    if fuss:
+        lines.append(" · ".join(fuss))
+    lines.extend(quellen or [])
+    return "\n".join(lines)[:MAX_TG_LEN]
 
 
 def _ssl_context():
@@ -378,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="nicht senden, nur ausgeben")
     parser.add_argument("--min-fit", type=int, default=FIT_SICHTBAR,
                         help=f"Fit-Schwelle für den Digest (Standard {FIT_SICHTBAR})")
-    parser.add_argument("--top", type=int, default=12, help="maximale Anzahl Stellen im Digest")
+    parser.add_argument("--top", type=int, default=5, help="maximale Anzahl Stellen im Digest")
     parser.add_argument("--max-pendel", type=int, default=None,
                         help="Pendelgrenze in Minuten (Standard: max_pendelzeit_min aus config.json)")
     parser.add_argument("--always", action="store_true",
@@ -424,8 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     if quellenwechsel:
         _log("Quelle gewechselt (matches.json → Datenbank): Snapshot neu aufgebaut.")
     elif not baseline_created and len(jobs) < prev_count:
-        warnings.append(f"Bestand gefallen ({prev_count} → {len(jobs)}): "
-                        "Einträge gelöscht, versendet oder ausgeblendet.")
+        warnings.append(f"Bestand gefallen ({prev_count} → {len(jobs)})")
 
     gemeldet = previous.get("gemeldete_quellen") or {}
     quellen_stand, quellen = quellen_aenderungen(gemeldet)

@@ -534,7 +534,7 @@ class TestDigestZeilen:
         zeilen = jobwatch.quellen_zeilen({"neu": [("ATS-Board NXP", "HTML-Seite")],
                                           "abgeschaltet": [("xing", None)],
                                           "wieder_da": ["Diehl", "labo"]})
-        assert zeilen == ["⚠️ Neu ausgefallen: ATS-Board NXP (HTML-Seite)",
+        assert zeilen == ["⚠️ Neu ausgefallen: ATS-Board NXP",
                           "⛔ Abgeschaltet: xing", "✅ Wieder da: Diehl, labo"]
 
     def test_keine_aenderung_keine_zeile(self):
@@ -543,16 +543,16 @@ class TestDigestZeilen:
     def test_viele_ausfaelle_bleiben_kurz(self):
         ausfaelle = [(f"Board {i}", "x" * 500) for i in range(20)]
         zeilen = jobwatch.quellen_zeilen({"neu": ausfaelle})
-        assert len(zeilen) == jobwatch.MAX_QUELLEN + 1
-        assert zeilen[-1] == "… und 12 weitere."
-        assert all(len(z) < 220 for z in zeilen)
+        assert len(zeilen) == 1
+        assert zeilen[0].endswith("Board 7 +12")
+        assert len(zeilen[0]) < 220
 
     def test_quellen_stehen_getrennt_von_den_kennzahlen(self):
         text = jobwatch.build_digest([], [], False, 60, 5,
                                      quellen=["⚠️ Neu ausgefallen: ATS-Board NXP"])
-        block = text.split("\n\n")
-        assert block[0].startswith("Bewerbungs-Watch")
-        assert block[1] == "Quellen:\n⚠️ Neu ausgefallen: ATS-Board NXP"
+        zeilen = text.splitlines()
+        assert zeilen[0].startswith("💼 Bewerbung")
+        assert zeilen[-1] == "⚠️ Neu ausgefallen: ATS-Board NXP"
 
 
 JOB = {"firma": "Muster GmbH", "titel": "Testingenieur", "url": "https://example.test/1",
@@ -603,7 +603,8 @@ class TestDigestEinmalJeAenderung:
         watch.board_ausfall()
         erster = watch.lauf()
         assert len(erster) == 1
-        assert "Neu ausgefallen: ATS-Board NXP (HTML-Seite statt JSON)" in erster[0]
+        assert "Neu ausgefallen: ATS-Board NXP" in erster[0]
+        assert "HTML-Seite statt JSON" not in erster[0]   # Fehlertext nur im Protokoll
         assert watch.lauf() == []
         assert watch.lauf() == []
 
@@ -613,7 +614,7 @@ class TestDigestEinmalJeAenderung:
         watch.board_ausfall()
         nachricht = watch.lauf()[0]
         assert "Bestand gefallen" not in nachricht
-        assert "NEU in diesem Lauf: 0" in nachricht
+        assert nachricht.startswith("💼 Bewerbung")
 
     def test_erholung_wird_einmal_gemeldet(self, watch):
         watch.lauf()
@@ -639,7 +640,7 @@ class TestDigestEinmalJeAenderung:
         watch.store.set_meta("provider_health", {"xing": {
             **empty_entry(), "serie_fehler": 3, "deaktiviert": True,
             "letzter_fehler_text": "Playwright fehlt"}})
-        assert "Abgeschaltet: xing (Playwright fehlt)" in watch.lauf()[0]
+        assert "Abgeschaltet: xing" in watch.lauf()[0]
         assert watch.lauf() == []
 
     def test_fehlgeschlagener_versand_wird_nachgeholt(self, watch):
@@ -675,5 +676,5 @@ class TestDigestEinmalJeAenderung:
         watch.board_ausfall()
         nachricht = watch.lauf()
         assert len(nachricht) == 1
-        assert "Baseline" in nachricht[0]
+        assert "Start:" in nachricht[0]
         assert "Neu ausgefallen: ATS-Board NXP" in nachricht[0]

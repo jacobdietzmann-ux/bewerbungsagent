@@ -32,8 +32,7 @@ def test_kulanz_stelle_ist_research_und_wird_gezaehlt():
     jobs = [{"firma": "Knapp AG", "titel": "Testingenieur", "score": 84, "pendelzeit_min": 34,
              "pendel_knapp": True, "url": "https://example.org/knapp"}]
     text = jobwatch.build_digest(jobs, jobs, False, 65, 5, max_commute=30)
-    assert "[Research, Pendel 34 min]" in text
-    assert "1 davon knapp über der Pendelgrenze von 30 min" in text
+    assert "🚗34′ 84 % Knapp AG – Testingenieur" in text
 
 
 def test_etikett_folgt_dem_echten_stand():
@@ -52,7 +51,27 @@ def test_bereite_unterlagen_werden_gezaehlt():
     jobs = [{"firma": "A", "titel": "Testingenieur", "score": 80, "status": "docs",
              "dokumente": {"de": "x"}, "pendelzeit_min": 20}]
     text = jobwatch.build_digest(jobs, [], False, 65, 5, max_commute=30)
-    assert "Unterlagen bereit, noch nicht versendet: 1 Stelle(n)." in text
+    assert "📄 1 Unterlagen bereit" in text
+
+
+def test_digest_ist_kurz():
+    """17.11.2026: höchstens Kopf + 2 Zeilen je Stelle + Fußzeile."""
+    jobs = [{"firma": f"Firma {i}", "titel": "Testingenieur " + "x" * 80, "score": 90 - i,
+             "pendelzeit_min": 20, "url": f"https://example.org/{i}"} for i in range(9)]
+    text = jobwatch.build_digest(jobs, jobs, False, 65, 5, max_commute=30)
+    zeilen = text.splitlines()
+    assert zeilen[0].startswith("💼 Bewerbung") and "9 neu" in zeilen[0]
+    assert len(zeilen) == 1 + 2 * 5 + 1
+    assert zeilen[-1] == "+4 weitere"
+    assert all(len(z) <= 100 for z in zeilen)
+
+
+def test_passende_rollen_stehen_vorn():
+    jobs = [{"firma": "Se3", "titel": "Staff Computer Vision Engineer", "score": 94,
+             "pendelzeit_min": 20},
+            {"firma": "Test AG", "titel": "Testingenieur HiL", "score": 72, "pendelzeit_min": 20}]
+    zeilen = jobwatch.build_digest(jobs, jobs, False, 65, 5, max_commute=30).splitlines()
+    assert "Test AG" in zeilen[1] and "Se3" in zeilen[2]
 
 
 def test_ohne_grenze_bleiben_alle_treffer():

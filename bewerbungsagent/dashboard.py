@@ -32,7 +32,14 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from .auswahl import DEFAULT_ABGELAUFEN_NACH_TAGEN, neufund_relevant, vermutlich_abgelaufen
+from .auswahl import (
+    DEFAULT_ABGELAUFEN_NACH_TAGEN,
+    bewerbungs_index,
+    frueher_text,
+    fruehere_bewerbung,
+    neufund_relevant,
+    vermutlich_abgelaufen,
+)
 from .commute import MAX_COMMUTE_MINUTES, exceeds_commute_limit
 from .config import AGENT_ROOT
 from .db import USER_DELETE_REASON
@@ -40,6 +47,7 @@ from .firmenwerte import kununu_gehalt, zufriedenheit
 from .followup import DEFAULT_AFTER_DAYS, days_waiting, is_due
 from .matching import fit_value
 from .profile import normalize
+from .sparring import ist_kandidat
 from .statuses import ORDER, STATUS, normalize_status
 from .storage import now_iso
 
@@ -251,6 +259,13 @@ def dashboard_applications(applications: list[dict],
         # still verschwindet. Die Automatik erzeugt dafür keine Unterlagen; vorhandene
         # (Status ``docs``) bleiben sichtbar.
         if status in ("research", "docs") and app.get("pendel_knapp"):
+            result.append(app)
+            continue
+        # Sparring-Kandidaten (ADR-062): ab 71 % mit Rollentitel, auch ohne
+        # Unterlagen. Seit es keine automatischen Unterlagen mehr gibt, fehlten sie
+        # hier, während Telegram sie mit 🗣 meldete (19.11.2026).
+        if (status == "research" and ist_kandidat(app)
+                and not _exceeds_dashboard_commute_limit(app, limit)):
             result.append(app)
             continue
         # ``research``/``docs``: nur mit vorhandenem Anschreiben/Lebenslauf und
@@ -508,6 +523,12 @@ def build_dashboard(state: dict, output_path: Path,
                         or normalize_status(a.get("status")) in _PROGRESSED_STATUSES}
     data = [_to_data(a, letzter_fund, followup_days=followup_days, quellen=quellen,
                      abgelaufen_tage=abgelaufen_tage) for a in apps]
+    # Sparring-Kandidaten und frühere Bewerbungen auf ähnliche Stellen (19.11.2026).
+    index = bewerbungs_index(apps)
+    for app, row in zip(apps, data, strict=True):
+        row["sparring"] = ist_kandidat(app) and not row["docs"]
+        frueher = None if row["deleted"] else fruehere_bewerbung(app, index)
+        row["frueher"] = frueher_text(frueher) if frueher else ""
     firmen = _firmen_gruppen([r["company"] for r in data if not r["deleted"]])
     for row in data:
         # Gelöschte Zeilen zeigt die Seite nicht an: ihr Text machte 80 % der Datei aus.
@@ -589,6 +610,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   :root[data-theme="light"] .s-rejected, :root[data-theme="light"] select.status-select.s-rejected { color:#b91c1c; }
   :root[data-theme="light"] select.status-select.s-research { color:#334155; background:#e2e8f0; }
   :root[data-theme="light"] .badge-neu { color:#0369a1; }
+  :root[data-theme="light"] .badge-sparring { color:#6d28d9; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
          background:var(--bg); color:var(--text); padding:14px 16px; }
@@ -667,6 +689,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
            text-overflow:ellipsis; }
   .badge-neu { background:rgba(56,189,248,.18); color:#7dd3fc; border:1px solid rgba(56,189,248,.5); }
   .badge-vermisst { background:rgba(245,158,11,.14); color:var(--amber); border:1px solid rgba(245,158,11,.5); }
+  .badge-sparring { background:rgba(167,139,250,.16); color:#c4b5fd; border:1px solid rgba(167,139,250,.5); }
   tr.ist-neu > td:first-child { box-shadow:inset 3px 0 0 #38bdf8; }
   .s-research { background:#334155; color:#cbd5e1; }
   .s-docs     { background:#1d4ed833; color:#93c5fd; border:1px solid #1d4ed855; }
@@ -1689,7 +1712,7 @@ function renderRows() {
       <td class="c-pos" data-label="Position">
         <div class="pos-line">
           <span class="pos-title clip2" title="${esc(r.position)}">${esc(r.position)}</span>
-          <span class="pos-tags">${r.verfuegbar === false ? '<span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.vermutlichAbgelaufen ? `<span class="badge badge-vermisst" title="Zuletzt gesehen am ${esc(r.zuletztGesehen)}. Die Quelle lief seitdem erfolgreich, die Stelle fehlte. Gelöscht wurde nichts.">vermutlich abgelaufen</span>` : ''}${r.neuImLauf ? '<span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu</span>' : ''}${(r.matched && r.matched.length) ? `<span class="micro" title="Treffer im Profil: ${esc(r.matched.join(", "))}">✓${r.matched.length}</span>` : ""}${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false" title="Stellenbeschreibung ein-/ausblenden">Text ▾</button>` : ""}</span>
+          <span class="pos-tags">${r.verfuegbar === false ? '<span class="badge" style="background:#7f1d1d33;color:#fca5a5;border:1px solid #7f1d1d66">abgelaufen</span>' : ''}${r.vermutlichAbgelaufen ? `<span class="badge badge-vermisst" title="Zuletzt gesehen am ${esc(r.zuletztGesehen)}. Die Quelle lief seitdem erfolgreich, die Stelle fehlte. Gelöscht wurde nichts.">vermutlich abgelaufen</span>` : ''}${r.neuImLauf ? '<span class="badge badge-neu" title="Beim jüngsten Suchlauf gefunden">neu</span>' : ''}${r.sparring ? '<span class="badge badge-sparring" title="Ab 71 % mit passendem Rollentitel: im wöchentlichen Sparring besprechen, Unterlagen erst nach Freigabe">Sparring</span>' : ''}${r.frueher ? `<span class="badge badge-vermisst" title="Ähnliche frühere Bewerbung bei dieser Firma: ${esc(r.frueher)}">⚠ ähnlich</span>` : ''}${(r.matched && r.matched.length) ? `<span class="micro" title="Treffer im Profil: ${esc(r.matched.join(", "))}">✓${r.matched.length}</span>` : ""}${r.beschreibung ? `<button class="desc-toggle" data-i="${i}" aria-expanded="false" title="Stellenbeschreibung ein-/ausblenden">Text ▾</button>` : ""}</span>
         </div>
       </td>
       <td data-label="Branche"><span class="clip1" title="${esc(r.branch || "k. A.")}">${esc(r.branch || "k. A.")}</span></td>

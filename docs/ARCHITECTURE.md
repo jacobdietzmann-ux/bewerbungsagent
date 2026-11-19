@@ -52,7 +52,6 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | `tailoring.py` | Getailerter Lebenslauf je Stelle: Laden, Faktenprüfung gegen Profil und Vorlage (ADR-062) | ✅ deterministisch |
 | `followup.py` | Fällige Nachfassen erkennen und Texte erzeugen | ✅ deterministisch |
 | `dashboard.py` | HTML-Dashboard rendern (Template + Daten) | ✅ deterministisch |
-| `scripts/build_agent_map.py` | Agenten-Map erzeugen (Ablauf- + Geografie-Karte) | ✅ deterministisch |
 | `schritte.py` | Schrittfolge des Tageslaufs (ADR-056) | ✅ deterministisch |
 | `pipeline.py` | Die Schritte als Funktionen, State-Merge | teils |
 | `search/*` | Provider (StepStone, XING, Indeed, JobSpy, Arbeitnow, ATS-Boards, manuell) | ⚠️ Netzwerk |

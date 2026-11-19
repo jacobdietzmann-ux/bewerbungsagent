@@ -478,8 +478,9 @@ def main(argv=None) -> int:
 
     elif args.command == "sparring":
         from bewerbungsagent import sparring
-        liste = sparring.kandidaten(Store(config.db_path()).load_state().get("applications", []))
-        text = sparring.als_markdown(liste, profile)
+        alle = Store(config.db_path()).load_state().get("applications", [])
+        liste = sparring.kandidaten(alle)
+        text = sparring.als_markdown(liste, profile, alle=alle)
         ziel = config.data_dir / "sparring.md"
         ziel.write_text(text, encoding="utf-8")
         print(text)

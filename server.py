@@ -26,6 +26,7 @@ import json
 import os
 import platform
 import subprocess
+import sys
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -237,6 +238,13 @@ def _state_mtime() -> float:
     return mtime
 
 
+# Reine Module, die das Dashboard importiert, in Abhängigkeitsreihenfolge. Sie
+# werden vor ``dashboard`` neu geladen; ``config``/``db``/``pipeline`` nicht, weil
+# der Server deren Objekte hält.
+_DASH_ABHAENGIG = ("profile", "matching", "statuses", "provider_health", "followup",
+                   "firmenwerte", "auswahl", "sparring")
+
+
 def _dashboard_mtime() -> float:
     """Neueste Änderung an der DB, am Dashboard-Template ODER am erzeugten HTML.
 
@@ -261,6 +269,14 @@ def _rebuild_dashboard() -> bytes:
     html = b"Dashboard konnte nicht erzeugt werden."
     if build_dashboard is not None and Config is not None:
         try:
+            # Erst die reinen Hilfsmodule, dann das Dashboard: Am 19.11.2026 brach
+            # das Dashboard nach einem Rollout mit „cannot import name
+            # 'bewerbungs_index'" ab, weil nur dashboard.py neu geladen wurde und
+            # ``auswahl`` noch in der alten Fassung im Speicher lag.
+            for name in _DASH_ABHAENGIG:
+                modul = sys.modules.get(f"bewerbungsagent.{name}")
+                if modul is not None:
+                    importlib.reload(modul)
             import bewerbungsagent.dashboard as _dash
             importlib.reload(_dash)
             config = Config()

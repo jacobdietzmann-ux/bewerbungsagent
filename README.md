@@ -250,42 +250,6 @@ Die Stellen, die der Lauf neu gefunden hat, tragen im Dashboard das Badge
 **„neu gefunden"** (Filter: „Nur neu gefundene"). Sie bleiben markiert, bis ein
 Lauf neue Stellen mitbringt. Details: [ADR-025](docs/DECISIONS.md).
 
-## Agenten-Map (was der Agent tut)
-
-Eine eigenständige Übersichtsseite zeigt in einer einzigen HTML-Datei, **was der Agent
-macht, was er kann und wo er was verarbeitet**:
-
-```bash
-python scripts/build_agent_map.py            # → output/agent-map.html
-python scripts/build_agent_map.py --pdf      # zusätzlich → output/agent-map.pdf
-python scripts/build_agent_map.py --pdf --pdf-format hoch   # PDF hochkant
-```
-
-Die Karte dient auch als Arbeitsnachweis. Für eine Bewerbung ist das PDF
-praktischer als die HTML, weil es sich anhängen und überall öffnen lässt.
-Standard ist **Querformat**: Die Karten sind 1180 px breit und würden hochkant
-auf 632 px verkleinert (Ortslabels ~4,4 pt statt ~6,7 pt).
-
-Enthalten sind:
-
-- **System-Map** — klickbares Ablaufdiagramm (Quellen → vier Stufen → Ausgabe) mit
-  Dienste-Schicht; jeder Knoten erklärt Eingang und Ausgang.
-- **Geografie-Map** — echte Koordinaten der Stellen aus dem Geocode-Cache, Mittelpunkt
-  ist der Wohnort, Linien zeigen den Pendelweg, gefärbt nach Fahrzeit.
-- **Toolchain** — Arbeitsplatz, Versionsverwaltung, Dauerlauf und Benachrichtigung:
-  Windows-PC (VS Code/Copilot, MCP-Server, venv, Git) → GitHub/Google Drive →
-  Hermes-Cron auf dem PC (`jobwatch.py`, `agent.py`) → Telegram → Handy. Jeder
-  Kasten trägt einen **Belegt-Status**: `geprüft` (auf diesem Rechner nachgesehen),
-  `konfiguriert` (steht im Code/der `config.json`), `laut Auskunft` (vom Nutzer
-  bestätigt, von hier nicht prüfbar) oder `nicht vorhanden`. Damit behauptet die
-  Karte keine Gleichheit, wo nur eine Konfiguration vorliegt — LibreOffice etwa fehlt
-  hier und ist als fehlend markiert.
-- **Befehle, Ablageplan, Dienste und Module** mit Verantwortung und Reichweite
-  (Netzwerk vs. deterministisch).
-
-Die Seite ist offline nutzbar (keine externen Bibliotheken) und liest die Zahlen direkt
-aus `data/jobs.db`.
-
 ## Stellensuche & manueller Import
 
 Die freie Websuche ist bewusst **pluggable**:

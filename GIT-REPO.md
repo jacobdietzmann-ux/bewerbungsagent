@@ -9,8 +9,7 @@ Dieses Projekt ist zusätzlich als **öffentliches GitHub-Repository** versionie
 
 Lokaler Klon: `~/git/bewerbungsagent`
 
-Der Link liegt zusätzlich als [`output/GIT-LINK.txt`](output/GIT-LINK.txt) bereit
-und ist in `output/agent-map.html` / `.pdf` als Fußzeile verlinkt.
+Der Link liegt zusätzlich als [`output/GIT-LINK.txt`](output/GIT-LINK.txt) bereit.
 
 > Hinweis: In der Git-Historie sind **keine personenbezogenen Daten** — Adresse
 > und Kontakt-E-Mail stehen ausschließlich in der lokalen, nicht versionierten

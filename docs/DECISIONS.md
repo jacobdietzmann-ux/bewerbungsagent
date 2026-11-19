@@ -1666,3 +1666,6 @@ mehr Punkte als Vorlage, unbekannte Station).
   (Entscheidung des Nutzers). Am Bestand: 7 von 62 offenen Stellen.
 - Arbeitnow bleibt (1.110 Funde, 6 relevant, 8 Bewerbungen nur dort; kostenlos).
 - Tests: `tests/test_aehnlich.py`.
+- Agentenkarte entfernt (`scripts/build_agent_map.py`, 1.330 Zeilen, plus Test):
+  kein Cron-Lauf, Stand 28.10. veraltet, Pflegeaufwand bei jeder Umstellung. Die
+  letzte HTML/PDF liegt archiviert unter `output/_Archiv/Agentenkarte-2026-10-28/`.

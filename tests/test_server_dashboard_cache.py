@@ -92,3 +92,18 @@ class TestGrenzeKommtAusDerKonfiguration:
         import inspect
         src = inspect.getsource(mod._rebuild_dashboard)
         assert "commute_limit_minutes" in src
+
+
+def test_hilfsmodule_des_dashboards_werden_neu_geladen(mod):
+    """19.11.2026: Neue Funktion in ``auswahl`` → „cannot import name" im laufenden Server.
+
+    Jedes Paketmodul, das ``dashboard.py`` importiert, muss in ``_DASH_ABHAENGIG``
+    stehen — außer denen, deren Objekte der Server selbst hält.
+    """
+    import re
+
+    quelle = (Path(mod.__file__).parent / "bewerbungsagent" / "dashboard.py").read_text(
+        encoding="utf-8")
+    importiert = set(re.findall(r"^from \.(\w+) import", quelle, re.M))
+    ausgenommen = {"config", "db", "storage", "commute"}
+    assert importiert - ausgenommen <= set(mod._DASH_ABHAENGIG)

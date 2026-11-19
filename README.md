@@ -175,6 +175,21 @@ python scripts/jobwatch.py
 Das Ergebnis ist [`dashboard.html`](dashboard.html) (nach dem ersten Lauf) sowie pro Stelle ein
 Ordner unter `output/<Firma> - <Stelle>/` mit den PDFs.
 
+## Bewerben: Sparring statt Automatik (ADR-062)
+
+Der Tageslauf sucht und bewertet, erzeugt aber **keine** Unterlagen mehr.
+
+1. `python agent.py sparring` listet offene Stellen ab 71 % mit passendem Rollentitel,
+   ihre Profil-Treffer und die Fachbegriffe der Anzeige, die im Profil fehlen
+   (auch als `data/sparring.md`).
+2. Im wöchentlichen Sparring wird geklärt: Skill vorhanden → ins Profil; Stelle passt →
+   `python agent.py tailoring --ids N` legt `Lebenslauf-Tailoring.json` im
+   Bewerbungsordner an, das Tailoring wird ausgefüllt.
+3. `python agent.py generate --ids N` erzeugt Anschreiben und getailerten Lebenslauf
+   aus der DOCX-Vorlage. Unbelegte Fachbegriffe und bestätigte Lücken blockieren.
+
+`documents.automatisch: true` schaltet die frühere Automatik wieder ein.
+
 ## Dashboard öffnen & Status ändern
 
 Das Dashboard ist **interaktiv** (Suche, Filter, Diagramme, sortierbare Tabelle). Um den

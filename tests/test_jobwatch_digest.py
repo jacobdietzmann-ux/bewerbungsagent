@@ -43,7 +43,7 @@ def test_etikett_folgt_dem_echten_stand():
     mittel = {"titel": "Testingenieur", "score": 68, "status": "neu"}
     assert jobwatch.etikett(mit) == "Unterlagen erstellt"
     assert jobwatch.etikett(ohne_rolle) == "Research, kein Rollentitel"
-    assert jobwatch.etikett(rolle) == "Unterlagen folgen"
+    assert jobwatch.etikett(rolle) == "Sparring"
     assert jobwatch.etikett(mittel) == "Research"
 
 

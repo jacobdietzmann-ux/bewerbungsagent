@@ -199,11 +199,11 @@ def etikett(job: dict) -> str:
     if not has_role_signal(job.get("titel")):
         return "Research, kein Rollentitel"
     if fit_value(job) >= FIT_UNTERLAGEN:
-        return "Unterlagen folgen"
+        return "Sparring"
     return "Research"
 
 
-_SYMBOL = {"Unterlagen erstellt": "✅", "Unterlagen folgen": "📝", "Research": "🔎",
+_SYMBOL = {"Unterlagen erstellt": "✅", "Sparring": "🗣", "Research": "🔎",
            "Research, kein Rollentitel": "❔"}
 
 
@@ -267,7 +267,7 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
                  max_commute: int | None = None, quellen: list[str] | None = None) -> str:
     """Kurzer Telegram-Digest: Kopfzeile, neue Stellen, eine Fußzeile.
 
-    Symbole: ✅ Unterlagen erstellt · 📝 Unterlagen folgen · 🔎 Research ·
+    Symbole: ✅ Unterlagen erstellt · 🗣 Sparring (ab 71 %, ADR-062) · 🔎 Research ·
     ❔ Research ohne passenden Rollentitel · 🚗 Research wegen Pendelweg (Minuten).
     """
     today = datetime.now().strftime("%d.%m.")

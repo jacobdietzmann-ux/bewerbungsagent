@@ -43,6 +43,9 @@ def tmp_config(tmp_path: Path, demo_profile_data: dict) -> dict:
         "output_dir": str(tmp_path / "output"),
         "dashboard_file": str(tmp_path / "dashboard.html"),
         "search": {"enabled": False, "providers": [], "location": "München", "query_terms": []},
+        # ``automatisch``: Die Tests der früheren Automatik prüfen das abschaltbare
+        # Verhalten weiter; der Standard ist seit ADR-062 ``False``.
         "documents": {"languages": ["de", "en"], "accent_color": "#0B3D5C",
-                      "min_fit_for_generation": "hoch"},
+                      "min_fit_for_generation": "hoch", "automatisch": True,
+                      "tailoring_pflicht": False},
     }

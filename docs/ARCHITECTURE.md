@@ -48,6 +48,8 @@ KPIs und Wochenverlauf lassen zusätzlich reine ``research``-Funde aus.
 | `commute.py` | Pendelweg (Nominatim + OSRM), mit Cache; Obergrenze `max_pendelzeit_min` | ⚠️ Netzwerk |
 | `documents.py` | Anschreiben + Lebenslauf als PDF (eigene DOCX-Vorlage, Ersatzdesign `classic`) | ✅ deterministisch |
 | `quality.py` | Prüft erzeugte Unterlagen gegen Profil, Anzeige und Datei (P0b) | ✅ deterministisch |
+| `sparring.py` | Wöchentliche Sparring-Liste: Kandidaten ab 71 %, fehlende Profil-Begriffe (ADR-062) | ✅ deterministisch |
+| `tailoring.py` | Getailerter Lebenslauf je Stelle: Laden, Faktenprüfung gegen Profil und Vorlage (ADR-062) | ✅ deterministisch |
 | `followup.py` | Fällige Nachfassen erkennen und Texte erzeugen | ✅ deterministisch |
 | `dashboard.py` | HTML-Dashboard rendern (Template + Daten) | ✅ deterministisch |
 | `scripts/build_agent_map.py` | Agenten-Map erzeugen (Ablauf- + Geografie-Karte) | ✅ deterministisch |

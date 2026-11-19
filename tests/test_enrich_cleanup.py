@@ -169,6 +169,8 @@ class TestAutoGenerationRoleGuard:
         match = {**_job("sw", titel="Linux Software Engineer", score=80), "id": 7,
                  "fit_geschaetzt": "hoch"}
         save_json(config.matches_path(), [match])
+        # ``--ids`` sind Bestands-IDs (ADR-062): die Stelle muss im Bestand liegen.
+        Store(config.db_path()).save_state({"applications": [match]})
         run_generate(config, None, job_ids=[7])
         assert [a["titel"] for a in generated_calls] == ["Linux Software Engineer"]
 

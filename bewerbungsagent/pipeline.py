@@ -603,7 +603,13 @@ def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
                 "skipped_budget": [], "skipped_firma": [], "skipped_commute": [],
                 "skipped_student": [], "skipped_technician": [], "skipped_role": [],
                 "skipped_existing": 0, "automatik_aus": True}
-    matches = load_json(config.matches_path(), [])
+    if job_ids is not None:
+        # ``--ids`` sind Bestands-IDs (Dashboard, Sparring-Liste). ``matches.json``
+        # nummeriert je Lauf neu: Am 19.11.2026 traf „771" dort eine fremde Stelle.
+        matches = [a for a in _store(config).load_state().get("applications", [])
+                   if a.get("id") in job_ids]
+    else:
+        matches = load_json(config.matches_path(), [])
     # ``min_fit`` als Name ("hoch"/"mittel"/"niedrig") oder Zahl.
     if isinstance(min_fit, (int, float)):
         threshold = int(min_fit)

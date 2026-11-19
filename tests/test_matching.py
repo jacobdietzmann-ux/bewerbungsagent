@@ -161,7 +161,6 @@ class TestRoleSignal:
         "Senior Simulation Platform Engineer, Cloud & Robotics",
         "Export Control Specialist (m/w/d)",
         "Gebietsverkaufsleiter/in im Außendienst",
-        "Requirements Engineer Physical Products",
     ])
     def test_erkennt_keine_testrollen(self, titel):
         assert has_role_signal(titel) is False

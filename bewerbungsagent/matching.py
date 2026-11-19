@@ -48,6 +48,10 @@ _ROLE_SIGNAL_RE = re.compile(
     # Automobil-/Embedded-Domänen: ADAS, HPC und ECU belegen eine systemnahe
     # Hardware-/Testrolle (z. B. „ADAS & Autonomous HPC / ECU Specialist").
     r"|\badas\b|\bhpc\b|\becu\b"
+    # Systems Engineering und Anforderungen (ADR-062): 58 von 230 Bewerbungen,
+    # darunter Interviews, hatten solche Titel und galten bisher als „ohne Rollentitel".
+    r"|\bsystemingenieur\w*|\bsystems?\s*engineer\w*|\bsystemintegrat\w*"
+    r"|\brequirements?\s*engineer\w*|\banforderungsmanag\w*"
 )
 
 
@@ -64,7 +68,11 @@ _ROLE_SIGNAL_RE = re.compile(
 # wenn **kein** Test-/Verifikationssignal im Titel steht — „Test-Architekt" oder
 # „Architekt für Testautomatisierung" bleiben erlaubt.
 _ARCHITEKTUR_RE = re.compile(
-    r"\barchitekt\w*|\barchitect\w*|\bconsult\w*|\bberat\w*|\bpresales?\b",
+    r"\barchitekt\w*|\barchitect\w*|\bconsult\w*|\bberat\w*|\bpresales?\b"
+    # IT-Betrieb (ADR-062): „System Engineer Windows Server Administration" ist
+    # Administration, keine Test-/Integrationsrolle im Fahrzeug- oder Systemumfeld.
+    r"|\badministrat\w*|\bwindows\b|\bserver\b|\bit[ -]system\w*|\bnetzwerk\w*"
+    r"|\bnetwork\w*|\bdevops\b|\bsap\b",
     re.IGNORECASE,
 )
 

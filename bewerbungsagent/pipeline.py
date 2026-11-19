@@ -72,6 +72,11 @@ FIT_BAND_UNTERLAGEN = 71  # erste ganze Zahl über der Research-Obergrenze (70 %
 FIT_RANK = {"hoch": FIT_BAND_UNTERLAGEN, "mittel": FIT_BAND_AUSBLENDEN, "niedrig": 0}
 
 
+def _automatisch(config: Config) -> bool:
+    """Erzeugt der Tageslauf Unterlagen selbst? Seit ADR-062 nur auf ausdrücklichen Wunsch."""
+    return bool((config.data.get("documents") or {}).get("automatisch", False))
+
+
 def _fit_fuer_unterlagen(config: Config) -> int:
     """Fit-Schwelle für die automatische Dokumenterzeugung.
 
@@ -592,6 +597,12 @@ def _company_key_fn(config: Config):
 
 def run_generate(config: Config, profile: Profile, job_ids=None, min_fit=None,
                  template: str | None = None) -> dict:
+    if job_ids is None and not _automatisch(config):
+        # ADR-062: Unterlagen nur nach Freigabe im Sparring (``--ids``).
+        return {"generated": [], "jobs_processed": 0, "failed": [], "skipped_bestand": 0,
+                "skipped_budget": [], "skipped_firma": [], "skipped_commute": [],
+                "skipped_student": [], "skipped_technician": [], "skipped_role": [],
+                "skipped_existing": 0, "automatik_aus": True}
     matches = load_json(config.matches_path(), [])
     # ``min_fit`` als Name ("hoch"/"mittel"/"niedrig") oder Zahl.
     if isinstance(min_fit, (int, float)):
@@ -868,6 +879,8 @@ def run_enrich(config: Config, profile: Profile) -> dict:
                                  "fit": _fit_value(a)})
             continue
         kandidaten.append(a)
+    if not _automatisch(config):
+        kandidaten = []                  # ADR-062: erst nach Freigabe im Sparring
 
     # 5b) Gezielt statt Masse: Wochenbudget und Limit offener Bewerbungen je
     #     Firma (``documents.max_auto_per_week`` / ``max_offen_pro_firma``).
@@ -1149,8 +1162,25 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     aktuell = [h for h in profile.keywords_in(f"{job.get('titel', '')} {job.get('beschreibung', '')}")
                if h not in weak]
     match = dict(job, matched_skills=sorted(set(aktuell)))
-    folder = config.bewerbungen_dir / safe_name(f"{job.get('firma', '')} - {job.get('titel', '')}")
+    folder = bewerbungsordner(config, job)
     folder.mkdir(parents=True, exist_ok=True)
+
+    # ADR-062: Freigegebene Bewerbungen bekommen einen getailerten Lebenslauf. Ohne
+    # Datei oder mit unbelegten Aussagen entsteht nichts.
+    from . import tailoring as tal
+    eigen = tal.laden(folder)
+    pflicht = (config.data.get("documents") or {}).get("tailoring_pflicht", True)
+    if eigen is None and pflicht and not auto:
+        raise tal.TailoringFehler(f"{tal.DATEINAME} fehlt — zuerst "
+                                  f"`agent.py tailoring --ids {job.get('id')}` und ausfüllen")
+    if eigen is not None:
+        from .documents import tailoring_geruest
+        befunde = tal.pruefen(eigen, profile,
+                              tal.vorlage_als_text(tailoring_geruest(config.data)),
+                              (config.data.get("matching") or {}).get("hard_gaps") or [])
+        if befunde:
+            raise tal.TailoringFehler("Tailoring nicht belegt: " + "; ".join(befunde[:8])
+                                      + (f" (+{len(befunde) - 8})" if len(befunde) > 8 else ""))
 
     template = template or (config.data["documents"].get("lebenslauf_template") or DEFAULT_CV_TEMPLATE)
     languages = config.data["documents"].get("languages", ["de"])
@@ -1167,7 +1197,7 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
         # Eigene DOCX-Vorlage bevorzugen (mit pro-Stelle angepasstem Profil-Absatz);
         # bei fehlender Vorlage fällt die Funktion intern auf ReportLab zurück.
         cv = generate_lebenslauf_vorlage(profile, job, match, folder / names["lebenslauf"], config.data, lang,
-                                         template=template)
+                                         template=template, tailoring=eigen)
         pdfs[f"lebenslauf_{lang}"] = Path(cv)
         files[f"anschreiben_{lang}"] = _rel(ans)
         files[f"lebenslauf_{lang}"] = _rel(cv)
@@ -1191,6 +1221,11 @@ def _generate_one(config: Config, profile: Profile, job: dict, template: str | N
     _record_docs(config, job, files, qualitaet=qualitaet, auto=auto)
     return [{"id": job.get("id"), "firma": job.get("firma"), "titel": job.get("titel"),
              "dokumente": files, "qualitaet": qualitaet}]
+
+
+def bewerbungsordner(config: Config, job: dict) -> Path:
+    """Ordner der Bewerbung unter ``bewerbungen_dir`` (Firma - Titel)."""
+    return config.bewerbungen_dir / safe_name(f"{job.get('firma', '')} - {job.get('titel', '')}")
 
 
 def _stellenanzeige_text(job: dict) -> str:
@@ -1221,6 +1256,10 @@ def _record_docs(config: Config, job: dict, files: dict,
         if auto:
             # Zählt gegen das Wochenbudget (``auswahl.auto_docs_last_days``).
             a["unterlagen_erzeugt_am"] = now_iso()
+        else:
+            # Ausdrücklich angefordert (``--ids``, Sparring-Freigabe): Der nächste
+            # Lauf darf die Unterlagen nicht wegen des Fits zurücknehmen.
+            a["unterlagen_gewuenscht"] = True
         if a.get("status") in (None, "research", "neu"):
             a["status"] = "docs"
 

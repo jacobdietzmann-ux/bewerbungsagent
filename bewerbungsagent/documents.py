@@ -1358,6 +1358,137 @@ def _replace_profile_paragraph(doc, summary: str, lang: str) -> None:
             return
 
 
+def _absatz_setzen(absatz, inhalt: str) -> None:
+    """Text eines Absatzes ersetzen, Formatierung des ersten Laufs behalten."""
+    if absatz.runs:
+        absatz.runs[0].text = inhalt
+        for extra in absatz.runs[1:]:
+            extra.text = ""
+    else:
+        absatz.add_run(inhalt)
+
+
+_ZEITRAUM_RE = re.compile(r"\t\s*\d{2}/\d{4}")
+
+
+def _stationsbloecke(doc) -> list[list]:
+    """Stationspunkte der Vorlage, je Station eine Liste von Absätzen.
+
+    Eine Station beginnt mit einer Zeile „Titel ⇥ MM/JJJJ – MM/JJJJ“; ihre Punkte
+    sind die folgenden Absätze im Stil „List Bullet“.
+    """
+    bloecke: list[list] = []
+    for absatz in doc.paragraphs:
+        if _ZEITRAUM_RE.search(absatz.text) and absatz.style.name != "List Bullet":
+            bloecke.append([])
+        elif absatz.style.name == "List Bullet" and bloecke:
+            bloecke[-1].append(absatz)
+    return [b for b in bloecke if b]
+
+
+def _punkte_ersetzen(absaetze: list, punkte: list[str]) -> None:
+    """Punkte einer Station ersetzen; überzählige entfernen, fehlende nachbilden."""
+    import copy
+
+    for absatz, punkt in zip(absaetze, punkte, strict=False):
+        _absatz_setzen(absatz, punkt)
+    for absatz in absaetze[len(punkte):]:
+        absatz._p.getparent().remove(absatz._p)
+    letzter = absaetze[min(len(punkte), len(absaetze)) - 1]._p
+    for punkt in punkte[len(absaetze):]:
+        neu = copy.deepcopy(letzter)
+        letzter.addnext(neu)
+        letzter = neu
+        from docx.text.paragraph import Paragraph
+        _absatz_setzen(Paragraph(neu, absaetze[0]._parent), punkt)
+
+
+def _tailoring_einsetzen(doc, daten: dict, lang: str) -> None:
+    """Setzt das Tailoring in die DOCX-Vorlage ein (ADR-062).
+
+    Erwartet den Aufbau der eigenen Vorlage: Tabelle 0 Kopf (Name, Headline),
+    Tabelle 2 Fachkenntnisse (2 Spalten × 2 Gruppen), Tabelle 3 vier
+    Kernkompetenz-Karten. Passt die Vorlage nicht, bricht die Erzeugung ab,
+    statt einen halb getailerten Lebenslauf zu liefern.
+    """
+    from . import tailoring as tal
+
+    tabellen = doc.tables
+    if len(tabellen) < 4:
+        raise tal.TailoringFehler("Vorlage hat nicht die erwarteten 4 Tabellen")
+    headline = tal.text(daten, "headline", lang)
+    if headline:
+        kopf = tabellen[0].rows[0].cells[0].paragraphs
+        if len(kopf) < 2:
+            raise tal.TailoringFehler("Kopf der Vorlage ohne Headline-Zeile")
+        _absatz_setzen(kopf[1], headline)
+    bloecke = _stationsbloecke(doc)
+    for index, punkte in tal.stationen(daten, lang).items():
+        if not 0 <= index < len(bloecke):
+            raise tal.TailoringFehler(f"Station {index} gibt es in der Vorlage nicht "
+                                      f"({len(bloecke)} Stationen)")
+        _punkte_ersetzen(bloecke[index], punkte)
+    gruppen = tal.skills(daten, lang)
+    if gruppen:
+        zellen = tabellen[2].rows[0].cells
+        absaetze = [a for zelle in zellen for a in zelle.paragraphs]
+        if len(absaetze) < 2 * len(gruppen):
+            raise tal.TailoringFehler("Fachkenntnis-Tabelle hat zu wenige Zeilen")
+        for nr, (gruppe, eintraege) in enumerate(gruppen):
+            _absatz_setzen(absaetze[2 * nr], gruppe)
+            _absatz_setzen(absaetze[2 * nr + 1], " · ".join(eintraege))
+    karten = tal.kernkompetenzen(daten, lang)
+    if karten:
+        zellen = tabellen[3].rows[0].cells
+        if len(zellen) < len(karten):
+            raise tal.TailoringFehler("Kernkompetenz-Tabelle hat zu wenige Karten")
+        for zelle, (wert, beschreibung) in zip(zellen, karten, strict=False):
+            if len(zelle.paragraphs) < 2:
+                raise tal.TailoringFehler("Kernkompetenz-Karte ohne zwei Zeilen")
+            _absatz_setzen(zelle.paragraphs[0], wert)
+            _absatz_setzen(zelle.paragraphs[1], beschreibung)
+
+
+def tailoring_geruest(config: dict) -> dict:
+    """Tailoring-Gerüst mit den aktuellen Texten der DOCX-Vorlagen (zum Anpassen).
+
+    Liefert ``headline``, ``profil``, ``stationen``, ``skills`` und
+    ``kernkompetenzen`` je Sprache, so wie sie heute in der Vorlage stehen.
+    """
+    from docx import Document
+
+    vorlagen = (config.get("documents") or {}).get("lebenslauf_vorlage") or {}
+    out: dict = {"headline": {}, "profil": {}, "stationen": [], "skills": {},
+                 "kernkompetenzen": {}}
+    stationen: dict[int, dict] = {}
+    for lang in ("de", "en"):
+        rel = vorlagen.get(lang)
+        if not rel or not (AGENT_ROOT / rel).exists():
+            continue
+        doc = Document(str((AGENT_ROOT / rel).resolve()))
+        kopf = doc.tables[0].rows[0].cells[0].paragraphs
+        out["headline"][lang] = kopf[1].text if len(kopf) > 1 else ""
+        heading = _profile_heading(lang)
+        for idx, para in enumerate(doc.paragraphs):
+            if heading in para.text.upper() and idx + 1 < len(doc.paragraphs):
+                out["profil"][lang] = doc.paragraphs[idx + 1].text
+                break
+        for index, block in enumerate(_stationsbloecke(doc)):
+            eintrag = stationen.setdefault(index, {"index": index, "bullets": {}})
+            eintrag["bullets"][lang] = [a.text for a in block]
+        absaetze = [a.text for zelle in doc.tables[2].rows[0].cells for a in zelle.paragraphs]
+        out["skills"][lang] = [{"gruppe": absaetze[i],
+                                "eintraege": [e.strip() for e in absaetze[i + 1].split("·")
+                                              if e.strip()]}
+                               for i in range(0, len(absaetze) - 1, 2)]
+        out["kernkompetenzen"][lang] = [{"wert": z.paragraphs[0].text,
+                                         "text": z.paragraphs[1].text if len(z.paragraphs) > 1
+                                         else ""}
+                                        for z in doc.tables[3].rows[0].cells]
+    out["stationen"] = [stationen[i] for i in sorted(stationen)]
+    return out
+
+
 _SOFFICE_ORTE = (
     r"C:\Program Files\LibreOffice\program\soffice.exe",
     r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
@@ -1380,15 +1511,25 @@ def _soffice() -> str:
     return next((p for p in _SOFFICE_ORTE if os.path.exists(p)), "soffice")
 
 
-def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_path, config: dict, lang: str = "de", template: str | None = None) -> str:
+def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_path, config: dict,
+                                lang: str = "de", template: str | None = None,
+                                tailoring: dict | None = None) -> str:
     """Lebenslauf aus der eigenen DOCX-Vorlage (statt ReportLab-Generierung).
 
     Kopiert die aktuelle Lebenslauf-DOCX, ersetzt nur den Profil-Absatz durch
     den auf die Stelle zugeschnittenen Text und konvertiert zu PDF (soffice).
     Fällt auf ``generate_lebenslauf`` zurück, wenn keine Vorlage konfiguriert
     ist, die Datei fehlt oder die Konvertierung scheitert.
+
+    Mit ``tailoring`` (ADR-062) setzt die Funktion Headline, Profil, Stationspunkte,
+    Skills und Kernkompetenzen ein. Dann gibt es keinen Rückfall: Ein Lebenslauf
+    ohne das freigegebene Tailoring wäre nicht der vereinbarte.
     """
     def _fallback():
+        if tailoring:
+            from .tailoring import TailoringFehler
+            raise TailoringFehler("DOCX-Vorlage nicht nutzbar, getailerter Lebenslauf "
+                                  "nicht erzeugt")
         return generate_lebenslauf(profile, job, match, out_path, config, lang,
                                    template=template)
 
@@ -1401,7 +1542,10 @@ def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_pa
     if not src.exists() or src.suffix.lower() != ".docx":
         return _fallback()
 
-    summary = _cv_profile_summary(profile, job, match, lang)
+    from .tailoring import text as _tailoring_text
+
+    summary = (_tailoring_text(tailoring, "profil", lang)
+               or _cv_profile_summary(profile, job, match, lang))
 
     import shutil
     import subprocess
@@ -1418,6 +1562,8 @@ def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_pa
 
             doc = Document(str(work_docx))
             _replace_profile_paragraph(doc, summary, lang)
+            if tailoring:
+                _tailoring_einsetzen(doc, tailoring, lang)
             # Die DOCX-Quelle ist US-Letter; die versendeten PDFs sind A4.
             # Wir stellen daher das Seitenformat auf A4, damit das Ergebnis
             # der bisherigen Version entspricht.
@@ -1441,7 +1587,10 @@ def generate_lebenslauf_vorlage(profile: Profile, job: dict, match: dict, out_pa
                     return _fallback()
                 pdf = candidates[0]
             shutil.copyfile(pdf, out_path)
-    except Exception:
+    except Exception as exc:
+        from .tailoring import TailoringFehler
+        if isinstance(exc, TailoringFehler):
+            raise
         return _fallback()
 
     return str(out_path)

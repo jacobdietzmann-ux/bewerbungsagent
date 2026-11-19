@@ -159,6 +159,11 @@ def main(argv=None) -> int:
                         help="Leads aus Job-Mails (Firma + Titel) in den manuellen Import aufnehmen")
     li.add_argument("--file", required=True,
                     help="JSON-Liste mit firma, titel, ort, quelle (z. B. aus dem Mailcheck)")
+    tl = sub.add_parser("tailoring",
+                        help="Tailoring-Gerüst (Lebenslauf-Tailoring.json) für Stellen anlegen")
+    tl.add_argument("--ids", required=True, help="kommagetrennte Job-IDs")
+    sub.add_parser("sparring",
+                   help="Wöchentliche Sparring-Liste: Stellen ab 71 % mit Rollentitel und Profil-Lücken")
     sl = sub.add_parser("shortlist",
                         help="Wochenauswahl: fertige, noch nicht versendete Bewerbungen nach Fit")
     sl.add_argument("--top", type=int, default=8, help="Anzahl (Standard 8)")
@@ -450,6 +455,35 @@ def main(argv=None) -> int:
         neu = merge_mail_leads(config.import_path(), leads)
         print(f"Leads übernommen: {neu} neu, {len(leads) - neu} bekannt oder unvollständig "
               f"({config.import_path()}).")
+
+    elif args.command == "tailoring":
+        import json as _json
+
+        from bewerbungsagent import tailoring as tal
+        from bewerbungsagent.documents import tailoring_geruest
+        from bewerbungsagent.pipeline import bewerbungsordner
+        ids = {int(x) for x in args.ids.split(",") if x.strip()}
+        apps = Store(config.db_path()).load_state().get("applications", [])
+        geruest = tailoring_geruest(config.data)
+        for app in (a for a in apps if a.get("id") in ids):
+            ordner = bewerbungsordner(config, app)
+            ordner.mkdir(parents=True, exist_ok=True)
+            datei = tal.pfad(ordner)
+            if datei.exists():
+                print(f"{app['id']}: vorhanden — {datei}")
+                continue
+            daten = {"stelle": app.get("titel"), "firma": app.get("firma"), **geruest}
+            datei.write_text(_json.dumps(daten, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"{app['id']}: angelegt — {datei}")
+
+    elif args.command == "sparring":
+        from bewerbungsagent import sparring
+        liste = sparring.kandidaten(Store(config.db_path()).load_state().get("applications", []))
+        text = sparring.als_markdown(liste, profile)
+        ziel = config.data_dir / "sparring.md"
+        ziel.write_text(text, encoding="utf-8")
+        print(text)
+        print(f"Gespeichert: {ziel}")
 
     elif args.command == "shortlist":
         from bewerbungsagent.auswahl import shortlist

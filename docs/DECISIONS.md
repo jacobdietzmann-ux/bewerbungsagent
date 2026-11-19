@@ -1605,3 +1605,51 @@ Repos, und der Windows-Client synchronisiert unabhängig davon.
 Rechnername, Dateinamen tragen den Rechner, stille Umstellung samt übernommener
 Quellenmeldungen, danach nur echte Neuzugänge, zwei Rechner im selben `data/`,
 Erstlauf ohne alten Snapshot wie bisher.
+
+
+## ADR-062 – Qualität statt Masse: Sparring und getailerter Lebenslauf
+
+**Ziel (Jacob, 19.11.2026).** Wenige Bewerbungen, die mit hoher Wahrscheinlichkeit die
+erste Prüfung bestehen, statt vieler automatisch erzeugter.
+
+**Befund vorab.** Der Fit-Wert allein trennt das nicht: Von 12 Interviews lagen nur 2
+über 90 %, 5 bei 71–90 %, 5 darunter. Offen über 90 % mit passendem Rollentitel: 0;
+die 11 Treffer dort waren fachfremd (KI-Startups, Computer Vision). Eine feste
+90-%-Schwelle hätte fast nichts geliefert und echte Chancen aussortiert.
+
+**Entscheidungen.**
+
+1. **Keine automatischen Unterlagen.** `documents.automatisch` ist standardmäßig
+   `false`; `enrich` und `generate --all` erzeugen nichts mehr. `generate --ids`
+   (Freigabe) markiert die Stelle als `unterlagen_gewuenscht`, damit kein späterer
+   Lauf die Unterlagen wegen des Fits zurücknimmt. Kein Wochenlimit.
+2. **Wöchentliche Sparring-Liste** (`agent.py sparring`, `bewerbungsagent/sparring.py`,
+   Datei `data/sparring.md`): offene Stellen ab 71 % mit passendem Rollentitel, je
+   Stelle Profil-Treffer und Fachbegriffe der Anzeige, die im Profil fehlen. Im
+   Sparring wird geklärt, ob ein Skill wirklich vorhanden ist (dann ins Profil) und
+   ob beworben wird.
+3. **Rollentitel erweitert:** Systemingenieur, Systems Engineer, Systemintegration,
+   Requirements Engineer und Anforderungsmanagement zählen als Rolle (58 von 230
+   Bewerbungen hatten solche Titel). IT-Betrieb (Administration, Windows, Server,
+   Netzwerk, DevOps, SAP) bleibt ausgeschlossen wie Architektur und Beratung.
+4. **Jede freigegebene Bewerbung bekommt einen getailerten Lebenslauf**
+   (`bewerbungsagent/tailoring.py`, `Lebenslauf-Tailoring.json` im Bewerbungsordner).
+   Claude schreibt ihn im Sparring; `agent.py tailoring --ids N` legt das Gerüst mit
+   den Texten der Vorlage an. Eingesetzt in die eigene DOCX-Vorlage: Headline,
+   Profilabsatz, Stationspunkte, vier Skill-Gruppen, vier Kernkompetenzen.
+   Ohne Datei (`documents.tailoring_pflicht`) oder mit Befunden entsteht nichts;
+   ein Rückfall auf das Ersatzdesign ohne Tailoring ist gesperrt.
+5. **Faktenprüfung:** Jeder Fachbegriff des Tailorings muss in der Profil-Datenbank
+   oder in der freigegebenen DOCX-Vorlage belegt sein; bestätigte Lücken
+   (`gap_terms`) und harte Lücken (`matching.hard_gaps`, z. B. C++) sind gesperrt.
+
+**Offen für das erste Sparring.** Die DOCX-Vorlage nennt Werkzeuge, die in der
+Profil-Datenbank fehlen (ADTF, CANape, DIADEM, INCA, SVN u. a.). Sie gelten über die
+Vorlage als belegt, sollten aber in die Datenbank, damit Fit und Sparring-Liste sie
+kennen.
+
+**Tests.** `tests/test_qualitaet.py`: Automatik aus, `--ids` als Wunsch, Pflicht-
+Tailoring, Sparring-Kandidaten und Lücken, Prüfung (Beleg, Lücke, harte Lücke,
+Vorlage als Beleg, Form), DOCX-Ersetzung (Headline, Punkte, Skills, Karten,
+mehr Punkte als Vorlage, unbekannte Station).
+

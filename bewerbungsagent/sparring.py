@@ -69,15 +69,28 @@ def fehlende_begriffe(app: dict, profile: Profile, limit: int = 12) -> list[str]
         if not norm or norm in beleg:
             continue
         zaehler[begriff] = zaehler.get(begriff, 0) + 1
-    # Stack-Lücken und harte Lücken aus der Bewertung zuerst.
-    vorn = [str(s) for s in (app.get("stack_missing") or [])]
-    if app.get("hard_gap"):
-        vorn.append(str(app["hard_gap"]))
+    # Stack-Lücken und harte Lücken aus der Bewertung zuerst. Die gespeicherte
+    # Bewertung stammt vom letzten Suchlauf: Was seitdem ins Profil kam, fällt weg.
+    luecken = {g for g in profile._gap_terms()[0] if g}
+    vorn = []
+    for s in [*(app.get("stack_missing") or []), app.get("hard_gap")]:
+        if not s:
+            continue
+        norm = normalize(str(s))
+        if any(norm == g or g in norm for g in luecken):
+            vorn.append(f"{s} (Lücke)")
+        elif norm not in beleg:
+            vorn.append(str(s))
     rest = sorted(zaehler, key=lambda b: (-zaehler[b], b.lower()))
     out: list[str] = []
     for b in [*vorn, *rest]:
-        if b not in out:
-            out.append(b)
+        if b.endswith(" (Lücke)"):
+            eintrag = b
+        else:
+            norm = normalize(b)
+            eintrag = f"{b} (Lücke)" if any(norm == g for g in luecken) else b
+        if eintrag not in out and b not in out:
+            out.append(eintrag)
     return out[:limit]
 
 

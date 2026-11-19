@@ -52,6 +52,17 @@ class TestKeineAutomatik:
         app = Store(config_standard.db_path()).load_state()["applications"][0]
         assert app["unterlagen_gewuenscht"] is True and app["status"] == "docs"
 
+    def test_ids_sind_bestands_ids(self, config_standard, monkeypatch, tmp_path):
+        """19.11.2026: „771" traf in matches.json eine fremde Stelle."""
+        from bewerbungsagent.storage import save_json
+        save_json(config_standard.matches_path(), [_stelle(key="fremd", id=771, firma="Fremd AG")])
+        Store(config_standard.db_path()).save_state({"applications": [_stelle(id=771)]})
+        erzeugt = []
+        monkeypatch.setattr(pipeline, "_generate_sicher",
+                            lambda c, p, job, f, **k: erzeugt.append(job["firma"]) or [])
+        pipeline.run_generate(config_standard, None, job_ids=[771])
+        assert erzeugt == ["Beispiel GmbH"]
+
     def test_ohne_tailoring_entsteht_kein_lebenslauf(self, config_standard, demo_profile):
         with pytest.raises(tailoring.TailoringFehler, match="fehlt"):
             pipeline._generate_one(config_standard, demo_profile, _stelle(), auto=False)

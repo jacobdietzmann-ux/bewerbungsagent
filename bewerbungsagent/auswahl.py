@@ -26,6 +26,7 @@ SQLAlchemy testbar bleibt.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
@@ -38,6 +39,7 @@ from .matching import (
     is_student_role,
     is_technician_role,
 )
+from .profile import normalize
 from .provider_health import letzter_abruf
 from .statuses import normalize_status
 
@@ -243,3 +245,88 @@ def shortlist(apps: Iterable[dict], top: int = 8, *, quellen: dict | None = None
         "pendel_knapp": bool(a.get("pendel_knapp")),
         "vermutlich_abgelaufen": vermutlich_abgelaufen(a, quellen, abgelaufen_tage),
     } for a in offen[:top]]
+
+
+# ---------------------------------------------------------------------------
+# Frühere Bewerbung auf eine ähnliche Stelle (19.11.2026)
+#
+# Der Digest meldete „(Senior) Systems Engineer mechatronische Sonderanlagen" bei
+# „IABG Industrieanlagen-Betriebsgesellschaft mbH", auf die als „Senior Systems
+# Engineer …" bei „IABG" schon eine Absage kam. Die Identität (Firma + Titel + Ort)
+# griff nicht: Firmenname, „(Senior)", „oe" statt „ö" und eine volle Adresse statt
+# des Ortes unterschieden sich. Bei 62 offenen Stellen gab es 7 solche Paare.
+# Entscheidung des Nutzers: nur warnen, nichts ausblenden — eine ähnliche Stelle
+# kann eine neue Ausschreibung sein.
+# ---------------------------------------------------------------------------
+
+AEHNLICH_AB = 0.6
+_TITEL_FUELL = frozenset({
+    "senior", "junior", "lead", "m", "w", "d", "f", "x", "gn", "div", "mwd", "und", "and",
+    "fur", "for", "the", "der", "die", "das", "im", "in", "mit", "with", "zukunftige",
+    "all", "genders", "gender"})
+_STATUS_TEXT = {"sent": "beworben", "followup": "nachgefasst", "interview": "Interview",
+                "rejected": "abgesagt"}
+_TITEL_GENDER_RE = re.compile(r"\(\s*[mwfdx]\s*(?:[/\-|]\s*[a-z]+\s*){1,3}\)")
+
+
+def _firma_kern(name: str | None) -> str:
+    """Firmenkern ohne Zusatz nach „ - ", Rechtsform, Leer- und Satzzeichen."""
+    text = re.split(r"\s[-–—|]\s", normalize(name or ""))[0]
+    text = re.sub(r"\b(?:gmbh|mbh|ag|se|kg|co|ug|inc|ltd|llc|group|holding|deutschland|germany)\b",
+                  " ", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _gleiche_firma(a: str, b: str) -> bool:
+    """„iabg" ~ „iabgindustrieanlagen", „agilerobots" ~ „agilerobotsse"."""
+    if not a or not b:
+        return False
+    return a == b or (min(len(a), len(b)) >= 4 and (a.startswith(b) or b.startswith(a)))
+
+
+def _titel_woerter(titel: str | None) -> frozenset[str]:
+    t = _TITEL_GENDER_RE.sub(" ", normalize(titel or ""))
+    t = t.replace("ae", "a").replace("oe", "o").replace("ue", "u")
+    return frozenset(w for w in re.findall(r"[a-z0-9+#]+", t)
+                     if len(w) > 1 and w not in _TITEL_FUELL)
+
+
+def bewerbungs_index(apps: Iterable[dict]) -> list[tuple[str, frozenset[str], dict]]:
+    """Abgeschlossene Bewerbungen (beworben bis abgesagt) als Vergleichsbasis."""
+    return [(_firma_kern(a.get("firma")), _titel_woerter(a.get("titel")), a)
+            for a in apps
+            if not a.get("deleted") and normalize_status(a.get("status")) in _ABGESCHLOSSEN]
+
+
+def fruehere_bewerbung(app: dict, index: list[tuple[str, frozenset[str], dict]],
+                       ab: float = AEHNLICH_AB) -> dict | None:
+    """Ähnlichste frühere Bewerbung bei derselben Firma, sonst ``None``."""
+    if normalize_status(app.get("status")) in _ABGESCHLOSSEN:
+        return None
+    firma, woerter = _firma_kern(app.get("firma")), _titel_woerter(app.get("titel"))
+    if not woerter:
+        return None
+    bestes, wert = None, ab
+    for f, w, frueher in index:
+        if frueher is app or frueher.get("id") == app.get("id") or not w:
+            continue
+        if not _gleiche_firma(firma, f):
+            continue
+        j = len(woerter & w) / len(woerter | w)
+        if j >= wert:
+            bestes, wert = frueher, j
+    return bestes
+
+
+def frueher_text(frueher: dict, kurz: bool = False) -> str:
+    """„abgesagt 15.11. (ID 1333)" bzw. mit Titel für Sparring und Dashboard."""
+    status = normalize_status(frueher.get("status"))
+    datum = (_parse(frueher.get("statusChangedAt")) if status == "rejected" else None) \
+        or _parse(frueher.get("sentAt")) or _parse(frueher.get("statusChangedAt"))
+    teile = [_STATUS_TEXT.get(status, status)]
+    if datum:
+        teile.append(f"{datum:%d.%m.}")
+    text = f"{' '.join(teile)} (ID {frueher.get('id')})"
+    if kurz:
+        return text
+    return f"{frueher.get('titel') or '?'} — {text}"

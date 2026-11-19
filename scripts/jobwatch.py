@@ -166,11 +166,20 @@ def load_jobs() -> list[dict]:
         from bewerbungsagent.db import Store
 
         config = Config(AGENT_DIR / "config.json")
+        from bewerbungsagent.auswahl import bewerbungs_index, frueher_text, fruehere_bewerbung
+
         apps = Store(config.db_path()).load_state().get("applications", [])
         offen = [a for a in apps
                  if not a.get("deleted")
                  and (a.get("status") or "research") not in
                  ("sent", "followup", "interview", "rejected", "absage", "beworben")]
+        # Hinweis auf eine frühere Bewerbung bei derselben Firma (19.11.2026: IABG
+        # meldete eine Stelle, auf die schon eine Absage kam). Nur ein Hinweis.
+        index = bewerbungs_index(apps)
+        for a in offen:
+            frueher = fruehere_bewerbung(a, index)
+            if frueher:
+                a["_frueher"] = frueher_text(frueher, kurz=True)
         if offen or apps:
             return offen
     except Exception as exc:  # Datenbank nicht erreichbar → alte Quelle
@@ -297,6 +306,8 @@ def build_digest(jobs: list[dict], new_jobs: list[dict], baseline_created: bool,
     for job in picks[:top]:
         lines.append(f"{symbol(job)} {fit_value(job)} % {_kurz(job.get('firma') or '?', 25)} – "
                      f"{_kurz(job.get('titel') or '?', 55)}")
+        if job.get("_frueher"):
+            lines.append(f"   ⚠ ähnlich {job['_frueher']}")
         if job.get("url"):
             lines.append(f"   {job['url']}")
     fuss = []

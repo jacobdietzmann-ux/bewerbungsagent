@@ -15,6 +15,7 @@ import re
 from collections.abc import Iterable
 from datetime import date
 
+from .auswahl import bewerbungs_index, frueher_text, fruehere_bewerbung
 from .matching import fit_value, has_role_signal
 from .profile import Profile, normalize
 
@@ -99,9 +100,15 @@ def kandidaten(apps: Iterable[dict], min_fit: int = SPARRING_MIN_FIT) -> list[di
     return sorted((a for a in apps if ist_kandidat(a, min_fit)), key=fit_value, reverse=True)
 
 
-def als_markdown(liste: list[dict], profile: Profile, heute: date | None = None) -> str:
-    """Liste für das wöchentliche Sparring im Chat (``data/sparring.md``)."""
+def als_markdown(liste: list[dict], profile: Profile, heute: date | None = None,
+                 alle: list[dict] | None = None) -> str:
+    """Liste für das wöchentliche Sparring im Chat (``data/sparring.md``).
+
+    ``alle`` ist der ganze Bestand: Daraus kommt der Hinweis auf eine frühere
+    Bewerbung bei derselben Firma auf eine ähnliche Stelle.
+    """
     heute = heute or date.today()
+    index = bewerbungs_index(alle or [])
     zeilen = [f"# Sparring-Liste {heute:%d.%m.%Y}", "",
               f"{len(liste)} offene Stelle(n) ab {SPARRING_MIN_FIT} % mit passendem Rollentitel.",
               "Je Stelle: Fehlt ein Skill wirklich, oder steht er nur nicht im Profil?",
@@ -115,5 +122,8 @@ def als_markdown(liste: list[dict], profile: Profile, heute: date | None = None)
         zeilen.append(f"- Profil-Treffer: {treffer}")
         fehlend = ", ".join(fehlende_begriffe(a, profile)) or "–"
         zeilen.append(f"- Nicht im Profil: {fehlend}")
+        frueher = fruehere_bewerbung(a, index)
+        if frueher:
+            zeilen.append(f"- ⚠ Ähnlich schon beworben: {frueher_text(frueher)}")
         zeilen.append("")
     return "\n".join(zeilen)

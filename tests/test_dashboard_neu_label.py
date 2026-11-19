@@ -110,8 +110,10 @@ class TestNeueFundeSindSichtbar:
         assert rows["neu"]["visible"] is True
 
     def test_alter_fund_ohne_unterlagen_bleibt_verborgen(self, tmp_path):
+        # Unter der Sparring-Schwelle (71 %): ab dort ist die Stelle seit dem
+        # 19.11.2026 auch ohne Unterlagen sichtbar (test_aehnlich.py).
         rows = self._daten(tmp_path, [{
-            "key": "alt", "firma": "Alt GmbH", "titel": "Testingenieur", "score": 72,
+            "key": "alt", "firma": "Alt GmbH", "titel": "Testingenieur", "score": 68,
             "created": "2026-10-01T09:00:00+02:00", "status": "neu",
         }], FUND)
         assert rows["alt"]["visible"] is False

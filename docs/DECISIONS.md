@@ -1653,3 +1653,16 @@ Tailoring, Sparring-Kandidaten und Lücken, Prüfung (Beleg, Lücke, harte Lück
 Vorlage als Beleg, Form), DOCX-Ersetzung (Headline, Punkte, Skills, Karten,
 mehr Punkte als Vorlage, unbekannte Station).
 
+
+**Nachtrag 19.11.2026: Dashboard und frühere Bewerbungen.**
+- Das Dashboard zeigte offene Stellen nur mit Unterlagen. Ohne Automatik fehlten
+  dort die Sparring-Kandidaten, die Telegram mit 🗣 meldet. Sie sind jetzt auch
+  ohne Unterlagen sichtbar (innerhalb der Pendelgrenze), Badge „Sparring“.
+- Der Digest meldete eine IABG-Stelle, auf die schon eine Absage kam; Firmenname,
+  „(Senior)“, „oe“/„ö“ und Ort unterschieden sich. `auswahl.fruehere_bewerbung`
+  vergleicht Firmenkern (Präfix) und Titelwörter (Jaccard ≥ 0,6). Treffer werden
+  nur **gemeldet** (Digest „⚠ ähnlich …“, Sparring-Liste, Dashboard-Badge), nicht
+  ausgeblendet: Eine ähnliche Stelle kann eine neue Ausschreibung sein
+  (Entscheidung des Nutzers). Am Bestand: 7 von 62 offenen Stellen.
+- Arbeitnow bleibt (1.110 Funde, 6 relevant, 8 Bewerbungen nur dort; kostenlos).
+- Tests: `tests/test_aehnlich.py`.

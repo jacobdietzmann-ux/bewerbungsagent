@@ -34,7 +34,79 @@ class Evidence:
     kind: str = "skill"
 
 
-def retrieve_evidence(profile, match: dict, lang: str, max_claims: int = 4) -> list[Evidence]:
+# Wörter, die als Schlüsselbegriff aus erklärenden Klammertexten der Profil-Skills
+# stammen („(inkl. Leiterplatten-/PCB-Test)", „(Dashboards … nutzen)") und als
+# Zwischenüberschrift im Anschreiben nichts aussagen. Am 20.11.2026 standen
+# „Inkl:" und „Prufstande:" als Überschriften in Anschreiben an MAN und CONSILIO.
+_KEIN_LABEL = frozenset({
+    "inkl", "jahr", "jahre", "nutzen", "wichtig", "unterstutzung", "aktives", "multi",
+    "code", "workflows", "praxis", "end", "line", "documents", "agent", "bereitschaft",
+    "begleitet", "testen", "steuerung", "reporting", "interface", "klasse", "prufungen",
+    "tracking", "monitoring", "monitoring nutzen", "rest", "scripting", "pipelines",
+    "microsoft", "microsoft office", "vs code", "deutsch", "englisch", "elektrotechnik",
+    "mechatronik", "fahrzeugtechnik", "maschinenbau", "dokumentation",
+})
+
+
+def _anzeigeform(profile, skill: str) -> str:
+    """Originalschreibweise eines normalisierten Begriffs („prufstande" → „Prüfstände").
+
+    ``display_of`` liefert für Einzelwörter aus Klammertexten nur die normalisierte
+    Form. Dann wird das Wort in den Profil-Skills und -Stationen gesucht.
+    """
+    anzeige = profile.display_of(skill)
+    if anzeige.lower() != skill or " " in skill:
+        return anzeige
+    texte: list[str] = []
+
+    def sammeln(wert) -> None:
+        if isinstance(wert, str):
+            texte.append(wert)
+        elif isinstance(wert, dict):
+            for v in wert.values():
+                sammeln(v)
+        elif isinstance(wert, list):
+            for v in wert:
+                sammeln(v)
+
+    sammeln(profile.data.get("skills"))
+    sammeln(profile.work_experience)
+    # Erst ganze Begriffe („ECU-Test"), dann Teile („HiL-Prüfstände" → „Prüfstände").
+    for muster in (r"[\wÄÖÜäöüß+#-]+", r"[\wÄÖÜäöüß+#]+"):
+        for text in texte:
+            for treffer in re.finditer(muster, text):
+                wort = treffer.group(0)
+                if normalize(wort.rstrip("-")) != skill:
+                    continue
+                if wort.endswith("-"):
+                    # Ergänzungsstrich („Regressions- & Release-Testing"): ganze Wendung.
+                    rest = re.split(r"[(,;]", text[treffer.start():], maxsplit=1)[0]
+                    return rest.strip()
+                return wort
+    return anzeige
+
+
+def _stationszeitraum(profile, we: dict | None) -> str:
+    """Zeitraum der Station, wie sie im Lebenslauf steht.
+
+    Der Lebenslauf führt Einträge desselben Projekts zusammen („Heart of Joy" über
+    HAYS 01/2024 – 12/2025 und IGEL 01/2026 – 09/2026). Das Anschreiben nannte
+    dagegen je nach Beleg den einen oder den anderen Zeitraum (20.11.2026).
+    """
+    if not we:
+        return ""
+    from .documents import _consolidate_experience, _role_label
+
+    rolle = normalize(_role_label(we, "de"))
+    for station in _consolidate_experience(profile.work_experience):
+        teile = [normalize(t) for t in _role_label(station, "de").split(" & ")]
+        if rolle in teile or rolle == normalize(_role_label(station, "de")):
+            return station.get("period", "") or we.get("period", "")
+    return we.get("period", "")
+
+
+def retrieve_evidence(profile, match: dict, lang: str, max_claims: int = 4,
+                      ausschluss: list[str] | tuple[str, ...] = ()) -> list[Evidence]:
     """Liefert belegte Skill-Behauptungen mit Quelle und Zeitraum.
 
     Gleiche Selektionslogik wie die Schablonen-Bullets (generische Füllwörter
@@ -75,16 +147,17 @@ def retrieve_evidence(profile, match: dict, lang: str, max_claims: int = 4) -> l
         used_labels.append(nlabel)
         return True
 
+    gesperrt = _KEIN_LABEL | {normalize(str(w)) for w in ausschluss if str(w).strip()}
     for skill in match.get("matched_skills", []):
         norm = normalize(skill)
-        if not norm or norm in _GENERIC_SKILL_WORDS:
+        if not norm or norm in _GENERIC_SKILL_WORDS or norm in gesperrt:
             continue
         claim, we = _claim_for(profile, skill, lang)
         if not claim:
             continue
-        label = _clean_label(profile.display_of(skill))
+        label = _clean_label(_anzeigeform(profile, norm))
         source = _role_label(we, lang) if we else ""
-        period = (we or {}).get("period", "")
+        period = _stationszeitraum(profile, we)
         if add(label, claim, source, period, skill=norm):
             if we is not None:
                 used_stations.add(normalize(_role_label(we, lang)))
@@ -103,7 +176,7 @@ def retrieve_evidence(profile, match: dict, lang: str, max_claims: int = 4) -> l
                 if _is_filler_bullet(bullet):
                     continue
                 label = _role_label(we, lang)
-                if add(label, bullet, label, we.get("period", "")):
+                if add(label, bullet, label, _stationszeitraum(profile, we)):
                     used_stations.add(station)
                     break
             if len(out) >= max_claims:

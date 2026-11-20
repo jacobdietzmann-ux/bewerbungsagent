@@ -152,3 +152,52 @@ class TestLetterIntegration:
         match = {"matched_skills": ["testautomatisierung"]}
         s = self._story_text(demo_profile, job, match, {})
         assert "Belegt durch:" not in s
+
+
+# --- 20.11.2026: Überschriften aus Füllwörtern, widersprüchliche Zeiträume -----
+
+from bewerbungsagent import rag as _rag  # noqa: E402
+from bewerbungsagent.profile import Profile as _Profile  # noqa: E402
+
+
+def _profil_zwei_stationen() -> _Profile:
+    return _Profile({
+        "personal": {"name": "Test"},
+        "skills": {"test": ["XiL-/HiL-Prüfstände", "Regressions- & Release-Testing (agil)",
+                            "End-of-Line-Test (inkl. PCB-Test)"]},
+        "work_experience": [
+            {"role_de": "Testkoordinator Projekt X", "role_en": "Test Coordinator Project X",
+             "period": "01/2026 – 09/2026", "client": "BMW",
+             "bullets_de": ["Testkoordination inkl. Lieferanten"], "bullets_en": ["Coordination"]},
+            {"role_de": "Testkoordinator Projekt X", "role_en": "Test Coordinator Project X",
+             "period": "01/2024 – 12/2025", "client": "BMW",
+             "bullets_de": ["Inbetriebnahme von HiL-Prüfständen"], "bullets_en": ["Test benches"]},
+        ],
+    })
+
+
+def test_anzeigeform_mit_umlaut_und_ergaenzungsstrich():
+    p = _profil_zwei_stationen()
+    assert _rag._anzeigeform(p, "prufstande") == "Prüfstände"
+    assert _rag._anzeigeform(p, "regressions") == "Regressions- & Release-Testing"
+
+
+def test_fuellwort_wird_keine_ueberschrift():
+    p = _profil_zwei_stationen()
+    ev = _rag.retrieve_evidence(p, {"matched_skills": ["inkl", "prufstande"]}, "de")
+    labels = [e.label for e in ev]
+    assert "Inkl" not in labels and "Prüfstände" in labels
+
+
+def test_ausschluss_aus_weak_skills():
+    p = _profil_zwei_stationen()
+    ev = _rag.retrieve_evidence(p, {"matched_skills": ["prufstande"]}, "de",
+                                ausschluss=["Prüfstände"])
+    assert all(e.label != "Prüfstände" for e in ev)
+
+
+def test_zeitraum_der_zusammengefuehrten_station():
+    p = _profil_zwei_stationen()
+    ev = _rag.retrieve_evidence(p, {"matched_skills": ["prufstande"]}, "de")
+    beleg = next(e for e in ev if e.label == "Prüfstände")
+    assert beleg.period == "01/2024 – 09/2026"

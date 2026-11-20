@@ -827,7 +827,10 @@ def _letter_story(profile: Profile, job: dict, match: dict, config: dict, lang: 
     # Anspruch stammt. Bleibt abschaltbar (bestehende Briefe unverändert).
     if config["documents"].get("anschreiben_quellen"):
         from .rag import citation, retrieve_evidence
-        evidence = retrieve_evidence(profile, match, lang, max_claims=max_bullets)
+        # ``weak_skills`` zählen im Fit nicht und taugen auch nicht als Überschrift.
+        evidence = retrieve_evidence(
+            profile, match, lang, max_claims=max_bullets,
+            ausschluss=(config.get("matching") or {}).get("weak_skills") or ())
         if evidence:
             if lang == "de":
                 story.append(Paragraph("Ihre Anforderungen decke ich wie folgt ab:", st["body"]))

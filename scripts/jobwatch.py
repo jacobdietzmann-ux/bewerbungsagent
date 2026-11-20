@@ -26,6 +26,7 @@ import platform
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib import parse, request
@@ -117,31 +118,53 @@ def _python_fuer_schritte(env: dict) -> str:
     return str(venv) if venv.is_file() else sys.executable
 
 
-def run_pipeline(timeout: int = 3600) -> bool:
+# Gesamtbudget aller Schritte. Hermes bricht das Skript nach 3600 s ab — dann gibt
+# es weder Digest noch Snapshot. Am 20.11.2026 hing die Suche nach dem Aufwachen
+# des Rechners eine Stunde; Jobwatch und Mailcheck endeten ohne Meldung. Mit 45
+# Minuten bleibt Zeit für Digest und Snapshot (ein normaler Lauf braucht ~20).
+GESAMTBUDGET_S = 45 * 60
+
+# Grund des letzten Abbruchs für den Digest (``None`` = Lauf vollständig).
+LETZTER_ABBRUCH: str | None = None
+
+
+def run_pipeline(budget: int = GESAMTBUDGET_S) -> bool:
     """Führt jeden Schritt aus ``schritte.SCHRITTE`` als eigenen Prozess aus.
 
-    So hat jeder Schritt sein Zeitlimit und seine Zeilen im Protokoll, und ein
-    Absturz des Browsers trifft nicht den Digest. Ein optionaler Schritt darf
-    scheitern, ein Pflichtschritt beendet die Folge.
+    So hat jeder Schritt seine Zeilen im Protokoll, und ein Absturz des Browsers
+    trifft nicht den Digest. Ein optionaler Schritt darf scheitern, ein
+    Pflichtschritt beendet die Folge. Jeder Schritt bekommt nur das restliche
+    ``budget`` (Sekunden für den ganzen Lauf); ist es aufgebraucht, wird der
+    Schritt abgebrochen und ``LETZTER_ABBRUCH`` gesetzt.
     """
+    global LETZTER_ABBRUCH
+    LETZTER_ABBRUCH = None
     env = dict(os.environ)
     env["PYTHONPATH"] = str(CODE_DIR)
     python = _python_fuer_schritte(env)
     RUN_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    start = time.monotonic()
     ok = True
     with RUN_OUTPUT.open("w", encoding="utf-8", errors="replace") as log:
         for schritt in SCHRITTE:
             step = schritt.name
             log.write(f"\n##### {step} ({datetime.now().isoformat(timespec='seconds')})\n")
             log.flush()
-            try:
-                code = subprocess.run(
-                    [python, str(CODE_DIR / "agent.py"), step, *schritt.argumente],
-                    cwd=str(AGENT_DIR), env=env, timeout=timeout,
-                    stdout=log, stderr=subprocess.STDOUT,
-                ).returncode
-            except subprocess.TimeoutExpired:
-                code = -1
+            rest = budget - (time.monotonic() - start)
+            if rest <= 0:
+                code = -2                    # Budget aufgebraucht, nicht gestartet
+                LETZTER_ABBRUCH = LETZTER_ABBRUCH or f"Schritt '{step}' nicht mehr gestartet"
+            else:
+                try:
+                    code = subprocess.run(
+                        [python, str(CODE_DIR / "agent.py"), step, *schritt.argumente],
+                        cwd=str(AGENT_DIR), env=env, timeout=rest,
+                        stdout=log, stderr=subprocess.STDOUT,
+                    ).returncode
+                except subprocess.TimeoutExpired:
+                    code = -1
+                    minuten = round((time.monotonic() - start) / 60)
+                    LETZTER_ABBRUCH = f"Schritt '{step}' nach {minuten} min abgebrochen"
             log.write(f"##### {step} exit={code}\n")
             if code != 0:
                 _log(f"Schritt '{step}' fehlgeschlagen (exit {code}) — siehe {RUN_OUTPUT}")
@@ -441,6 +464,8 @@ def main(argv: list[str] | None = None) -> int:
         _log("Quelle gewechselt (matches.json → Datenbank): Snapshot neu aufgebaut.")
     elif not baseline_created and len(jobs) < prev_count:
         warnings.append(f"Bestand gefallen ({prev_count} → {len(jobs)})")
+    if LETZTER_ABBRUCH:
+        warnings.append(f"Tageslauf unvollständig: {LETZTER_ABBRUCH} — Stand von vorher")
 
     gemeldet = previous.get("gemeldete_quellen") or {}
     quellen_stand, quellen = quellen_aenderungen(gemeldet)

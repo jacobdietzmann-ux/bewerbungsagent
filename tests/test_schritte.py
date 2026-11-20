@@ -299,3 +299,62 @@ class TestSnapshotProRechner:
         gesendet = self._umlenken(monkeypatch, daten)
         jobwatch.main(["--no-search"])
         assert len(gesendet) == 1           # Baseline wird gemeldet
+
+
+class TestGesamtbudget:
+    """20.11.2026: Die Suche hing eine Stunde, Hermes brach nach 3600 s ab — kein Digest.
+
+    Der Lauf hat deshalb ein Gesamtbudget unter dem Hermes-Limit. Jeder Schritt
+    bekommt nur die Restzeit; ein Abbruch wird im Digest gemeldet.
+    """
+
+    def test_budget_liegt_unter_dem_hermes_limit(self):
+        assert jobwatch.GESAMTBUDGET_S < 3600
+
+    def test_schritt_bekommt_nur_die_restzeit(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(jobwatch, "RUN_OUTPUT", tmp_path / "lauf.log")
+        uhr = iter([0.0, 0.0, 100.0, 100.0, 300.0, 300.0, 300.0, 300.0, 300.0, 300.0])
+        monkeypatch.setattr(jobwatch.time, "monotonic", lambda: next(uhr, 300.0))
+        zeiten = []
+
+        def run(befehl, timeout=None, **_k):
+            zeiten.append(timeout)
+            return subprocess.CompletedProcess(befehl, 0)
+
+        monkeypatch.setattr(jobwatch.subprocess, "run", run)
+        assert jobwatch.run_pipeline(budget=1000) is True
+        assert zeiten[0] == 1000 and zeiten[1] == 900 and max(zeiten) <= 1000
+        assert jobwatch.LETZTER_ABBRUCH is None
+
+    def test_haengende_suche_wird_abgebrochen_und_gemeldet(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(jobwatch, "RUN_OUTPUT", tmp_path / "lauf.log")
+        befehle = []
+
+        def run(befehl, timeout=None, **_k):
+            befehle.append(befehl[2])
+            raise subprocess.TimeoutExpired(befehl, timeout)
+
+        monkeypatch.setattr(jobwatch.subprocess, "run", run)
+        assert jobwatch.run_pipeline(budget=60) is False
+        assert befehle == ["search"]                 # Pflichtschritt: Folge endet
+        assert "search" in jobwatch.LETZTER_ABBRUCH
+
+    def test_aufgebrauchtes_budget_startet_nichts_mehr(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(jobwatch, "RUN_OUTPUT", tmp_path / "lauf.log")
+        monkeypatch.setattr(jobwatch.subprocess, "run",
+                            lambda *a, **k: pytest.fail("darf nicht starten"))
+        assert jobwatch.run_pipeline(budget=0) is False
+        assert "nicht mehr gestartet" in jobwatch.LETZTER_ABBRUCH
+
+
+def test_digest_meldet_abbruch(monkeypatch, tmp_path, capsys):
+    daten = tmp_path / "data"
+    monkeypatch.setattr(jobwatch, "DATA", daten)
+    monkeypatch.setattr(jobwatch, "SNAPSHOT", daten / "watch_snapshot.json")
+    monkeypatch.setattr(jobwatch, "RUN_LOG", daten / "watch_runs.json")
+    monkeypatch.setattr(jobwatch, "RUN_OUTPUT", daten / "watch_last_run.log")
+    monkeypatch.setattr(jobwatch, "load_jobs", lambda: [])
+    monkeypatch.setattr(jobwatch, "quellen_aenderungen", lambda gemeldet: ({}, []))
+    monkeypatch.setattr(jobwatch, "LETZTER_ABBRUCH", "Schritt 'search' nach 45 min abgebrochen")
+    assert jobwatch.main(["--no-search", "--dry-run"]) == 0
+    assert "Tageslauf unvollständig: Schritt 'search' nach 45 min abgebrochen" in capsys.readouterr().out
